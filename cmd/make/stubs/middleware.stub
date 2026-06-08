@@ -1,0 +1,15 @@
+package {{ .PackageName }}
+
+import "github.com/gin-gonic/gin"
+
+// {{ .TypeName }} returns a Gin middleware handler.
+func {{ .TypeName }}() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		// Example:
+		// if ctx.GetHeader("X-Request-ID") == "" {
+		// 	ctx.AbortWithStatusJSON(400, gin.H{"message": "missing request id"})
+		// 	return
+		// }
+		ctx.Next()
+	}
+}

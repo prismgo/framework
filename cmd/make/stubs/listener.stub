@@ -1,0 +1,32 @@
+package {{ .PackageName }}
+
+import (
+	"context"
+
+	event "github.com/prismgo/framework/contracts/event"
+)
+
+// {{ .TypeName }} handles a dispatched event.
+type {{ .TypeName }} struct{}
+
+// Handle runs listener logic for the received event.
+func (l {{ .TypeName }}) Handle(ctx context.Context, ev event.Event) error {
+	{{ .EventHint }}
+	// Example:
+	// typed := event.(UserRegistered)
+	return nil
+}
+{{ if .Queued }}
+
+// ShouldQueue marks this listener for queued execution.
+func (l {{ .TypeName }}) ShouldQueue() bool {
+	return true
+}
+{{ end }}
+{{ if .Async }}
+
+// Async marks this listener for asynchronous in-process execution.
+func (l {{ .TypeName }}) Async() bool {
+	return true
+}
+{{ end }}

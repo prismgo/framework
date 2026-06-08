@@ -1,0 +1,16 @@
+package {{ .PackageName }}
+
+import "time"
+
+// {{ .TypeName }} is a GORM model.
+type {{ .TypeName }} struct {
+	ID        uint `gorm:"primaryKey"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+{{ if .TableName }}
+// TableName returns the database table name for {{ .TypeName }}.
+func ({{ .TypeName }}) TableName() string {
+	return "{{ .TableName }}"
+}
+{{ end }}

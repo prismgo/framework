@@ -1,0 +1,23 @@
+package {{ .PackageName }}
+
+import (
+	"context"
+
+	"github.com/prismgo/framework/queue"
+)
+
+// {{ .TypeName }} is a queue job payload.
+type {{ .TypeName }} struct{}
+
+func init() {
+	queue.RegisterType[*{{ .TypeName }}]()
+}
+
+// Handle runs the queued job.
+func (j {{ .TypeName }}) Handle(ctx context.Context) error {
+	// Example:
+	// if err := sendEmail(ctx, j.UserID); err != nil {
+	// 	return err
+	// }
+	return nil
+}

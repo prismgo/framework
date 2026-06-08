@@ -1,0 +1,20 @@
+package {{ .PackageName }}
+
+import providercontract "github.com/prismgo/framework/contracts/provider"
+
+// {{ .TypeName }} registers and boots application services.
+type {{ .TypeName }} struct{}
+
+// Register binds services before the application boots.
+func (p {{ .TypeName }}) Register(app providercontract.Application) error {
+	// Example:
+	// return cache.RegisterFactoryIn(app.Facades(), newCacheManager)
+	return nil
+}
+
+// Boot runs after all providers have been registered.
+func (p {{ .TypeName }}) Boot(app providercontract.Application) error {
+	// Example:
+	// event.Listen("user.registered", &UserRegisteredListener{})
+	return nil
+}

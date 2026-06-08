@@ -1,0 +1,12 @@
+package {{ .PackageName }}
+
+// Event{{ .TypeName }} is the stable event name used by listeners.
+const Event{{ .TypeName }} = "{{ .EventName }}"
+
+// {{ .TypeName }} describes the event payload.
+type {{ .TypeName }} struct{}
+
+// Name returns the stable event name.
+func ({{ .TypeName }}) Name() string {
+	return Event{{ .TypeName }}
+}

@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Horizon</title>
+  <style>{{DASHBOARD_CSS}}</style>
+</head>
+<body data-horizon-path="{{HORIZON_PATH}}" data-api-prefix="{{API_PREFIX}}">
+  <main x-data="horizonDashboard">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-icon">H</span>
+        <span>Horizon</span>
+      </div>
+      <div class="topbar-search">
+        <input type="search" placeholder="Search queues, workers, supervisors...">
+        <button type="button" x-show="activeTab === 'dashboard'" x-on:click="refreshStatus()">Refresh</button>
+        <button type="button" x-show="activeTab !== 'dashboard'" x-on:click="refreshActiveTab()">Refresh</button>
+      </div>
+      <div class="topbar-status">
+        <span x-text="status"></span>
+      </div>
+    </header>
+
+    <div class="app-shell">
+      <aside class="sidebar">
+        <nav class="nav" aria-label="Horizon sections">
+          <template x-for="group in navGroups()" :key="group.label">
+            <section class="nav-section">
+              <p class="nav-group" x-text="group.label"></p>
+              <template x-for="tab in group.tabs" :key="tab.key">
+                <button type="button" :class="{ active: activeTab === tab.key }" x-on:click="activateTab(tab.key)">
+                  <span class="nav-initial" x-text="tab.icon"></span>
+                  <span class="nav-label" x-text="tab.label"></span>
+                  <span class="nav-badge" x-text="navBadge(tab)"></span>
+                </button>
+              </template>
+            </section>
+          </template>
+        </nav>
+      </aside>
+
+      <section class="workspace">
+        <div class="page-title">
+          <h1 x-text="activeTabLabel()"></h1>
+        </div>
+
+    <p class="notice panel" x-show="notice" x-text="notice"></p>
+
+    <p class="empty panel" x-show="activeTab === 'dashboard' && tabStateMessage('dashboard')" x-text="tabStateMessage('dashboard')"></p>
+
+    <section class="dashboard-grid" x-show="activeTab === 'dashboard'">
+      <section class="panel dashboard-overview">
+        <h2>Overview</h2>
+        <div class="overview-body stat-grid">
+          <template x-for="card in overviewCards" :key="card.label">
+            <article class="stat-card" :class="{ 'stat-card-status': card.variant === 'status' }">
+              <span class="stat-label">
+                <span x-text="card.label"></span>
+                <button
+                  type="button"
+                  class="tooltip-trigger"
+                  :aria-label="'Explain ' + card.label"
+                  :aria-describedby="tooltipID(card.tooltip_key)">?</button>
+                <span
+                  class="tooltip-content"
+                  role="tooltip"
+                  :id="tooltipID(card.tooltip_key)"
+                  x-text="tooltipText(card.tooltip_key)"></span>
+              </span>
+              <button
+                type="button"
+                class="stat-action"
+                :class="{ disabled: !isOverviewCardNavigable(card) }"
+                :disabled="!isOverviewCardNavigable(card)"
+                :aria-disabled="String(!isOverviewCardNavigable(card))"
+                :aria-label="overviewCardActionLabel(card)"
+                x-on:click="navigateOverviewCard(card)">
+                <strong class="stat-value" x-show="card.variant !== 'status'" x-text="card.value"></strong>
+                <strong class="stat-value stat-value-status" x-show="card.variant === 'status'">
+                  <span class="status-check" :class="'status-check-' + (card.status_tone || 'healthy')" aria-hidden="true" x-text="statusSymbol(card)"></span>
+                  <span x-text="card.value"></span>
+                </strong>
+                <span class="stat-reason" x-show="overviewCardDisabledReason(card)" x-text="overviewCardDisabledReason(card)"></span>
+              </button>
+            </article>
+          </template>
+        </div>
+      </section>
+
+      <section class="panel dashboard-table-panel">
+        <h2>Queue Lengths</h2>
+        <p class="empty" x-show="isTabLoading('dashboard')">Loading queue lengths...</p>
+        <p class="empty" x-show="!isTabLoading('dashboard') && !queueLengths.length && !tabStateMessage('dashboard')">No queue lengths recorded.</p>
+        <div class="table-wrap" x-show="queueLengths.length">
+        <table class="data-table">
+          <thead><tr><th>QUEUE</th><th>SIZE</th></tr></thead>
+          <tbody>
+          <template x-for="item in queueLengths" :key="item.connection + ':' + item.queue">
+            <tr>
+              <td x-text="item.connection + ':' + item.queue"></td>
+              <td x-text="formatQueueLengthSize(item)"></td>
+            </tr>
+          </template>
+          <tr x-show="queueLengthsHasMore">
+            <td colspan="2"><button type="button" class="inline-link" x-on:click="openQueuesFromDashboard()">View more</button></td>
+          </tr>
+          </tbody>
+        </table>
+        </div>
+      </section>
+    </section>
+
+    <section class="panel" x-show="activeTab === 'queues'">
+      <h2>Queues</h2>
+      <p class="empty" x-show="tabStateMessage('queues')" x-text="tabStateMessage('queues')"></p>
+      <p class="empty" x-show="!isTabLoading('queues') && !queueItems.length && !tabStateMessage('queues')">No queue summaries available.</p>
+      <div class="table-wrap" x-show="queueItems.length">
+      <table class="data-table">
+        <thead>
+          <tr><th>QUEUE</th><th>SAMPLED</th><th>SIZE</th><th>AVG RUNTIME</th><th>MAX RUNTIME</th><th>AVG MEMORY</th><th>MAX MEMORY</th><th>WAIT</th><th>THROUGHPUT</th><th>PROCESSED</th><th>FAILED</th><th>RELEASED</th></tr>
+        </thead>
+        <tbody>
+        <template x-for="item in queueItems" :key="item.key">
+          <tr>
+            <td class="cell-strong" x-text="item.connection + ':' + item.queue"></td>
+            <td><span class="time-tip" :title="formatDateTime(item.sampled_at)"><span x-text="formatRelativeTime(item.sampled_at)"></span><em x-text="formatDateTime(item.sampled_at)"></em></span></td>
+            <td><span x-text="metricAvailableValue(item.size) || queueMetricStatus(item.size)"></span><span class="reason-tip" x-show="metricReason(item.size)"><span>!</span><em x-text="metricReason(item.size)"></em></span></td>
+            <td><span x-text="metricAvailableValue(item.avg_runtime) || queueMetricStatus(item.avg_runtime)"></span><span class="reason-tip" x-show="metricReason(item.avg_runtime)"><span>!</span><em x-text="metricReason(item.avg_runtime)"></em></span></td>
+            <td><span x-text="metricAvailableValue(item.max_runtime) || queueMetricStatus(item.max_runtime)"></span><span class="reason-tip" x-show="metricReason(item.max_runtime)"><span>!</span><em x-text="metricReason(item.max_runtime)"></em></span></td>
+            <td><span x-text="metricAvailableValue(item.avg_memory) || queueMetricStatus(item.avg_memory)"></span><span class="reason-tip" x-show="metricReason(item.avg_memory)"><span>!</span><em x-text="metricReason(item.avg_memory)"></em></span></td>
+            <td><span x-text="metricAvailableValue(item.max_memory) || queueMetricStatus(item.max_memory)"></span><span class="reason-tip" x-show="metricReason(item.max_memory)"><span>!</span><em x-text="metricReason(item.max_memory)"></em></span></td>
+            <td><span x-text="metricAvailableValue(item.wait_time) || queueMetricStatus(item.wait_time)"></span><span class="reason-tip" x-show="metricReason(item.wait_time)"><span>!</span><em x-text="metricReason(item.wait_time)"></em></span></td>
+            <td><span x-text="metricAvailableValue(item.throughput) || queueMetricStatus(item.throughput)"></span><span class="reason-tip" x-show="metricReason(item.throughput)"><span>!</span><em x-text="metricReason(item.throughput)"></em></span></td>
+            <td><span x-text="metricAvailableValue(item.processed) || queueMetricStatus(item.processed)"></span><span class="reason-tip" x-show="metricReason(item.processed)"><span>!</span><em x-text="metricReason(item.processed)"></em></span></td>
+            <td><span x-text="metricAvailableValue(item.failed) || queueMetricStatus(item.failed)"></span><span class="reason-tip" x-show="metricReason(item.failed)"><span>!</span><em x-text="metricReason(item.failed)"></em></span></td>
+            <td><span x-text="metricAvailableValue(item.released) || queueMetricStatus(item.released)"></span><span class="reason-tip" x-show="metricReason(item.released)"><span>!</span><em x-text="metricReason(item.released)"></em></span></td>
+          </tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+      <div class="pagination-controls" x-show="shouldShowPagination('queuePage')">
+        <button type="button" x-bind:disabled="!isPreviousPageEnabled('queuePage')" x-on:click="previousPage('queuePage')">Previous</button>
+        <template x-for="token in paginationTokens('queuePage')" :key="token.id">
+          <span class="pagination-token">
+            <button type="button" :class="{ active: token.active }" x-show="token.type === 'page'" x-text="token.page" x-on:click="goToPage('queuePage', token.page)"></button>
+            <span class="pagination-ellipsis" x-show="token.type === 'ellipsis'">…</span>
+          </span>
+        </template>
+        <button type="button" x-bind:disabled="!isNextPageEnabled('queuePage')" x-on:click="nextPage('queuePage')">Next</button>
+      </div>
+    </section>
+
+    <section class="panel" x-show="activeTab === 'supervisors'">
+      <h2>Supervisors</h2>
+      <p class="empty" x-show="tabStateMessage('supervisors')" x-text="tabStateMessage('supervisors')"></p>
+      <p class="empty" x-show="!isTabLoading('supervisors') && !processLists.supervisors.length && !tabStateMessage('supervisors')">No supervisors recorded.</p>
+      <div class="table-wrap" x-show="processLists.supervisors.length">
+      <table class="data-table">
+        <thead><tr><th>NAME</th><th>STATUS</th><th>PID</th><th>HOST</th><th>CPU</th><th>RSS</th><th>MEMORY</th><th>GOROUTINES</th><th>QUEUES</th><th>HEARTBEAT</th></tr></thead>
+        <tbody>
+        <template x-for="process in processLists.supervisors" :key="process.id">
+          <tr>
+            <td class="cell-strong" x-text="process.name || process.id"></td><td><span class="item-status" x-text="process.status"></span></td><td x-text="process.pid || 'unavailable'"></td><td x-text="process.host || 'unavailable'"></td><td><span x-text="metricAvailableValue(process.cpu_percent) || metricStatus(process.cpu_percent)"></span><span class="reason-tip" x-show="metricReason(process.cpu_percent)"><span>!</span><em x-text="metricReason(process.cpu_percent)"></em></span></td><td><span x-text="metricAvailableValue(process.memory_rss_bytes) || metricStatus(process.memory_rss_bytes)"></span><span class="reason-tip" x-show="metricReason(process.memory_rss_bytes)"><span>!</span><em x-text="metricReason(process.memory_rss_bytes)"></em></span></td><td><span x-text="metricAvailableValue(process.memory_percent) || metricStatus(process.memory_percent)"></span><span class="reason-tip" x-show="metricReason(process.memory_percent)"><span>!</span><em x-text="metricReason(process.memory_percent)"></em></span></td><td><span x-text="metricAvailableValue(process.goroutine_count) || metricStatus(process.goroutine_count)"></span><span class="reason-tip" x-show="metricReason(process.goroutine_count)"><span>!</span><em x-text="metricReason(process.goroutine_count)"></em></span></td><td x-text="formatQueues(process.configured_queues)"></td><td><span class="time-tip" :title="formatDateTime(process.last_heartbeat_at)"><span x-text="formatRelativeTime(process.last_heartbeat_at)"></span><em x-text="formatDateTime(process.last_heartbeat_at)"></em></span></td>
+          </tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="panel" x-show="activeTab === 'workers'">
+      <h2>Workers</h2>
+      <p class="empty" x-show="tabStateMessage('workers')" x-text="tabStateMessage('workers')"></p>
+      <p class="empty" x-show="!isTabLoading('workers') && !processLists.workers.length && !tabStateMessage('workers')">No workers recorded.</p>
+      <div class="table-wrap" x-show="processLists.workers.length">
+      <table class="data-table">
+        <thead><tr><th>NAME</th><th>STATUS</th><th>PID</th><th>SUPERVISOR</th><th>CPU</th><th>RSS</th><th>MEMORY</th><th>GOROUTINES</th><th>CONFIGURED QUEUES</th><th>HEARTBEAT</th></tr></thead>
+        <tbody>
+        <template x-for="process in processLists.workers" :key="process.id">
+          <tr>
+            <td class="cell-strong" x-text="process.name || process.id"></td><td><span class="item-status" x-text="process.status"></span></td><td x-text="process.pid || 'unavailable'"></td><td x-text="process.supervisor || 'unavailable'"></td><td><span x-text="metricAvailableValue(process.cpu_percent) || metricStatus(process.cpu_percent)"></span><span class="reason-tip" x-show="metricReason(process.cpu_percent)"><span>!</span><em x-text="metricReason(process.cpu_percent)"></em></span></td><td><span class="metric-stack"><span x-text="metricAvailableValue(process.memory_rss_bytes) || metricStatus(process.memory_rss_bytes)"></span><small><span>collector: </span><span x-text="metricAvailableValue(process.collector_memory_bytes) || metricStatus(process.collector_memory_bytes)"></span><span class="reason-tip" x-show="metricReason(process.collector_memory_bytes)"><span>!</span><em x-text="metricReason(process.collector_memory_bytes)"></em></span></small></span><span class="reason-tip" x-show="metricReason(process.memory_rss_bytes)"><span>!</span><em x-text="metricReason(process.memory_rss_bytes)"></em></span></td><td><span x-text="metricAvailableValue(process.memory_percent) || metricStatus(process.memory_percent)"></span><span class="reason-tip" x-show="metricReason(process.memory_percent)"><span>!</span><em x-text="metricReason(process.memory_percent)"></em></span></td><td><span x-text="metricAvailableValue(process.goroutine_count) || metricStatus(process.goroutine_count)"></span><span class="reason-tip" x-show="metricReason(process.goroutine_count)"><span>!</span><em x-text="metricReason(process.goroutine_count)"></em></span></td><td x-text="formatQueues(process.configured_queues)"></td><td><span class="time-tip" :title="formatDateTime(process.last_heartbeat_at)"><span x-text="formatRelativeTime(process.last_heartbeat_at)"></span><em x-text="formatDateTime(process.last_heartbeat_at)"></em></span></td>
+          </tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="panel" x-show="activeTab === 'stale'">
+      <h2>Stale Processes</h2>
+      <p class="empty" x-show="tabStateMessage('stale')" x-text="tabStateMessage('stale')"></p>
+      <p class="empty" x-show="!isTabLoading('stale') && !processLists.staleSupervisors.length && !processLists.staleWorkers.length && !tabStateMessage('stale')">No stale processes recorded.</p>
+      <div class="table-wrap" x-show="processLists.staleSupervisors.length || processLists.staleWorkers.length">
+      <table class="data-table">
+        <thead><tr><th>PROCESS</th><th>STATUS</th><th>PID</th><th>HOST</th><th>CPU</th><th>RSS</th><th>MEMORY</th><th>GOROUTINES</th><th>QUEUES</th><th>HEARTBEAT</th></tr></thead>
+        <tbody>
+        <template x-for="process in processLists.staleSupervisors.concat(processLists.staleWorkers)" :key="process.kind + ':' + process.id">
+          <tr>
+            <td class="cell-strong" x-text="process.kind + ' / ' + (process.name || process.id)"></td><td><span class="item-status" x-text="process.status"></span></td><td x-text="process.pid || 'unavailable'"></td><td x-text="process.host || 'unavailable'"></td><td><span x-text="metricAvailableValue(process.cpu_percent) || metricStatus(process.cpu_percent)"></span><span class="reason-tip" x-show="metricReason(process.cpu_percent)"><span>!</span><em x-text="metricReason(process.cpu_percent)"></em></span></td><td><span x-text="metricAvailableValue(process.memory_rss_bytes) || metricStatus(process.memory_rss_bytes)"></span><span class="reason-tip" x-show="metricReason(process.memory_rss_bytes)"><span>!</span><em x-text="metricReason(process.memory_rss_bytes)"></em></span></td><td><span x-text="metricAvailableValue(process.memory_percent) || metricStatus(process.memory_percent)"></span><span class="reason-tip" x-show="metricReason(process.memory_percent)"><span>!</span><em x-text="metricReason(process.memory_percent)"></em></span></td><td><span x-text="metricAvailableValue(process.goroutine_count) || metricStatus(process.goroutine_count)"></span><span class="reason-tip" x-show="metricReason(process.goroutine_count)"><span>!</span><em x-text="metricReason(process.goroutine_count)"></em></span></td><td x-text="formatQueues(process.configured_queues)"></td><td><span class="time-tip" :title="formatDateTime(process.last_heartbeat_at)"><span x-text="formatRelativeTime(process.last_heartbeat_at)"></span><em x-text="formatDateTime(process.last_heartbeat_at)"></em></span></td>
+          </tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="panel" x-show="activeTab === 'metrics'">
+      <div class="section-header">
+        <h2>Metrics Filters</h2>
+      </div>
+      <p class="empty">Metrics queries use the default 24-hour window and custom ranges are capped at 24 hours.</p>
+      <form class="metrics-filter" x-on:submit.prevent="loadMetricsTab()">
+        <label>
+          <span>From</span>
+          <input
+            type="datetime-local"
+            :value="metricsFilters.from"
+            x-on:input="setMetricsFilter('from', $event.target.value)"
+            x-on:change="setMetricsFilter('from', $event.target.value)">
+        </label>
+        <label>
+          <span>To</span>
+          <input
+            type="datetime-local"
+            :value="metricsFilters.to"
+            x-on:input="setMetricsFilter('to', $event.target.value)"
+            x-on:change="setMetricsFilter('to', $event.target.value)">
+        </label>
+        <label>
+          <span>Host</span>
+          <input type="text" x-model="metricsFilters.source_host" placeholder="source_host">
+        </label>
+        <label>
+          <span>Environment</span>
+          <input type="text" x-model="metricsFilters.source_environment" placeholder="source_environment">
+        </label>
+        <label>
+          <span>Supervisor</span>
+          <input type="text" x-model="metricsFilters.source_supervisor" placeholder="source_supervisor">
+        </label>
+        <label>
+          <span>Connection</span>
+          <input type="text" x-model="metricsFilters.connection" placeholder="connection">
+        </label>
+        <label>
+          <span>Queue</span>
+          <input type="text" x-model="metricsFilters.queue" placeholder="queue">
+        </label>
+        <div class="filter-actions">
+          <button type="submit">Apply</button>
+          <button type="button" x-on:click="resetMetricsFilters()">Reset</button>
+        </div>
+      </form>
+
+      <h2>Queue Waits</h2>
+      <p class="empty" x-show="tabStateMessage('metrics')" x-text="tabStateMessage('metrics')"></p>
+      <p class="empty" x-show="!isTabLoading('metrics') && !queueWaits.length && !tabStateMessage('metrics')">No queue wait snapshots.</p>
+      <div class="table-wrap" x-show="queueWaits.length">
+      <table class="data-table">
+        <thead><tr><th>KEY</th><th>STATUS</th><th>WAIT</th></tr></thead>
+        <tbody>
+        <template x-for="item in queueWaits" :key="item.key">
+          <tr><td class="cell-strong" x-text="item.key"></td><td x-text="item.status"></td><td x-text="item.wait_ms + 'ms'"></td></tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+      <h2>Metric Quality</h2>
+      <p class="empty">estimated means sampled data was scaled by each event window rate; unknown means Horizon cannot quantify a gap.</p>
+      <p class="empty" x-show="!isTabLoading('metrics') && !metricEstimates.length && !tabStateMessage('metrics')">No metric quality windows.</p>
+      <div class="table-wrap" x-show="metricEstimates.length">
+      <table class="data-table">
+        <thead><tr><th>KEY</th><th>ESTIMATE</th><th>QUALITY</th><th>ACTIONS</th></tr></thead>
+        <tbody>
+        <template x-for="item in metricEstimates" :key="item.key">
+          <tr>
+            <td class="cell-strong" x-text="item.key"></td><td x-text="formatEstimate(item)"></td><td x-text="formatQuality(item)"></td><td><div class="row-actions"><button type="button" x-on:click="openMetricSourceDetails(item)">Metric Sources</button><button type="button" x-on:click="openMetricHistory(item)">History</button></div></td>
+          </tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+      <h2>Observability Diagnostics</h2>
+      <dl class="detail-grid">
+        <div><dt>Buffer Utilization</dt><dd x-text="metricsObservability.buffer_utilization ?? 0"></dd></div>
+        <div><dt>Dropped</dt><dd x-text="metricsObservability.dropped_count ?? 0"></dd></div>
+        <div><dt>Degraded</dt><dd x-text="metricsObservability.degraded ? 'yes' : 'no'"></dd></div>
+        <div><dt>Last Flush Error</dt><dd x-text="metricsObservability.last_flush_error_code || 'none'"></dd></div>
+      </dl>
+      <div class="table-wrap" x-show="metricDiagnostics.length">
+      <table class="data-table">
+        <thead><tr><th>REASON</th><th>DESCRIPTION</th><th>COUNT</th><th>GAP</th><th>OBSERVED</th></tr></thead>
+        <tbody>
+        <template x-for="item in metricDiagnostics" :key="item.reason + ':' + item.observed_at">
+          <tr><td class="cell-strong" x-text="diagnosticReason(item)"></td><td x-text="item.description || 'No description available.'"></td><td x-text="diagnosticCount(item)"></td><td x-text="diagnosticGap(item)"></td><td><span class="time-tip" :title="formatDateTime(item.observed_at)"><span x-text="formatRelativeTime(item.observed_at)"></span><em x-text="formatDateTime(item.observed_at)"></em></span></td></tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="panel" x-show="activeTab === 'metric_sources'">
+      <div class="section-header">
+        <h2>Metric Sources</h2>
+        <button type="button" x-on:click="loadMetricSourceDetails()">Refresh Sources</button>
+      </div>
+      <form class="metrics-filter" x-on:submit.prevent="loadMetricSourceDetails()">
+        <label><span>From</span><input type="datetime-local" :value="metricsFilters.from" x-on:input="setMetricsFilter('from', $event.target.value)" x-on:change="setMetricsFilter('from', $event.target.value)"></label>
+        <label><span>To</span><input type="datetime-local" :value="metricsFilters.to" x-on:input="setMetricsFilter('to', $event.target.value)" x-on:change="setMetricsFilter('to', $event.target.value)"></label>
+        <label><span>Host</span><input type="text" x-model="metricsFilters.source_host" placeholder="source_host"></label>
+        <label><span>Environment</span><input type="text" x-model="metricsFilters.source_environment" placeholder="source_environment"></label>
+        <label><span>Supervisor</span><input type="text" x-model="metricsFilters.source_supervisor" placeholder="source_supervisor"></label>
+        <label><span>Connection</span><input type="text" x-model="metricsFilters.connection" placeholder="connection"></label>
+        <label><span>Queue</span><input type="text" x-model="metricsFilters.queue" placeholder="queue"></label>
+        <div class="filter-actions">
+          <button type="submit">Apply</button>
+          <button type="button" x-on:click="resetMetricsFilters()">Reset</button>
+        </div>
+      </form>
+      <p class="empty" x-show="tabStateMessage('metric_sources')" x-text="tabStateMessage('metric_sources')"></p>
+      <p class="empty" x-show="metricSourceDetailMessage" x-text="metricSourceDetailMessage"></p>
+      <p class="empty" x-show="metricSourceDetailsLoaded && !metricSourceDetails.length && !metricSourceDetailMessage && !tabStateMessage('metric_sources')">No metric sources for the current filter.</p>
+      <div class="table-wrap" x-show="metricSourceDetails.length">
+      <table class="data-table">
+        <thead><tr><th>ID</th><th>SOURCE</th><th>QUALITY</th><th>HOST</th><th>ENVIRONMENT</th><th>SUPERVISOR</th><th>CONNECTION</th><th>QUEUE</th><th>JOB</th><th>PROCESSED</th><th>FAILED</th><th>RELEASED</th><th>POISON</th><th>QUEUED</th><th>SAMPLES</th><th>SAMPLE RATE</th><th>WINDOW START</th><th>WINDOW END</th><th>FLUSH AT</th></tr></thead>
+        <tbody>
+        <template x-for="(item, index) in metricSourceDetails" :key="metricSourceID(item)">
+          <tr><td x-text="metricSourceRowNumber(index)"></td><td class="cell-strong source-cell"><span x-text="formatSourceIdentity(item)"></span><small x-text="formatSourceTarget(item)"></small></td><td><span class="item-status" x-text="sourceQualityLabel(item)"></span></td><td x-text="item.source_host || 'unknown'"></td><td x-text="item.source_environment || 'unknown'"></td><td x-text="item.source_supervisor || 'unknown'"></td><td x-text="item.connection"></td><td x-text="item.queue"></td><td x-text="item.job_name || 'aggregate'"></td><td x-text="item.processed || 0"></td><td x-text="item.failed || 0"></td><td x-text="item.released || 0"></td><td x-text="item.poison || 0"></td><td x-text="item.queued || 0"></td><td x-text="item.sample_count || 0"></td><td x-text="item.effective_sample_rate || 0"></td><td><span class="time-tip" :title="formatDateTime(item.window_start)"><span x-text="formatRelativeTime(item.window_start)"></span><em x-text="formatDateTime(item.window_start)"></em></span></td><td><span class="time-tip" :title="formatDateTime(item.window_end)"><span x-text="formatRelativeTime(item.window_end)"></span><em x-text="formatDateTime(item.window_end)"></em></span></td><td><span class="time-tip" :title="formatDateTime(item.flush_at)"><span x-text="formatRelativeTime(item.flush_at)"></span><em x-text="formatDateTime(item.flush_at)"></em></span></td></tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+      <div class="pagination-controls" x-show="shouldShowPagination('metricSourcesPage')">
+        <button type="button" x-bind:disabled="!isPreviousPageEnabled('metricSourcesPage')" x-on:click="previousPage('metricSourcesPage')">Previous</button>
+        <template x-for="token in paginationTokens('metricSourcesPage')" :key="token.id">
+          <span class="pagination-token">
+            <button type="button" :class="{ active: token.active }" x-show="token.type === 'page'" x-text="token.page" x-on:click="goToPage('metricSourcesPage', token.page)"></button>
+            <span class="pagination-ellipsis" x-show="token.type === 'ellipsis'">…</span>
+          </span>
+        </template>
+        <button type="button" x-bind:disabled="!isNextPageEnabled('metricSourcesPage')" x-on:click="nextPage('metricSourcesPage')">Next</button>
+      </div>
+    </section>
+
+    <section class="panel" x-show="activeTab === 'metrics_history'">
+      <div class="section-header">
+        <h2>Metrics History</h2>
+        <button type="button" x-on:click="loadMetricsHistoryTab()">Refresh History</button>
+      </div>
+      <form class="metrics-filter" x-on:submit.prevent="loadMetricsHistoryFromFilters()">
+        <label><span>From</span><input type="datetime-local" :value="metricsFilters.from" x-on:input="setMetricsFilter('from', $event.target.value)" x-on:change="setMetricsFilter('from', $event.target.value)"></label>
+        <label><span>To</span><input type="datetime-local" :value="metricsFilters.to" x-on:input="setMetricsFilter('to', $event.target.value)" x-on:change="setMetricsFilter('to', $event.target.value)"></label>
+        <label><span>Host</span><input type="text" x-model="metricsFilters.source_host" placeholder="source_host"></label>
+        <label><span>Environment</span><input type="text" x-model="metricsFilters.source_environment" placeholder="source_environment"></label>
+        <label><span>Supervisor</span><input type="text" x-model="metricsFilters.source_supervisor" placeholder="source_supervisor"></label>
+        <label><span>Connection</span><input type="text" x-model="metricsFilters.connection" placeholder="connection"></label>
+        <label><span>Queue</span><input type="text" x-model="metricsFilters.queue" placeholder="queue"></label>
+        <div class="filter-actions">
+          <button type="submit">Apply</button>
+          <button type="button" x-on:click="resetMetricsFilters()">Reset</button>
+        </div>
+      </form>
+      <p class="empty" x-show="tabStateMessage('metrics_history')" x-text="tabStateMessage('metrics_history')"></p>
+      <p class="empty" x-show="metricHistoryMessage" x-text="metricHistoryMessage"></p>
+      <p class="empty" x-show="!isTabLoading('metrics_history') && !queueHistory.length && !metricHistoryMessage && !tabStateMessage('metrics_history')">No history for the current filter.</p>
+      <div class="table-wrap" x-show="queueHistory.length">
+      <table class="data-table">
+        <thead><tr><th>ID</th><th>KEY</th><th>QUALITY</th><th>TIMESTAMP</th><th>WINDOW START</th><th>WINDOW END</th><th>FLUSH AT</th><th>THROUGHPUT</th><th>RUNTIME</th><th>FAILED</th><th>RELEASED</th><th>POISON</th><th>SAMPLES</th><th>ESTIMATED TOTAL</th><th>SAMPLE RATE</th></tr></thead>
+        <tbody>
+        <template x-for="(item, index) in queueHistory" :key="metricHistoryID(item)">
+          <tr><td x-text="metricHistoryRowNumber(index)"></td><td class="cell-strong" x-text="item.key"></td><td><span class="item-status" x-text="(item.quality || 'unknown') + (item.unknown ? ' / unknown' : '') + (item.degraded ? ' / degraded' : '')"></span></td><td><span class="time-tip" :title="formatDateTime(item.timestamp)"><span x-text="formatRelativeTime(item.timestamp)"></span><em x-text="formatDateTime(item.timestamp)"></em></span></td><td><span class="time-tip" :title="formatDateTime(item.window_start)"><span x-text="formatRelativeTime(item.window_start)"></span><em x-text="formatDateTime(item.window_start)"></em></span></td><td><span class="time-tip" :title="formatDateTime(item.window_end)"><span x-text="formatRelativeTime(item.window_end)"></span><em x-text="formatDateTime(item.window_end)"></em></span></td><td><span class="time-tip" :title="formatDateTime(item.flush_at)"><span x-text="formatRelativeTime(item.flush_at)"></span><em x-text="formatDateTime(item.flush_at)"></em></span></td><td x-text="item.throughput || 0"></td><td x-text="formatDuration(item.runtime_ms || 0)"></td><td x-text="item.failed || 0"></td><td x-text="item.released || 0"></td><td x-text="item.poison_envelopes || 0"></td><td x-text="item.sample_count || 0"></td><td x-text="item.estimated_total || 0"></td><td x-text="item.effective_sample_rate || 0"></td></tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+      <div class="pagination-controls" x-show="shouldShowPagination('metricHistoryPage')">
+        <button type="button" x-bind:disabled="!isPreviousPageEnabled('metricHistoryPage')" x-on:click="previousPage('metricHistoryPage')">Previous</button>
+        <template x-for="token in paginationTokens('metricHistoryPage')" :key="token.id">
+          <span class="pagination-token">
+            <button type="button" :class="{ active: token.active }" x-show="token.type === 'page'" x-text="token.page" x-on:click="goToPage('metricHistoryPage', token.page)"></button>
+            <span class="pagination-ellipsis" x-show="token.type === 'ellipsis'">…</span>
+          </span>
+        </template>
+        <button type="button" x-bind:disabled="!isNextPageEnabled('metricHistoryPage')" x-on:click="nextPage('metricHistoryPage')">Next</button>
+      </div>
+    </section>
+
+    <section class="panel" x-show="activeTab === 'queue_metric_detail'">
+      <div class="section-header">
+        <h2>Queue Metric Detail</h2>
+        <button type="button" x-on:click="activateTab('metrics')">Back to Metrics</button>
+      </div>
+      <p class="empty" x-show="tabStateMessage('queue_metric_detail')" x-text="tabStateMessage('queue_metric_detail')"></p>
+      <p class="empty" x-show="queueMetricDetailMessage" x-text="queueMetricDetailMessage"></p>
+      <dl class="detail-grid" x-show="selectedQueueMetricDetail">
+        <div><dt>Connection</dt><dd x-text="selectedQueueMetricDetail?.connection || ''"></dd></div>
+        <div><dt>Queue</dt><dd x-text="selectedQueueMetricDetail?.queue || ''"></dd></div>
+        <div><dt>From</dt><dd x-text="metricsFilters.from || 'unbounded'"></dd></div>
+        <div><dt>To</dt><dd x-text="metricsFilters.to || 'unbounded'"></dd></div>
+        <div><dt>Host</dt><dd x-text="metricsFilters.source_host || 'all'"></dd></div>
+        <div><dt>Environment</dt><dd x-text="metricsFilters.source_environment || 'all'"></dd></div>
+        <div><dt>Supervisor</dt><dd x-text="metricsFilters.source_supervisor || 'all'"></dd></div>
+      </dl>
+      <h2>Source Shards</h2>
+      <p class="empty" x-show="!isTabLoading('queue_metric_detail') && !queueMetricDetailSources.length && !queueMetricDetailMessage">No source shards for the current filter.</p>
+      <div class="table-wrap" x-show="queueMetricDetailSources.length">
+      <table class="data-table">
+        <thead><tr><th>SOURCE</th><th>QUALITY</th><th>HOST</th><th>ENVIRONMENT</th><th>SUPERVISOR</th><th>CONNECTION</th><th>QUEUE</th><th>PROCESSED</th><th>FAILED</th><th>RELEASED</th><th>POISON</th><th>QUEUED</th><th>SAMPLES</th><th>SAMPLE RATE</th><th>WINDOW START</th><th>WINDOW END</th></tr></thead>
+        <tbody>
+        <template x-for="item in queueMetricDetailSources" :key="item.source_host + ':' + item.source_environment + ':' + item.source_supervisor + ':' + item.window_start + ':' + item.flush_at">
+          <tr><td class="cell-strong source-cell"><span x-text="formatSourceIdentity(item)"></span><small x-text="formatSourceTarget(item)"></small></td><td><span class="item-status" x-text="sourceQualityLabel(item)"></span></td><td x-text="item.source_host || 'unknown'"></td><td x-text="item.source_environment || 'unknown'"></td><td x-text="item.source_supervisor || 'unknown'"></td><td x-text="item.connection"></td><td x-text="item.queue"></td><td x-text="item.processed || 0"></td><td x-text="item.failed || 0"></td><td x-text="item.released || 0"></td><td x-text="item.poison || 0"></td><td x-text="item.queued || 0"></td><td x-text="item.sample_count || 0"></td><td x-text="item.effective_sample_rate || 0"></td><td><span class="time-tip" :title="formatDateTime(item.window_start)"><span x-text="formatRelativeTime(item.window_start)"></span><em x-text="formatDateTime(item.window_start)"></em></span></td><td><span class="time-tip" :title="formatDateTime(item.window_end)"><span x-text="formatRelativeTime(item.window_end)"></span><em x-text="formatDateTime(item.window_end)"></em></span></td></tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+      <h2>Historical Windows</h2>
+      <p class="empty" x-show="!isTabLoading('queue_metric_detail') && !queueMetricDetailHistory.length && !queueMetricDetailMessage">No historical windows for the current filter.</p>
+      <div class="table-wrap" x-show="queueMetricDetailHistory.length">
+      <table class="data-table">
+        <thead><tr><th>HISTORY</th><th>QUALITY</th></tr></thead>
+        <tbody>
+        <template x-for="item in queueMetricDetailHistory" :key="item.timestamp + ':' + item.window_start">
+          <tr><td class="cell-strong" x-text="formatHistory(item)"></td><td><span class="item-status" x-text="(item.quality || 'unknown') + (item.unknown ? ' / unknown' : '') + (item.degraded ? ' / degraded' : '')"></span></td></tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="panel" x-show="activeTab === 'high_value_detail'">
+      <h2>High Value Detail</h2>
+      <p class="empty" x-show="tabStateMessage('high_value_detail')" x-text="tabStateMessage('high_value_detail')"></p>
+      <form class="metrics-filter" x-on:submit.prevent="loadHighValueDetailsFromFilters()">
+        <label>
+          <span>Kind</span>
+          <select x-model="highValueKind">
+            <option value="">All</option>
+            <option value="failed">failed</option>
+            <option value="poison">poison</option>
+            <option value="slow_job">slow_job</option>
+          </select>
+        </label>
+        <label>
+          <span>Occurred From</span>
+          <input type="datetime-local" x-model="highValueOccurredFrom">
+        </label>
+        <label>
+          <span>Occurred To</span>
+          <input type="datetime-local" x-model="highValueOccurredTo">
+        </label>
+        <div class="filter-actions">
+          <button type="submit">Apply</button>
+        </div>
+      </form>
+      <p class="empty" x-show="highValueDetailMessage" x-text="highValueDetailMessage"></p>
+      <div class="table-wrap" x-show="highValueDetails.length">
+      <table class="data-table">
+        <thead><tr><th>DETAIL</th><th>OCCURRED</th><th>ACTION</th></tr></thead>
+        <tbody>
+        <template x-for="item in highValueDetails" :key="item.id">
+          <tr><td class="cell-strong" x-text="formatHighValueDetail(item)"></td><td><span class="time-tip" :title="formatDateTime(item.occurred_at)"><span x-text="formatRelativeTime(item.occurred_at)"></span><em x-text="formatDateTime(item.occurred_at)"></em></span></td><td><button type="button" x-on:click="showHighValueDetail(item.id)">View</button></td></tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+      <div class="pagination-controls" x-show="shouldShowPagination('highValuePage')">
+        <button type="button" x-bind:disabled="!isPreviousPageEnabled('highValuePage')" x-on:click="previousPage('highValuePage')">Previous</button>
+        <template x-for="token in paginationTokens('highValuePage')" :key="token.id">
+          <span class="pagination-token">
+            <button type="button" :class="{ active: token.active }" x-show="token.type === 'page'" x-text="token.page" x-on:click="goToPage('highValuePage', token.page)"></button>
+            <span class="pagination-ellipsis" x-show="token.type === 'ellipsis'">…</span>
+          </span>
+        </template>
+        <button type="button" x-bind:disabled="!isNextPageEnabled('highValuePage')" x-on:click="nextPage('highValuePage')">Next</button>
+      </div>
+      <section class="detail-card">
+        <h3>High Value Detail</h3>
+        <p class="empty" x-show="!selectedHighValueDetail && !highValueDetailMessage">Select a High Value Detail item.</p>
+        <dl class="detail-grid" x-show="selectedHighValueDetail">
+          <div><dt>ID</dt><dd x-text="selectedHighValueDetail?.id || ''"></dd></div>
+          <div><dt>Kind</dt><dd x-text="selectedHighValueDetail?.kind || ''"></dd></div>
+          <div><dt>Connection</dt><dd x-text="selectedHighValueDetail?.connection || ''"></dd></div>
+          <div><dt>Queue</dt><dd x-text="selectedHighValueDetail?.queue || ''"></dd></div>
+          <div><dt>Job ID</dt><dd x-text="selectedHighValueDetail?.job_id || ''"></dd></div>
+          <div><dt>Job Name</dt><dd x-text="selectedHighValueDetail?.job_name || ''"></dd></div>
+          <div><dt>Runtime</dt><dd x-text="formatDuration(selectedHighValueDetail?.runtime_ms || 0)"></dd></div>
+          <div><dt>Error Summary</dt><dd x-text="selectedHighValueDetail?.error_summary || ''"></dd></div>
+          <div><dt>Poison Driver</dt><dd x-text="selectedHighValueDetail?.poison_driver || ''"></dd></div>
+          <div><dt>Poison Action</dt><dd x-text="selectedHighValueDetail?.poison_action || ''"></dd></div>
+          <div><dt>Poison Body Size</dt><dd x-text="selectedHighValueDetail?.poison_body_size ?? ''"></dd></div>
+          <div><dt>Poison Body Truncated</dt><dd x-text="selectedHighValueDetail?.poison_body_truncated ? 'yes' : 'no'"></dd></div>
+          <div><dt>Occurred</dt><dd><span class="time-tip" :title="formatDateTime(selectedHighValueDetail?.occurred_at)"><span x-text="formatRelativeTime(selectedHighValueDetail?.occurred_at)"></span><em x-text="formatDateTime(selectedHighValueDetail?.occurred_at)"></em></span></dd></div>
+        </dl>
+      </section>
+    </section>
+
+    <section class="panel" x-show="activeTab === 'batches'">
+      <h2>Batches</h2>
+      <p class="empty" x-show="tabStateMessage('batches')" x-text="tabStateMessage('batches')"></p>
+      <div class="toolbar">
+        <input
+          type="search"
+          placeholder="Search batches by id or name"
+          x-model="batchQuery"
+          x-on:input.debounce.250ms="loadBatchesFromSearch()">
+      </div>
+      <p class="empty" x-show="!tabStateMessage('batches') && batchEmptyMessage" x-text="batchEmptyMessage"></p>
+      <p class="empty" x-show="!isTabLoading('batches') && batchCapability === 'supported' && !batches.length && !tabStateMessage('batches')">No batches available.</p>
+      <div class="table-wrap" x-show="batches.length">
+      <table class="data-table">
+        <thead><tr><th>BATCH</th><th>STATUS</th><th>ACTION</th></tr></thead>
+        <tbody>
+        <template x-for="batch in batches" :key="batch.id">
+          <tr><td class="cell-strong" x-text="batch.name || batch.id"></td><td><span class="item-status" x-text="batch.status"></span></td><td><button type="button" x-on:click="showBatchDetail(batch.id)">View</button></td></tr>
+        </template>
+        </tbody>
+      </table>
+      </div>
+      <div class="pagination-controls" x-show="shouldShowPagination('batchPage')">
+        <button type="button" x-bind:disabled="!isPreviousPageEnabled('batchPage')" x-on:click="previousPage('batchPage')">Previous</button>
+        <template x-for="token in paginationTokens('batchPage')" :key="token.id">
+          <span class="pagination-token">
+            <button type="button" :class="{ active: token.active }" x-show="token.type === 'page'" x-text="token.page" x-on:click="goToPage('batchPage', token.page)"></button>
+            <span class="pagination-ellipsis" x-show="token.type === 'ellipsis'">…</span>
+          </span>
+        </template>
+        <button type="button" x-bind:disabled="!isNextPageEnabled('batchPage')" x-on:click="nextPage('batchPage')">Next</button>
+      </div>
+      <section class="detail-card">
+        <h3>Batch Detail</h3>
+        <p class="empty" x-show="!selectedBatchDetail && !batchDetailMessage">Select a batch to inspect its read-only summary.</p>
+        <p class="empty" x-show="batchDetailMessage" x-text="batchDetailMessage"></p>
+        <dl class="detail-grid" x-show="selectedBatchDetail">
+          <div><dt>ID</dt><dd x-text="selectedBatchDetail?.id || ''"></dd></div>
+          <div><dt>Name</dt><dd x-text="selectedBatchDetail?.name || selectedBatchDetail?.id || ''"></dd></div>
+          <div><dt>Status</dt><dd x-text="selectedBatchDetail?.status || ''"></dd></div>
+          <div><dt>Total</dt><dd x-text="selectedBatchDetail?.total ?? ''"></dd></div>
+          <div><dt>Pending</dt><dd x-text="selectedBatchDetail?.pending ?? ''"></dd></div>
+          <div><dt>Processed</dt><dd x-text="selectedBatchDetail?.processed ?? ''"></dd></div>
+          <div><dt>Failed</dt><dd x-text="selectedBatchDetail?.failed ?? ''"></dd></div>
+          <div><dt>Updated</dt><dd><span class="time-tip" :title="formatDateTime(selectedBatchDetail?.updated_at)"><span x-text="formatRelativeTime(selectedBatchDetail?.updated_at)"></span><em x-text="formatDateTime(selectedBatchDetail?.updated_at)"></em></span></dd></div>
+        </dl>
+      </section>
+    </section>
+
+      </section>
+    </div>
+  </main>
+  <script>{{DASHBOARD_JS}}</script>
+  <script>{{ALPINE_JS}}</script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+package {{ .PackageName }}
+
+import "github.com/gin-gonic/gin"
+
+// {{ .TypeName }} handles HTTP requests for this resource.
+type {{ .TypeName }} struct{}
+
+// Index returns a list response.
+func (c {{ .TypeName }}) Index(ctx *gin.Context) {
+	{{ .ModelTodo }}
+	// Example:
+	// items := []string{"example"}
+	// ctx.JSON(200, gin.H{"data": items})
+	ctx.JSON(200, gin.H{})
+}
+{{ if .Resource }}
+{{ if not .API }}
+// Create returns metadata for creating this resource.
+func (c {{ .TypeName }}) Create(ctx *gin.Context) {
+	ctx.JSON(200, gin.H{})
+}
+{{ end }}
+
+// Store persists a new resource.
+func (c {{ .TypeName }}) Store(ctx *gin.Context) {
+	ctx.JSON(201, gin.H{})
+}
+
+// Show returns one resource.
+func (c {{ .TypeName }}) Show(ctx *gin.Context) {
+	ctx.JSON(200, gin.H{})
+}
+
+{{ if not .API }}
+// Edit returns metadata for editing this resource.
+func (c {{ .TypeName }}) Edit(ctx *gin.Context) {
+	ctx.JSON(200, gin.H{})
+}
+{{ end }}
+
+// Update persists changes to one resource.
+func (c {{ .TypeName }}) Update(ctx *gin.Context) {
+	ctx.JSON(200, gin.H{})
+}
+
+// Destroy removes one resource.
+func (c {{ .TypeName }}) Destroy(ctx *gin.Context) {
+	ctx.JSON(204, gin.H{})
+}
+{{ end }}

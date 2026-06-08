@@ -1,0 +1,11 @@
+package {{ .PackageName }}
+
+// {{ .TypeName }} transforms a value into an API response map.
+type {{ .TypeName }} struct{}
+
+// ToMap returns the public response representation.
+func (r {{ .TypeName }}) ToMap() map[string]any {
+	// Example:
+	// return map[string]any{"id": r.ID, "name": r.Name}
+	return map[string]any{}
+}

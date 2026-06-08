@@ -1,0 +1,17 @@
+package {{ .PackageName }}
+
+import (
+	"github.com/prismgo/framework/database"
+	"gorm.io/gorm"
+)
+
+func init() {
+	database.RegisterSeeder(Seed)
+}
+
+// Seed inserts or updates seed data.
+func Seed(db *gorm.DB) error {
+	// Example:
+	// return db.Exec("INSERT INTO settings (`key`, `value`) VALUES (?, ?)", "site_name", "Prismgo").Error
+	return nil
+}

@@ -1,0 +1,46 @@
+package {{ .PackageName }}
+
+import (
+	"github.com/prismgo/framework/database"
+	"github.com/prismgo/framework/database/schema"
+	"gorm.io/gorm"
+)
+
+func init() {
+	database.RegisterMigration(Up, Down)
+}
+
+// Up applies the schema changes.
+func Up(db *gorm.DB) error {
+	{{ if eq .MigrationKind "create" -}}
+	return schema.Bind(db).Create("{{ .TableName }}", func(table *schema.Blueprint) {
+		table.Id()
+		table.Timestamps()
+		// Example:
+		// table.String("name")
+	})
+	{{ else if eq .MigrationKind "table" -}}
+	return schema.Bind(db).Table("{{ .TableName }}", func(table *schema.Blueprint) {
+		// Example:
+		// table.String("{{ .MigrationColumn }}")
+	})
+	{{ else -}}
+	// TODO: add schema changes.
+	return nil
+	{{ end -}}
+}
+
+// Down rolls back the schema changes.
+func Down(db *gorm.DB) error {
+	{{ if eq .MigrationKind "create" -}}
+	return schema.Bind(db).DropIfExists("{{ .TableName }}")
+	{{ else if eq .MigrationKind "table" -}}
+	return schema.Bind(db).Table("{{ .TableName }}", func(table *schema.Blueprint) {
+		// TODO: drop or reverse changed columns.
+		// table.DropColumn("{{ .MigrationColumn }}")
+	})
+	{{ else -}}
+	// TODO: reverse schema changes.
+	return nil
+	{{ end -}}
+}

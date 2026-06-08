@@ -1,0 +1,21 @@
+package {{ .PackageName }}
+
+import (
+	"github.com/prismgo/framework/console"
+)
+
+// {{ .TypeName }} defines an application console command.
+type {{ .TypeName }} struct{}
+
+// Definition declares the command name, description, arguments, and options.
+func (c {{ .TypeName }}) Definition() *console.Definition {
+	return console.MustDefinition("{{ .CommandSignature }}", "Run {{ .TypeName }}")
+}
+
+// Handle executes the command.
+func (c {{ .TypeName }}) Handle(ctx console.CommandContext) error {
+	// Example:
+	// name := ctx.Input().Argument("name")
+	// ctx.IO().Info("Processing " + name)
+	return nil
+}

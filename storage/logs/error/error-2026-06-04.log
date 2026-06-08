@@ -1,0 +1,114 @@
+[2026-06-04 22:44:46] error.WARNING: Not Found {"client_ip":"192.0.2.1","duration_ms":0,"error":"Not Found: status 404","message":"Not Found","method":"GET","path":"","query":"","status":404,"url":"/first"}
+[stacktrace]
+goroutine 126 [running]:
+runtime/debug.Stack()
+	/usr/local/go/src/runtime/debug/stack.go:26 +0x5e
+github.com/prismgo/framework/logger.(*LineFormatter).extractStackTrace(0x2a91b20?, {0x1b5da00?, 0x1fc9fde21160?})
+	/www/code/workorder/prismgo/logger/formatter_line.go:144 +0xad
+github.com/prismgo/framework/logger.(*LineFormatter).formatStackTraces(0x1fc9fde43c40, 0x1fc9fdb990a0?)
+	/www/code/workorder/prismgo/logger/formatter_line.go:128 +0x10b
+github.com/prismgo/framework/logger.(*LineFormatter).Format(0x1fc9fde43c40, 0x1fc9fdb990a0)
+	/www/code/workorder/prismgo/logger/formatter_line.go:54 +0xb2
+github.com/sirupsen/logrus.(*Entry).write(0x1fc9fdb990a0)
+	/home/jqh/go/pkg/mod/github.com/sirupsen/logrus@v1.9.4/entry.go:292 +0x95
+github.com/sirupsen/logrus.(*Entry).log(0x1fc9fdb98fc0, 0x3, {0x1fc9fda93e50, 0x9})
+	/home/jqh/go/pkg/mod/github.com/sirupsen/logrus@v1.9.4/entry.go:255 +0x3de
+github.com/sirupsen/logrus.(*Entry).Log(0x1fc9fdb98fc0, 0x3, {0x1fc9fde21250?, 0x1fc9fdad92c8?, 0x48e805?})
+	/home/jqh/go/pkg/mod/github.com/sirupsen/logrus@v1.9.4/entry.go:307 +0x48
+github.com/sirupsen/logrus.(*Entry).Warn(...)
+	/home/jqh/go/pkg/mod/github.com/sirupsen/logrus@v1.9.4/entry.go:328
+github.com/prismgo/framework/logger.(*entry).Warn(0x1b5da00?, {0x1fc9fde21250?, 0x1fc9fdad92f0?, 0x48e285?})
+	/www/code/workorder/prismgo/logger/entry.go:23 +0x68
+github.com/prismgo/framework/logger.(*stackLogger).Warn(0x1ac25ed?, {0x1fc9fde21250, 0x1, 0x1})
+	/www/code/workorder/prismgo/logger/stack.go:47 +0x94
+github.com/prismgo/framework/exception.(*Handler).Report(0x1fc9fdb98af0, {0x1b6dd98, 0x1fc9fdea8c00}, {0x1b5da00, 0x1fc9fde21160}, 0x2ae5a20?)
+	/www/code/workorder/prismgo/exception/handler.go:173 +0x489
+github.com/prismgo/framework/http/middleware.reportHTTP(0x1fc9fdb98af0, 0x1fc9fdea8c00, {0x0?, 0x0?}, 0x194, {0x1b6d700?, 0x1fc9fdc50960?, 0x2ac3540?}, {0x0, 0x0}, ...)
+	/www/code/workorder/prismgo/http/middleware/exception.go:111 +0x99a
+github.com/prismgo/framework/http/middleware.Exception.func1(0x1fc9fdea8c00)
+	/www/code/workorder/prismgo/http/middleware/exception.go:56 +0x3ce
+github.com/gin-gonic/gin.(*Context).Next(0x1fc9fdea8c00)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x5f
+github.com/prismgo/framework/http/middleware.UseWithConfig.Event.func2(0x1fc9fdea8c00)
+	/www/code/workorder/prismgo/http/middleware/event.go:105 +0x2c9
+github.com/gin-gonic/gin.(*Context).Next(0x1fc9fdea8c00)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x5f
+github.com/prismgo/framework/http/middleware.UseWithConfig.Deferred.func1(0x1fc9fdea8c00)
+	/www/code/workorder/prismgo/http/middleware/deferred.go:14 +0x8a
+github.com/gin-gonic/gin.(*Context).Next(0x1fc9fdea8c00)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x5f
+github.com/gin-gonic/gin.LoggerWithConfig.func1(0x1fc9fdea8c00)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/logger.go:282 +0xca
+github.com/gin-gonic/gin.(*Context).Next(0x1fc9fdea8c00)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x5f
+github.com/gin-gonic/gin.serveError(0x1fc9fdea8c00, 0x194, {0x2a1e690, 0x12, 0x12})
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/gin.go:766 +0x34
+github.com/gin-gonic/gin.(*Engine).handleHTTPRequest(0x1fc9fde1b180, 0x1fc9fdea8c00)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/gin.go:759 +0x5a5
+github.com/gin-gonic/gin.(*Engine).ServeHTTP(0x1fc9fde1b180, {0x1b69ab0, 0x1fc9fde43700}, 0x1fc9fdde2b40)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/gin.go:672 +0x1dc
+github.com/prismgo/framework/foundation.request(0x1fc9fde1b180, {0x1aba6e9, 0x6})
+	/www/code/workorder/prismgo/foundation/runtime_registries_test.go:454 +0xd2
+github.com/prismgo/framework/foundation.TestBuilderStoresHTTPRoutesOnApplicationRuntimeRegistry(0x1fc9fdc08b48)
+	/www/code/workorder/prismgo/foundation/runtime_registries_test.go:165 +0x8a5
+testing.tRunner(0x1fc9fdc08b48, 0x1b463c0)
+	/usr/local/go/src/testing/testing.go:2036 +0xea
+created by testing.(*T).Run in goroutine 1
+	/usr/local/go/src/testing/testing.go:2101 +0x4c5
+[2026-06-04 22:44:46] error.WARNING: Not Found {"client_ip":"192.0.2.1","duration_ms":0,"error":"Not Found: status 404","message":"Not Found","method":"GET","path":"","query":"","status":404,"url":"/second"}
+[stacktrace]
+goroutine 126 [running]:
+runtime/debug.Stack()
+	/usr/local/go/src/runtime/debug/stack.go:26 +0x5e
+github.com/prismgo/framework/logger.(*LineFormatter).extractStackTrace(0x2a91b20?, {0x1b5da00?, 0x1fc9fde21980?})
+	/www/code/workorder/prismgo/logger/formatter_line.go:144 +0xad
+github.com/prismgo/framework/logger.(*LineFormatter).formatStackTraces(0x1fc9fde43c40, 0x1fc9fdb99500?)
+	/www/code/workorder/prismgo/logger/formatter_line.go:128 +0x10b
+github.com/prismgo/framework/logger.(*LineFormatter).Format(0x1fc9fde43c40, 0x1fc9fdb99500)
+	/www/code/workorder/prismgo/logger/formatter_line.go:54 +0xb2
+github.com/sirupsen/logrus.(*Entry).write(0x1fc9fdb99500)
+	/home/jqh/go/pkg/mod/github.com/sirupsen/logrus@v1.9.4/entry.go:292 +0x95
+github.com/sirupsen/logrus.(*Entry).log(0x1fc9fdb99420, 0x3, {0x1fc9fe0a6030, 0x9})
+	/home/jqh/go/pkg/mod/github.com/sirupsen/logrus@v1.9.4/entry.go:255 +0x3de
+github.com/sirupsen/logrus.(*Entry).Log(0x1fc9fdb99420, 0x3, {0x1fc9fde21a10?, 0x1fc9fdad92c8?, 0x48e805?})
+	/home/jqh/go/pkg/mod/github.com/sirupsen/logrus@v1.9.4/entry.go:307 +0x48
+github.com/sirupsen/logrus.(*Entry).Warn(...)
+	/home/jqh/go/pkg/mod/github.com/sirupsen/logrus@v1.9.4/entry.go:328
+github.com/prismgo/framework/logger.(*entry).Warn(0x1b5da00?, {0x1fc9fde21a10?, 0x1fc9fdad92f0?, 0x48e285?})
+	/www/code/workorder/prismgo/logger/entry.go:23 +0x68
+github.com/prismgo/framework/logger.(*stackLogger).Warn(0x1ac25ed?, {0x1fc9fde21a10, 0x1, 0x1})
+	/www/code/workorder/prismgo/logger/stack.go:47 +0x94
+github.com/prismgo/framework/exception.(*Handler).Report(0x1fc9fdb98af0, {0x1b6dd98, 0x1fc9fdea8e00}, {0x1b5da00, 0x1fc9fde21980}, 0x1ac80c2?)
+	/www/code/workorder/prismgo/exception/handler.go:173 +0x489
+github.com/prismgo/framework/http/middleware.reportHTTP(0x1fc9fdb98af0, 0x1fc9fdea8e00, {0x0?, 0x0?}, 0x194, {0x1b6d700?, 0x1fc9fdc50960?, 0x2ac3540?}, {0x0, 0x0}, ...)
+	/www/code/workorder/prismgo/http/middleware/exception.go:111 +0x99a
+github.com/prismgo/framework/http/middleware.Exception.func1(0x1fc9fdea8e00)
+	/www/code/workorder/prismgo/http/middleware/exception.go:56 +0x3ce
+github.com/gin-gonic/gin.(*Context).Next(0x1fc9fdea8e00)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x5f
+github.com/prismgo/framework/http/middleware.UseWithConfig.Event.func2(0x1fc9fdea8e00)
+	/www/code/workorder/prismgo/http/middleware/event.go:105 +0x2c9
+github.com/gin-gonic/gin.(*Context).Next(0x1fc9fdea8e00)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x5f
+github.com/prismgo/framework/http/middleware.UseWithConfig.Deferred.func1(0x1fc9fdea8e00)
+	/www/code/workorder/prismgo/http/middleware/deferred.go:14 +0x8a
+github.com/gin-gonic/gin.(*Context).Next(0x1fc9fdea8e00)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x5f
+github.com/gin-gonic/gin.LoggerWithConfig.func1(0x1fc9fdea8e00)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/logger.go:282 +0xca
+github.com/gin-gonic/gin.(*Context).Next(0x1fc9fdea8e00)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x5f
+github.com/gin-gonic/gin.serveError(0x1fc9fdea8e00, 0x194, {0x2a1e690, 0x12, 0x12})
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/gin.go:766 +0x34
+github.com/gin-gonic/gin.(*Engine).handleHTTPRequest(0x1fc9fde1b340, 0x1fc9fdea8e00)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/gin.go:759 +0x5a5
+github.com/gin-gonic/gin.(*Engine).ServeHTTP(0x1fc9fde1b340, {0x1b69ab0, 0x1fc9fddea1c0}, 0x1fc9fdde3680)
+	/home/jqh/go/pkg/mod/github.com/gin-gonic/gin@v1.12.0/gin.go:672 +0x1dc
+github.com/prismgo/framework/foundation.request(0x1fc9fde1b340, {0x1abe5ad, 0x7})
+	/www/code/workorder/prismgo/foundation/runtime_registries_test.go:454 +0xd2
+github.com/prismgo/framework/foundation.TestBuilderStoresHTTPRoutesOnApplicationRuntimeRegistry(0x1fc9fdc08b48)
+	/www/code/workorder/prismgo/foundation/runtime_registries_test.go:182 +0xcb0
+testing.tRunner(0x1fc9fdc08b48, 0x1b463c0)
+	/usr/local/go/src/testing/testing.go:2036 +0xea
+created by testing.(*T).Run in goroutine 1
+	/usr/local/go/src/testing/testing.go:2101 +0x4c5
