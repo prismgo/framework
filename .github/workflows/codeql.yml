@@ -12,6 +12,7 @@ jobs:
   analyze:
     name: Analyze
     runs-on: ubuntu-latest
+    if: github.event.repository.private == false || vars.ENABLE_CODE_SCANNING == 'true'
 
     permissions:
       actions: read
