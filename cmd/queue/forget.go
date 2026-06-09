@@ -16,10 +16,7 @@ func (c *ForgetCommand) Definition() *console.Definition {
 // Run 从失败任务存储中删除指定 ID。
 func (c *ForgetCommand) Handle(ctx console.CommandContext) error {
 	id := ctx.Input().Argument("id")
-	manager, err := resolveManager()
-	if err != nil {
-		return err
-	}
+	manager := resolveManager()
 	if err := manager.Failed().Forget(ctx.Context(), id); err != nil {
 		return err
 	}

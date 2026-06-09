@@ -20,10 +20,7 @@ func (c *RetryCommand) Definition() *console.Definition {
 
 // Run 按传入的失败任务 ID 逐个重新投递。
 func (c *RetryCommand) Handle(ctx console.CommandContext) error {
-	manager, err := resolveManager()
-	if err != nil {
-		return err
-	}
+	manager := resolveManager()
 	for _, id := range ctx.Input().Arguments("ids") {
 		if err := retryFailed(ctx.Context(), manager, id); err != nil {
 			return err

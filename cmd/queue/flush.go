@@ -15,10 +15,7 @@ func (c *FlushCommand) Definition() *console.Definition {
 
 // Run 清空当前失败任务存储。
 func (c *FlushCommand) Handle(ctx console.CommandContext) error {
-	manager, err := resolveManager()
-	if err != nil {
-		return err
-	}
+	manager := resolveManager()
 	if err := manager.Failed().Flush(ctx.Context()); err != nil {
 		return err
 	}

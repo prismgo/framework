@@ -20,10 +20,7 @@ func (c *WorkCommand) Definition() *console.Definition {
 
 // Run 解析 worker 选项并开始消费队列。
 func (c *WorkCommand) Handle(ctx console.CommandContext) error {
-	manager, err := resolveManager()
-	if err != nil {
-		return err
-	}
+	manager := resolveManager()
 	options := queuecore.WorkerOptions{
 		Connection:    ctx.Input().Argument("connection"),
 		Queues:        splitQueueNames(ctx.Input().Option("queue")),

@@ -57,6 +57,7 @@ func TestVendorPublishCommandHandleProductionRejected(t *testing.T) {
 }
 
 func TestVendorPublishCommandHandleWithProvider(t *testing.T) {
+	setupCommandConfigContainer(t)
 	t.Setenv("APP_ENV", "local")
 	publish.Clear()
 	defer publish.Clear()
@@ -86,6 +87,7 @@ func TestVendorPublishCommandHandleWithProvider(t *testing.T) {
 }
 
 func TestVendorPublishCommandHandleWithForce(t *testing.T) {
+	setupCommandConfigContainer(t)
 	t.Setenv("APP_ENV", "local")
 	publish.Clear()
 	defer publish.Clear()
@@ -118,6 +120,7 @@ func TestVendorPublishCommandHandleWithForce(t *testing.T) {
 }
 
 func TestVendorPublishCommandHandleWithExisting(t *testing.T) {
+	setupCommandConfigContainer(t)
 	t.Setenv("APP_ENV", "local")
 	publish.Clear()
 	defer publish.Clear()
@@ -150,6 +153,7 @@ func TestVendorPublishCommandHandleWithExisting(t *testing.T) {
 }
 
 func TestVendorPublishCommandHandleWithTag(t *testing.T) {
+	setupCommandConfigContainer(t)
 	t.Setenv("APP_ENV", "local")
 	publish.Clear()
 	defer publish.Clear()
@@ -179,6 +183,7 @@ func TestVendorPublishCommandHandleWithTag(t *testing.T) {
 }
 
 func TestVendorPublishCommandHandleAll(t *testing.T) {
+	setupCommandConfigContainer(t)
 	t.Setenv("APP_ENV", "local")
 	publish.Clear()
 	defer publish.Clear()
@@ -217,6 +222,7 @@ func TestVendorPublishCommandHandleAll(t *testing.T) {
 }
 
 func TestVendorPublishCommandHandleDryRun(t *testing.T) {
+	setupCommandConfigContainer(t)
 	t.Setenv("APP_ENV", "local")
 	publish.Clear()
 	defer publish.Clear()
@@ -246,6 +252,7 @@ func TestVendorPublishCommandHandleDryRun(t *testing.T) {
 }
 
 func TestVendorPublishCommandHandleNothingRegistered(t *testing.T) {
+	setupCommandConfigContainer(t)
 	t.Setenv("APP_ENV", "local")
 	publish.Clear()
 	defer publish.Clear()

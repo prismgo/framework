@@ -59,6 +59,8 @@ func TestNewServeCommandUsesHTTPRegistrars(t *testing.T) {
 }
 
 func TestServeCommandReadsDefaultConfig(t *testing.T) {
+	setupCommandConfigContainer(t)
+
 	if defaultHTTPPort() != "8080" {
 		t.Fatalf("default port = %s, want 8080", defaultHTTPPort())
 	}
@@ -69,6 +71,8 @@ func TestServeCommandReadsDefaultConfig(t *testing.T) {
 }
 
 func TestServeCommandStartServerStopsWhenContextCanceled(t *testing.T) {
+	setupCommandConfigContainer(t)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -92,6 +96,8 @@ func TestServeCommandStartServerStopsWhenContextCanceled(t *testing.T) {
 }
 
 func TestServeCommandStartServerPropagatesRouteErrors(t *testing.T) {
+	setupCommandConfigContainer(t)
+
 	errRoutes := errors.New("routes failed")
 	cmd := NewServeCommand(fakeHTTPServerFactory(&fakeHTTPRegistrars{routesErr: errRoutes}))
 	err := cmd.startServer(context.Background(), "0", console.NewIO(strings.NewReader(""), io.Discard, io.Discard))
@@ -101,6 +107,8 @@ func TestServeCommandStartServerPropagatesRouteErrors(t *testing.T) {
 }
 
 func TestServeCommandProcessControlWritesToCommandIO(t *testing.T) {
+	setupCommandConfigContainer(t)
+
 	cmd := NewServeCommand(fakeHTTPServerFactory(&fakeHTTPRegistrars{}))
 	manager := &errorProcessManager{pid: 100}
 	cmd.newProcessManager = func(string) processManager { return manager }

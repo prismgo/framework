@@ -28,10 +28,7 @@ func (c *FailedCommand) Handle(ctx console.CommandContext) error {
 	if pageSize <= 0 {
 		pageSize = 100
 	}
-	manager, err := resolveManager()
-	if err != nil {
-		return err
-	}
+	manager := resolveManager()
 	page, err := manager.Failed().Page(ctx.Context(), state.PageRequest{Page: pageNumber, PageSize: pageSize})
 	if err != nil {
 		return err

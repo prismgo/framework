@@ -10,9 +10,12 @@ import (
 	"time"
 
 	queuecommand "github.com/prismgo/framework/cmd/queue"
+	configpkg "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/console"
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
+	"github.com/prismgo/framework/event"
+	"github.com/prismgo/framework/exception"
 	queuecore "github.com/prismgo/framework/queue"
 	"github.com/prismgo/framework/route"
 	"github.com/prismgo/framework/timer"
@@ -91,6 +94,8 @@ func TestServeCommandGetPIDFileUsesPort(t *testing.T) {
 }
 
 func TestServeCommandProcessControlMethods(t *testing.T) {
+	setupCommandConfigContainer(t)
+
 	manager := &fakeProcessManager{pid: 100, reloadedPID: 101, restartedPID: 102}
 	cmd := NewServeCommand(fakeHTTPServerFactory(&fakeHTTPRegistrars{}))
 	cmd.newProcessManager = func(string) processManager { return manager }
@@ -346,6 +351,22 @@ func setupRouteContainer(t *testing.T) {
 	container.SetProvider(func() *container.Container { return c })
 	t.Cleanup(func() { container.SetProvider(nil) })
 	_ = route.ServiceProvider{}.Register(fakeContainerApp{container: c})
+}
+
+func setupCommandConfigContainer(t *testing.T) {
+	t.Helper()
+	c := container.NewContainer()
+	container.SetProvider(func() *container.Container { return c })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	if err := c.Instance("config.default", configpkg.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+	if err := c.Instance("event.dispatcher", event.New()); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
+	}
+	if err := c.Instance("exception.handler", exception.New()); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
 }
 
 type fakeContainerApp struct {

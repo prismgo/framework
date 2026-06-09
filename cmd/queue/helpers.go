@@ -1,7 +1,6 @@
 package queue
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -10,16 +9,12 @@ import (
 	queuecore "github.com/prismgo/framework/queue"
 )
 
-// resolveManager 优先解析应用注册的队列 manager；解析失败时显式返回错误。
+// resolveManager 严格解析应用注册的队列 manager；解析失败时由 facade 直接 panic。
 //
 // 设计说明：queue 管理类命令若静默回退到默认 sync manager，可能误操作错误后端，
-// 因此这里把初始化错误暴露给调用方，由命令层决定是否继续执行。
-func resolveManager() (*queuecore.Manager, error) {
-	manager := queuecore.Resolve()
-	if manager == nil {
-		return nil, fmt.Errorf("resolve queue manager failed: queue manager not initialized")
-	}
-	return manager, nil
+// 因此这里保持严格解析契约，让装配错误在命令入口立即暴露。
+func resolveManager() *queuecore.Manager {
+	return queuecore.Resolve()
 }
 
 // splitQueueNames 把逗号分隔的队列名转换为 worker 可消费的有序列表。

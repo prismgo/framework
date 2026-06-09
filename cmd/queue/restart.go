@@ -15,10 +15,7 @@ func (c *RestartCommand) Definition() *console.Definition {
 
 // Run 记录重启时间戳；worker 会在当前任务结束后的下一轮检查时退出。
 func (c *RestartCommand) Handle(ctx console.CommandContext) error {
-	manager, err := resolveManager()
-	if err != nil {
-		return err
-	}
+	manager := resolveManager()
 	if err := manager.RequestRestart(ctx.Context()); err != nil {
 		return err
 	}

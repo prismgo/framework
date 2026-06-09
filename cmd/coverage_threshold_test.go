@@ -12,6 +12,8 @@ import (
 )
 
 func TestServeCommandStartServerRoutesError(t *testing.T) {
+	setupCommandConfigContainer(t)
+
 	cmd := NewServeCommand(fakeHTTPServerFactory(&fakeHTTPRegistrars{routesErr: errors.New("routes failed")}))
 	err := cmd.startServer(context.Background(), "8051", console.NewIO(strings.NewReader(""), io.Discard, io.Discard))
 	if err == nil || !strings.Contains(err.Error(), "routes failed") {

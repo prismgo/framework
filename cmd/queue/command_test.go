@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -219,25 +220,22 @@ func TestCommandsReturnResolveManagerErrors(t *testing.T) {
 		t.Fatalf("register failing queue manager: %v", err)
 	}
 
-	assertCommandError(t, NewFailedCommand(), queueInput{}, "resolve queue manager failed")
-	assertCommandError(t, NewFlushCommand(), queueInput{}, "resolve queue manager failed")
-	assertCommandError(t, NewForgetCommand(), queueInput{args: map[string][]string{"id": {"missing"}}}, "resolve queue manager failed")
-	assertCommandError(t, NewRetryCommand(), queueInput{args: map[string][]string{"ids": {"failed-2"}}}, "resolve queue manager failed")
-	assertCommandError(t, NewWorkCommand(), queueInput{}, "resolve queue manager failed")
-	assertCommandError(t, NewRestartCommand(), queueInput{}, "resolve queue manager failed")
+	assertCommandPanic(t, NewFailedCommand(), queueInput{}, "factory failed")
+	assertCommandPanic(t, NewFlushCommand(), queueInput{}, "factory failed")
+	assertCommandPanic(t, NewForgetCommand(), queueInput{args: map[string][]string{"id": {"missing"}}}, "factory failed")
+	assertCommandPanic(t, NewRetryCommand(), queueInput{args: map[string][]string{"ids": {"failed-2"}}}, "factory failed")
+	assertCommandPanic(t, NewWorkCommand(), queueInput{}, "factory failed")
+	assertCommandPanic(t, NewRestartCommand(), queueInput{}, "factory failed")
 }
 
-func TestResolveManagerReturnsErrorWhenFactoryFails(t *testing.T) {
+func TestResolveManagerPanicsWhenFactoryFails(t *testing.T) {
 	registry := useQueueTestContainer(t)
 	if err := registry.Singleton("queue.manager", func(containercontract.Resolver) (any, error) {
 		return nil, errors.New("factory failed")
 	}); err != nil {
 		t.Fatalf("register failing queue manager: %v", err)
 	}
-	manager, err := resolveManager()
-	if err == nil || !strings.Contains(err.Error(), "resolve queue manager failed") {
-		t.Fatalf("expected resolve manager error, got manager=%v err=%v", manager, err)
-	}
+	assertPanicsContaining(t, func() { _ = resolveManager() }, "factory failed")
 }
 
 func TestHelperParsingBranches(t *testing.T) {
@@ -355,6 +353,27 @@ func assertCommandError(t *testing.T, cmd console.Command, input queueInput, con
 	if err == nil || !strings.Contains(err.Error(), contains) {
 		t.Fatalf("expected %s error containing %q, got %v", cmd.Definition().Name, contains, err)
 	}
+}
+
+func assertCommandPanic(t *testing.T, cmd console.Command, input queueInput, contains string) {
+	t.Helper()
+	assertPanicsContaining(t, func() {
+		_ = cmd.Handle(commandContext(cmd, input))
+	}, contains)
+}
+
+func assertPanicsContaining(t *testing.T, fn func(), contains string) {
+	t.Helper()
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatalf("expected panic containing %q", contains)
+		}
+		if message := fmt.Sprint(recovered); !strings.Contains(message, contains) {
+			t.Fatalf("expected panic containing %q, got %v", contains, recovered)
+		}
+	}()
+	fn()
 }
 
 func commandContext(cmd console.Command, input queueInput) console.CommandContext {
