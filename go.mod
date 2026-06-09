@@ -3,7 +3,7 @@ module github.com/prismgo/framework
 go 1.26.2
 
 require (
-	github.com/alicebob/miniredis/v2 v2.37.0
+	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible
 	github.com/eko/gocache/lib/v4 v4.2.3
 	github.com/eko/gocache/store/redis/v4 v4.2.3
