@@ -58,7 +58,6 @@ func startRestartingTrackedGoroutineWithPolicy(ctx context.Context, wg *sync.Wai
 				return nil
 			}
 		}
-		return nil
 	}).
 		Component("horizon").
 		Name(subsystem).

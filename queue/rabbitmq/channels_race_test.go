@@ -112,8 +112,8 @@ func TestNextPublishSlotRoundRobinDistribution(t *testing.T) {
 
 	total := goroutines * iterations
 	expected := total / 4
-	for i, c := range counts {
-		count := int(c.Load())
+	for i := range counts {
+		count := int(counts[i].Load())
 		// 允许 50% 偏差（并发 round-robin 不保证精确均匀）
 		if count < expected/2 || count > expected*2 {
 			t.Errorf("slot %d: count=%d, expected ~%d (total=%d)", i, count, expected, total)
