@@ -45,6 +45,18 @@ func TestProcessManagerReadPIDErrors(t *testing.T) {
 	}
 }
 
+func TestProcessManagerSavePIDCreateDirError(t *testing.T) {
+	parentFile := filepath.Join(t.TempDir(), "server.pid")
+	if err := os.WriteFile(parentFile, []byte("not a directory"), 0644); err != nil {
+		t.Fatalf("write parent file failed: %v", err)
+	}
+
+	manager := NewProcessManager(filepath.Join(parentFile, "child.pid"))
+	if err := manager.SavePID(); err == nil || !strings.Contains(err.Error(), "create pid dir failed") {
+		t.Fatalf("SavePID error = %v, want create pid dir failed", err)
+	}
+}
+
 func TestInheritedListenerWithoutEnvReturnsNil(t *testing.T) {
 	t.Setenv(listenerFDEnv, "")
 	listener, err := InheritedListener()

@@ -1,9 +1,11 @@
 package http
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,6 +147,45 @@ func TestServerConfigAppliesToEngineAndServer(t *testing.T) {
 		server.IdleTimeout != 5*time.Second ||
 		server.MaxHeaderBytes != 8192 {
 		t.Fatalf("unexpected server config: %+v", server)
+	}
+}
+
+func TestServerConfigHelpersCoverFallbackBranches(t *testing.T) {
+	cfg := ServerConfig{Host: "127.0.0.1:7000", Port: ""}
+	if got := cfg.Addr(); got != "127.0.0.1:8080" {
+		t.Fatalf("addr = %q, want 127.0.0.1:8080", got)
+	}
+	if got := normalizeServerPort(" :9090 "); got != "9090" {
+		t.Fatalf("normalized port = %q, want 9090", got)
+	}
+	if got := positiveInt(0, 42); got != 42 {
+		t.Fatalf("positiveInt fallback = %d, want 42", got)
+	}
+	if got := positiveInt64(-1, 64); got != 64 {
+		t.Fatalf("positiveInt64 fallback = %d, want 64", got)
+	}
+}
+
+func TestApplicationServerConfigErrorBranches(t *testing.T) {
+	if err := applyServerConfigToEngine(nil, ServerConfig{}); err != nil {
+		t.Fatalf("nil engine config error = %v, want nil", err)
+	}
+
+	bindHTTPApplicationServerServices(t, nil)
+	_, err := NewApplicationServer("", func(engine *gin.Engine, useInternalMiddlewares func(*gin.Engine)) error {
+		return nil
+	}, WithServerConfig(ServerConfig{Port: "8080", TrustedProxies: []string{"bad cidr"}}))
+	if err == nil || !strings.Contains(err.Error(), "configure trusted proxies") {
+		t.Fatalf("NewApplicationServer trusted proxy error = %v, want configure trusted proxies", err)
+	}
+
+	bindHTTPApplicationServerServices(t, nil)
+	configureErr := errors.New("configure failed")
+	_, err = NewApplicationServer("", func(engine *gin.Engine, useInternalMiddlewares func(*gin.Engine)) error {
+		return configureErr
+	}, WithServerConfig(ServerConfig{Port: "8080"}))
+	if !errors.Is(err, configureErr) {
+		t.Fatalf("NewApplicationServer configure error = %v, want %v", err, configureErr)
 	}
 }
 

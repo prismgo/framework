@@ -182,6 +182,23 @@ func TestSpawnReloadChildRejectsNonTCPListener(t *testing.T) {
 	}
 }
 
+func TestSpawnReloadChildStartErrorIncludesReadyEnv(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	}()
+
+	err = spawnReloadChild(listener, "/path/to/missing/executable", nil, func() {})
+	if err == nil || !strings.Contains(err.Error(), "start reload child failed") {
+		t.Fatalf("spawnReloadChild error = %v, want start reload child failed", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // WatchReloadSignal 单元测试
 // ---------------------------------------------------------------------------
@@ -195,6 +212,23 @@ func TestWatchReloadSignalNilListenerReturnsNoop(t *testing.T) {
 		t.Fatal("WatchReloadSignal returned nil cleanup")
 	}
 	cleanup() // 不应 panic
+}
+
+func TestWatchReloadSignalDefaultsExecutableAndArgs(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cleanup := WatchReloadSignal(ctx, listener, "", nil, nil)
+	cancel()
+	cleanup()
 }
 
 // TestWatchReloadSignal_ContextCancellationCleansUp 验证取消 context 后清理函数正常返回。
@@ -212,7 +246,7 @@ func TestWatchReloadSignalContextCancellationCleansUp(t *testing.T) {
 	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cleanup := WatchReloadSignal(ctx, listener, "/bin/true", nil, nil)
+	cleanup := WatchReloadSignal(ctx, listener, trueExecutable(t), nil, nil)
 
 	cancel()
 

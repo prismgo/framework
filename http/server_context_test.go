@@ -261,6 +261,75 @@ func TestWithShutdownSignalsDefaultsToTermAndInt(t *testing.T) {
 	}
 }
 
+func TestListenAndServeGracefulContextRunsStartedHook(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	hookRan := make(chan struct{}, 1)
+	bus := event.New()
+	bus.ListenFunc(event.EventServerStarted, func(_ context.Context, _ event.Event) error {
+		select {
+		case <-hookRan:
+		default:
+			t.Error("server started event dispatched before started hook")
+		}
+		cancel()
+		return nil
+	})
+
+	server := &http.Server{
+		Addr:    "127.0.0.1:0",
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }),
+	}
+
+	err := ListenAndServeGracefulContext(ctx, server, time.Second, WithDispatcher(bus), WithStartedHook(func() {
+		hookRan <- struct{}{}
+	}))
+	if err != http.ErrServerClosed {
+		t.Fatalf("error = %v, want %v", err, http.ErrServerClosed)
+	}
+}
+
+type contractOnlyDispatcher struct{}
+
+func (contractOnlyDispatcher) Listen(string, event.Listener)                               {}
+func (contractOnlyDispatcher) ListenFunc(string, func(context.Context, event.Event) error) {}
+func (contractOnlyDispatcher) Subscribe(event.Subscriber)                                 {}
+func (contractOnlyDispatcher) Forget(string)                                              {}
+func (contractOnlyDispatcher) Has(string) bool                                            { return false }
+func (contractOnlyDispatcher) Dispatch(context.Context, event.Event)                      {}
+
+func TestListenAndServeGracefulContextPanicsWithoutConcreteDispatcher(t *testing.T) {
+	registry := useHTTPTestContainer(t)
+	if err := registry.Instance("event.dispatcher", contractOnlyDispatcher{}); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
+	}
+
+	defer func() {
+		if recovered := recover(); recovered == nil {
+			t.Fatal("expected panic when resolved dispatcher is not concrete event dispatcher")
+		}
+	}()
+
+	_ = ListenAndServeGracefulContext(context.Background(), &http.Server{}, time.Second)
+}
+
+func TestListenAndServeGracefulContextAcceptsNilContext(t *testing.T) {
+	server := &http.Server{
+		Addr:    "127.0.0.1:0",
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }),
+	}
+
+	err := ListenAndServeGracefulContext(nil, server, time.Second, WithDispatcher(event.New()), WithStartedHook(func() {
+		go func() {
+			_ = server.Shutdown(context.Background())
+		}()
+	}))
+	if err != http.ErrServerClosed {
+		t.Fatalf("error = %v, want %v", err, http.ErrServerClosed)
+	}
+}
+
 func nilContext() context.Context { return nil }
 
 func TestShutdownReasonFromContextBranches(t *testing.T) {
