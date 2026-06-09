@@ -2272,7 +2272,8 @@ func TestRedisErrorAndFallbackBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start miniredis: %v", err)
 	}
-	client := redis.NewClient(&redis.Options{Addr: srv.Addr()})
+	client := redis.NewClient(&redis.Options{Addr: srv.Addr(), MaxRetries: -1})
+	t.Cleanup(func() { _ = client.Close() })
 	conn := redisqueue.NewRedisQueueFromClient(client, redisqueue.RedisOptions{Prefix: "edge", Codec: encodingpkg.JSON()})
 	failedStore := redisqueue.NewRedisFailedStoreFromClient(client, redisqueue.RedisOptions{Prefix: "edge", Codec: encodingpkg.JSON()})
 	if err := client.RPush(context.Background(), conn.ReadyKey("default"), "{bad json").Err(); err != nil {
@@ -2464,8 +2465,11 @@ func TestRemainingBranches(t *testing.T) {
 	}
 	_ = defaultConn.Close()
 	client := redis.NewClient(&redis.Options{Addr: srv.Addr()})
-	redisConn := redisqueue.NewRedisQueueFromClient(client, redisqueue.RedisOptions{Prefix: "edge2", Codec: encodingpkg.JSON(), BlockFor: time.Millisecond})
+	redisConn := redisqueue.NewRedisQueueFromClient(client, redisqueue.RedisOptions{Prefix: "edge2", Codec: encodingpkg.JSON(), BlockFor: time.Second})
 	batchStore = redisqueue.NewRedisBatchStoreFromClient(client, redisqueue.RedisOptions{Prefix: "edge2", Codec: encodingpkg.JSON()})
+	if err := client.LPush(context.Background(), redisConn.ReadyKey("default")+":notify", "1").Err(); err != nil {
+		t.Fatalf("seed redis notify token: %v", err)
+	}
 	if _, err := redisConn.Pop(context.Background(), []string{"default"}); !errors.Is(err, ErrEmpty) {
 		t.Fatalf("expected blocking empty, got %v", err)
 	}
@@ -3248,7 +3252,8 @@ func TestRedisStoreErrorBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start miniredis: %v", err)
 	}
-	client := redis.NewClient(&redis.Options{Addr: srv.Addr()})
+	client := redis.NewClient(&redis.Options{Addr: srv.Addr(), MaxRetries: -1})
+	t.Cleanup(func() { _ = client.Close() })
 	failedStore := redisqueue.NewRedisFailedStoreFromClient(client, redisqueue.RedisOptions{Prefix: "redis_errors", Codec: encodingpkg.JSON()})
 	batchStore := redisqueue.NewRedisBatchStoreFromClient(client, redisqueue.RedisOptions{Prefix: "redis_errors", Codec: encodingpkg.JSON()})
 	queueConn := redisqueue.NewRedisQueueFromClient(client, redisqueue.RedisOptions{Prefix: "redis_errors", Codec: encodingpkg.JSON()})

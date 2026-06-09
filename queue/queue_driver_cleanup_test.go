@@ -238,7 +238,7 @@ func TestRedisQueueBulkUsesBatchWriteAndNotifySemantics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start miniredis: %v", err)
 	}
-	client := redis.NewClient(&redis.Options{Addr: srv.Addr()})
+	client := redis.NewClient(&redis.Options{Addr: srv.Addr(), MaxRetries: -1})
 	t.Cleanup(func() { _ = client.Close() })
 
 	redisQueue := redisqueue.NewRedisQueueFromClient(client, redisqueue.RedisOptions{Name: "redis_bulk_laravel_config", Prefix: "laravel_config_bulk", Codec: encodingpkg.JSON()})
