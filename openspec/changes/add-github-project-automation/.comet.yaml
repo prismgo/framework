@@ -6,9 +6,9 @@ base_ref: 5226a82e9fe736048f0ac58522287de30baa1335
 build_mode: subagent-driven-development
 build_pause: null
 isolation: worktree
-verify_mode: null
+verify_mode: full
 verify_result: pending
-verification_report: null
+verification_report: docs/superpowers/reports/2026-06-09-add-github-project-automation-verify.md
 branch_status: pending
 created_at: 2026-06-09
 verified_at: null
