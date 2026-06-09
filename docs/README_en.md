@@ -1,4 +1,6 @@
-# PrismGo
+<p align="center">
+  <img src=".github/assets/logo.png" width="240">
+</p>
 
 <div align="center">
 
