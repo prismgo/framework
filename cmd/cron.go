@@ -34,7 +34,7 @@ func NewCronCommand(k cronKernel, register func(*timer.Schedule)) *CronCommand {
 
 // Definition 返回定时任务命令定义。
 func (c *CronCommand) Definition() *console.Definition {
-	return console.MustDefinition("cron", "启动定时任务调度器")
+	return console.MustDefinition("cron", "Start the cron scheduler")
 }
 
 // Run 注册并启动定时任务调度器。

@@ -15,7 +15,7 @@ func NewRetryCommand() *RetryCommand { return &RetryCommand{} }
 
 // Definition 返回失败任务重试命令定义。
 func (c *RetryCommand) Definition() *console.Definition {
-	return console.MustDefinition("queue:retry {ids*}", "重新投递失败队列任务")
+	return console.MustDefinition("queue:retry {ids*}", "Retry failed queue jobs")
 }
 
 // Run 按传入的失败任务 ID 逐个重新投递。

@@ -10,7 +10,7 @@ func NewFlushCommand() *FlushCommand { return &FlushCommand{} }
 
 // Definition 返回失败任务清空命令定义。
 func (c *FlushCommand) Definition() *console.Definition {
-	return console.MustDefinition("queue:flush", "清空失败队列任务")
+	return console.MustDefinition("queue:flush", "Delete all failed queue jobs")
 }
 
 // Run 清空当前失败任务存储。

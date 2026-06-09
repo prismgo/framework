@@ -10,7 +10,7 @@ func NewRestartCommand() *RestartCommand { return &RestartCommand{} }
 
 // Definition 返回队列重启信号命令定义。
 func (c *RestartCommand) Definition() *console.Definition {
-	return console.MustDefinition("queue:restart", "通知队列消费者重启")
+	return console.MustDefinition("queue:restart", "Signal queue workers to restart")
 }
 
 // Run 记录重启时间戳；worker 会在当前任务结束后的下一轮检查时退出。

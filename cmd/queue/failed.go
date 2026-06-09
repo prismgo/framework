@@ -15,7 +15,7 @@ func NewFailedCommand() *FailedCommand { return &FailedCommand{} }
 
 // Definition 返回失败任务列表命令定义。
 func (c *FailedCommand) Definition() *console.Definition {
-	return console.MustDefinition("queue:failed {--page=1} {--page-size=100}", "列出失败队列任务")
+	return console.MustDefinition("queue:failed {--page=1} {--page-size=100}", "List failed queue jobs")
 }
 
 // Run 从当前队列失败任务存储读取记录并以表格输出。

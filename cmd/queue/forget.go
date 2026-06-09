@@ -10,7 +10,7 @@ func NewForgetCommand() *ForgetCommand { return &ForgetCommand{} }
 
 // Definition 返回失败任务删除命令定义。
 func (c *ForgetCommand) Definition() *console.Definition {
-	return console.MustDefinition("queue:forget {id}", "删除失败队列任务")
+	return console.MustDefinition("queue:forget {id}", "Delete a failed queue job")
 }
 
 // Run 从失败任务存储中删除指定 ID。

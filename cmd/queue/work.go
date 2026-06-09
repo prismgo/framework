@@ -13,7 +13,7 @@ func NewWorkCommand() *WorkCommand { return &WorkCommand{} }
 
 // Definition 返回 queue worker 的命令签名和运行参数。
 func (c *WorkCommand) Definition() *console.Definition {
-	def := console.MustDefinition("queue {connection?} {--queue=default} {--once} {--stop-when-empty} {--sleep=3} {--timeout=60} {--tries=1} {--backoff=0} {--max-jobs=0} {--max-time=0} {--retry-after=90}", "启动队列消费者")
+	def := console.MustDefinition("queue {connection?} {--queue=default} {--once} {--stop-when-empty} {--sleep=3} {--timeout=60} {--tries=1} {--backoff=0} {--max-jobs=0} {--max-time=0} {--retry-after=90}", "Start the queue worker")
 	def.Aliases = []string{"queue:work"}
 	return def
 }

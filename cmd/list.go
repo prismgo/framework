@@ -17,7 +17,7 @@ func NewListCommand(definitions func() []console.Definition) *ListCommand {
 }
 
 func (c *ListCommand) Definition() *console.Definition {
-	definition := console.MustDefinition("list {namespace? : The namespace name} {--raw : To output raw command list} {--format=txt : The output format (txt, json, md)} {--short : To skip describing commands' arguments}", "列出所有可用命令")
+	definition := console.MustDefinition("list {namespace? : The namespace name} {--raw : To output raw command list} {--format=txt : The output format (txt, json, md)} {--short : To skip describing commands' arguments}", "List all available commands")
 	definition.Aliases = []string{"ls"}
 	definition.Examples = []string{
 		"go run ./ list",
