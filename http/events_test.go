@@ -12,8 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	_ "prismgo/config"
-
 	prismconfig "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 	eventcontract "github.com/prismgo/framework/contracts/event"
@@ -22,6 +20,14 @@ import (
 )
 
 func init() {
+	prismconfig.Add("app", func() map[string]any {
+		return map[string]any{
+			"key":           prismconfig.Env("APP_KEY", ""),
+			"cipher":        prismconfig.Env("APP_CIPHER", "AES-256-GCM"),
+			"previous_keys": prismconfig.Env("APP_PREVIOUS_KEYS", ""),
+			"debug":         prismconfig.Env("APP_DEBUG", false),
+		}
+	})
 	gin.SetMode(gin.TestMode)
 }
 

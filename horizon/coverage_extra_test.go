@@ -25,7 +25,6 @@ import (
 
 	"github.com/prismgo/framework/console"
 	horizoncmd "github.com/prismgo/framework/horizon/cmd"
-	_ "prismgo/config"
 )
 
 func TestStoreFactoryAndManagerErrorBranches(t *testing.T) {

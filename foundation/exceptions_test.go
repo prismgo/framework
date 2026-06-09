@@ -11,13 +11,30 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	_ "prismgo/config"
-
 	prismconfig "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/timer"
 
 	goexception "github.com/prismgo/framework/exception"
 )
+
+func init() {
+	prismconfig.Add("app", func() map[string]any {
+		return map[string]any{
+			"key":           prismconfig.Env("APP_KEY", ""),
+			"cipher":        prismconfig.Env("APP_CIPHER", "AES-256-GCM"),
+			"previous_keys": prismconfig.Env("APP_PREVIOUS_KEYS", ""),
+			"debug":         prismconfig.Env("APP_DEBUG", false),
+		}
+	})
+	prismconfig.Add("logging", func() map[string]any {
+		return map[string]any{
+			"default": "null",
+			"channels": map[string]any{
+				"null": map[string]any{"driver": "null"},
+			},
+		}
+	})
+}
 
 func TestExceptionsRenderAcceptsProblemAndResponseRenderers(t *testing.T) {
 	builder := Configure().WithExceptions(func(e *Exceptions) {

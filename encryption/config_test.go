@@ -6,10 +6,19 @@ import (
 	"path/filepath"
 	"testing"
 
-	_ "prismgo/config"
-
 	configpkg "github.com/prismgo/framework/config"
 )
+
+func init() {
+	configpkg.Add("app", func() map[string]any {
+		return map[string]any{
+			"key":           configpkg.Env("APP_KEY", ""),
+			"cipher":        configpkg.Env("APP_CIPHER", CipherAES256GCM),
+			"previous_keys": configpkg.Env("APP_PREVIOUS_KEYS", ""),
+			"debug":         configpkg.Env("APP_DEBUG", false),
+		}
+	})
+}
 
 // TestNewFromConfigReadsAppEncryptionSettings 验证加密器从 app 配置读取当前 key、算法和历史 key。
 // 需求背景：Laravel 风格的默认加密器必须由 APP_KEY / APP_CIPHER / APP_PREVIOUS_KEYS 统一驱动。
