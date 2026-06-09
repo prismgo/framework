@@ -84,7 +84,6 @@ Facades are public interfaces that wrap a component to provide a simpler, more c
 
 Service providers are responsible for registering components and their lifecycle hooks.Services provided by a component package must be registered via a `service provider`.
 
-
 ## Non-Negotiable Rules
 1. Never modify production code solely for testing.
   - No test-only logic, APIs, helpers, fallbacks, or workarounds.
@@ -110,6 +109,14 @@ Service providers are responsible for registering components and their lifecycle
 ## Coding Style & Naming Conventions
 
 Follow standard Go conventions: `gofmt` formatting, tabs for indentation, short package names, exported identifiers in `PascalCase`, and unexported identifiers in `camelCase`. Keep package APIs idiomatic and consistent with nearby components. Prefer package-level tests and helpers that mirror existing naming patterns, such as `facade_registry_test.go`, `service_provider_test.go`, or focused behavior names like `redis_lifecycle_test.go`.
+
+### Code Comments:
+- Modified and newly added code must include comments
+  - Explanation of the logic
+  - Design rationale
+  - Additional explanation for complex logic within functions
+  - Description of function parameter purposes
+  - Including unit test code
 
 ## Testing Guidelines
 
