@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +35,89 @@ func (r *redisCommandRecorder) ProcessPipelineHook(next redis.ProcessPipelineHoo
 			r.commands = append(r.commands, args)
 		}
 		return next(ctx, cmds)
+	}
+}
+
+func TestRedisStoreZRangeArgsPreserveSortedSetRangeSemantics(t *testing.T) {
+	ctx := context.Background()
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("close redis client: %v", err)
+		}
+	})
+	store := NewRedisStoreFromClient(client, StoreOptions{Prefix: "zrange_args", HeartbeatTTL: time.Minute})
+	key := "zrange_args:semantic"
+	if err := client.ZAdd(ctx, key,
+		redis.Z{Score: 1, Member: "a"},
+		redis.Z{Score: 2, Member: "b"},
+		redis.Z{Score: 3, Member: "c"},
+		redis.Z{Score: 4, Member: "d"},
+		redis.Z{Score: 5, Member: "e"},
+	).Err(); err != nil {
+		t.Fatalf("seed sorted set: %v", err)
+	}
+
+	ranked, err := store.zRevRange(ctx, key, 1, 3)
+	if err != nil {
+		t.Fatalf("zRevRange: %v", err)
+	}
+	if got, want := strings.Join(ranked, ","), "d,c,b"; got != want {
+		t.Fatalf("zRevRange = %s, want %s", got, want)
+	}
+
+	reverseByScore, err := store.zRevRangeByScore(ctx, key, "-inf", "(4", 0, 2)
+	if err != nil {
+		t.Fatalf("zRevRangeByScore: %v", err)
+	}
+	if got, want := strings.Join(reverseByScore, ","), "c,b"; got != want {
+		t.Fatalf("zRevRangeByScore exclusive max = %s, want %s", got, want)
+	}
+
+	forwardByScore, err := store.zRangeByScore(ctx, key, "-inf", "3")
+	if err != nil {
+		t.Fatalf("zRangeByScore: %v", err)
+	}
+	if got, want := strings.Join(forwardByScore, ","), "a,b,c"; got != want {
+		t.Fatalf("zRangeByScore = %s, want %s", got, want)
+	}
+}
+
+func TestRedisStoreEventMetricCandidateIDsPreserveReversePaginationAndExclusiveTo(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("close redis client: %v", err)
+		}
+	})
+	store := NewRedisStoreFromClient(client, StoreOptions{Prefix: "event_candidates", HeartbeatTTL: time.Minute})
+	if err := client.ZAdd(ctx, store.eventMetricWindowsKey(),
+		redis.Z{Score: float64(base.Add(1 * time.Minute).UnixNano()), Member: "w1"},
+		redis.Z{Score: float64(base.Add(2 * time.Minute).UnixNano()), Member: "w2"},
+		redis.Z{Score: float64(base.Add(3 * time.Minute).UnixNano()), Member: "w3"},
+		redis.Z{Score: float64(base.Add(4 * time.Minute).UnixNano()), Member: "w4"},
+	).Err(); err != nil {
+		t.Fatalf("seed event metric index: %v", err)
+	}
+
+	page, err := store.eventMetricWindowCandidateIDs(ctx, EventMetricWindowQuery{}, 1, 2)
+	if err != nil {
+		t.Fatalf("eventMetricWindowCandidateIDs rank page: %v", err)
+	}
+	if got, want := strings.Join(page, ","), "w3,w2"; got != want {
+		t.Fatalf("rank candidate page = %s, want %s", got, want)
+	}
+
+	beforeThreeMinutes, err := store.eventMetricWindowCandidateIDs(ctx, EventMetricWindowQuery{To: base.Add(3 * time.Minute)}, 0, 10)
+	if err != nil {
+		t.Fatalf("eventMetricWindowCandidateIDs to filter: %v", err)
+	}
+	if got, want := strings.Join(beforeThreeMinutes, ","), "w2,w1"; got != want {
+		t.Fatalf("exclusive To candidates = %s, want %s", got, want)
 	}
 }
 

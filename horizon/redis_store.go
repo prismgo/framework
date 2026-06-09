@@ -662,14 +662,9 @@ func (s *RedisStore) EventMetricRollupWindows(ctx context.Context, query EventMe
 
 func (s *RedisStore) eventMetricRollupCandidateIDs(ctx context.Context, query EventMetricWindowQuery, offset int64, count int64) ([]string, error) {
 	if !query.To.IsZero() {
-		return s.client.ZRevRangeByScore(ctx, s.eventMetricRollupWindowsKey(), &redis.ZRangeBy{
-			Min:    "-inf",
-			Max:    strconv.FormatInt(query.To.Add(-time.Nanosecond).UnixNano(), 10),
-			Offset: offset,
-			Count:  count,
-		}).Result()
+		return s.zRevRangeByScore(ctx, s.eventMetricRollupWindowsKey(), "-inf", strconv.FormatInt(query.To.Add(-time.Nanosecond).UnixNano(), 10), offset, count)
 	}
-	return s.client.ZRevRange(ctx, s.eventMetricRollupWindowsKey(), offset, offset+count-1).Result()
+	return s.zRevRange(ctx, s.eventMetricRollupWindowsKey(), offset, offset+count-1)
 }
 
 // eventMetricWindowCandidateIDs 按事件窗口开始时间裁剪 Redis 候选集合。
@@ -680,14 +675,9 @@ func (s *RedisStore) eventMetricRollupCandidateIDs(ctx context.Context, query Ev
 // 有界扩大到 maxPageSize，防止无过滤场景扫描全历史。
 func (s *RedisStore) eventMetricWindowCandidateIDs(ctx context.Context, query EventMetricWindowQuery, offset int64, count int64) ([]string, error) {
 	if !query.To.IsZero() {
-		return s.client.ZRevRangeByScore(ctx, s.eventMetricWindowsKey(), &redis.ZRangeBy{
-			Max:    "(" + strconv.FormatInt(query.To.UnixNano(), 10),
-			Min:    "-inf",
-			Offset: offset,
-			Count:  count,
-		}).Result()
+		return s.zRevRangeByScore(ctx, s.eventMetricWindowsKey(), "-inf", "("+strconv.FormatInt(query.To.UnixNano(), 10), offset, count)
 	}
-	return s.client.ZRevRange(ctx, s.eventMetricWindowsKey(), offset, offset+count-1).Result()
+	return s.zRevRange(ctx, s.eventMetricWindowsKey(), offset, offset+count-1)
 }
 
 // SaveQueueLengthSnapshot 保存最近一次队列长度采样结果。
@@ -765,7 +755,7 @@ func (s *RedisStore) SaveBatchSummaries(ctx context.Context, items []BatchSummar
 
 // Batches 按 ID/name 搜索 Redis 中的批次安全摘要；损坏 JSON 会被跳过以保护 Dashboard。
 func (s *RedisStore) Batches(ctx context.Context, query string) ([]BatchSummary, error) {
-	ids, err := s.client.ZRevRange(ctx, s.batchesKey(), 0, -1).Result()
+	ids, err := s.zRevRange(ctx, s.batchesKey(), 0, -1)
 	if err != nil {
 		return nil, err
 	}
@@ -795,7 +785,7 @@ func (s *RedisStore) Batches(ctx context.Context, query string) ([]BatchSummary,
 func (s *RedisStore) BatchesPage(ctx context.Context, query string, page PageRequest) (PageEnvelope[BatchSummary], error) {
 	start := int64(pageStart(page))
 	end := start + int64(page.PageSize) - 1
-	ids, err := s.client.ZRevRange(ctx, s.batchesKey(), start, end).Result()
+	ids, err := s.zRevRange(ctx, s.batchesKey(), start, end)
 	if err != nil {
 		return PageEnvelope[BatchSummary]{}, err
 	}
@@ -928,14 +918,39 @@ func (s *RedisStore) HighValueDetails(ctx context.Context, query HighValueDetail
 
 func (s *RedisStore) highValueDetailCandidateIDs(ctx context.Context, query HighValueDetailQuery, offset int64, count int64) ([]string, error) {
 	if !query.OccurredTo.IsZero() {
-		return s.client.ZRevRangeByScore(ctx, s.highValueDetailsKey(), &redis.ZRangeBy{
-			Max:    "(" + strconv.FormatInt(query.OccurredTo.UnixNano(), 10),
-			Min:    "-inf",
-			Offset: offset,
-			Count:  count,
-		}).Result()
+		return s.zRevRangeByScore(ctx, s.highValueDetailsKey(), "-inf", "("+strconv.FormatInt(query.OccurredTo.UnixNano(), 10), offset, count)
 	}
-	return s.client.ZRevRange(ctx, s.highValueDetailsKey(), offset, offset+count-1).Result()
+	return s.zRevRange(ctx, s.highValueDetailsKey(), offset, offset+count-1)
+}
+
+func (s *RedisStore) zRevRange(ctx context.Context, key string, start int64, stop int64) ([]string, error) {
+	return s.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:   key,
+		Start: start,
+		Stop:  stop,
+		Rev:   true,
+	}).Result()
+}
+
+func (s *RedisStore) zRevRangeByScore(ctx context.Context, key string, min string, max string, offset int64, count int64) ([]string, error) {
+	return s.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:     key,
+		Start:   max,
+		Stop:    min,
+		ByScore: true,
+		Rev:     true,
+		Offset:  offset,
+		Count:   count,
+	}).Result()
+}
+
+func (s *RedisStore) zRangeByScore(ctx context.Context, key string, min string, max string) ([]string, error) {
+	return s.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:     key,
+		Start:   min,
+		Stop:    max,
+		ByScore: true,
+	}).Result()
 }
 
 func (s *RedisStore) HighValueDetail(ctx context.Context, id string) (HighValueJobDetail, bool, error) {
@@ -992,7 +1007,7 @@ func (s *RedisStore) SaveObservabilityDiagnostics(ctx context.Context, diagnosti
 }
 
 func (s *RedisStore) ObservabilityDiagnostics(ctx context.Context, page PageRequest) (PageEnvelope[ObservabilityDiagnostic], error) {
-	ids, err := s.client.ZRevRange(ctx, s.observabilityDiagnosticsKey(), int64(pageStart(page)), int64(pageStart(page)+page.PageSize-1)).Result()
+	ids, err := s.zRevRange(ctx, s.observabilityDiagnosticsKey(), int64(pageStart(page)), int64(pageStart(page)+page.PageSize-1))
 	if err != nil {
 		return PageEnvelope[ObservabilityDiagnostic]{}, err
 	}
@@ -1027,7 +1042,7 @@ func (s *RedisStore) ObservabilityDiagnostics(ctx context.Context, page PageRequ
 }
 
 func (s *RedisStore) trimHighValueDetails(ctx context.Context, cutoff time.Time) error {
-	ids, err := s.client.ZRangeByScore(ctx, s.highValueDetailsKey(), &redis.ZRangeBy{Min: "-inf", Max: strconv.FormatInt(cutoff.UnixNano(), 10)}).Result()
+	ids, err := s.zRangeByScore(ctx, s.highValueDetailsKey(), "-inf", strconv.FormatInt(cutoff.UnixNano(), 10))
 	if err != nil {
 		return err
 	}
@@ -1044,7 +1059,7 @@ func (s *RedisStore) trimHighValueDetails(ctx context.Context, cutoff time.Time)
 }
 
 func (s *RedisStore) trimObservabilityDiagnostics(ctx context.Context, cutoff time.Time) error {
-	ids, err := s.client.ZRangeByScore(ctx, s.observabilityDiagnosticsKey(), &redis.ZRangeBy{Min: "-inf", Max: strconv.FormatInt(cutoff.UnixNano(), 10)}).Result()
+	ids, err := s.zRangeByScore(ctx, s.observabilityDiagnosticsKey(), "-inf", strconv.FormatInt(cutoff.UnixNano(), 10))
 	if err != nil {
 		return err
 	}
@@ -1061,7 +1076,7 @@ func (s *RedisStore) trimObservabilityDiagnostics(ctx context.Context, cutoff ti
 }
 
 func (s *RedisStore) trimEventMetricWindows(ctx context.Context, cutoff time.Time) error {
-	ids, err := s.client.ZRangeByScore(ctx, s.eventMetricWindowsKey(), &redis.ZRangeBy{Min: "-inf", Max: strconv.FormatInt(cutoff.UnixNano(), 10)}).Result()
+	ids, err := s.zRangeByScore(ctx, s.eventMetricWindowsKey(), "-inf", strconv.FormatInt(cutoff.UnixNano(), 10))
 	if err != nil {
 		return err
 	}
@@ -1078,7 +1093,7 @@ func (s *RedisStore) trimEventMetricWindows(ctx context.Context, cutoff time.Tim
 }
 
 func (s *RedisStore) trimEventMetricRollupWindows(ctx context.Context, cutoff time.Time) error {
-	ids, err := s.client.ZRangeByScore(ctx, s.eventMetricRollupWindowsKey(), &redis.ZRangeBy{Min: "-inf", Max: strconv.FormatInt(cutoff.UnixNano(), 10)}).Result()
+	ids, err := s.zRangeByScore(ctx, s.eventMetricRollupWindowsKey(), "-inf", strconv.FormatInt(cutoff.UnixNano(), 10))
 	if err != nil {
 		return err
 	}
@@ -1095,7 +1110,7 @@ func (s *RedisStore) trimEventMetricRollupWindows(ctx context.Context, cutoff ti
 }
 
 func (s *RedisStore) trimBatchSummaries(ctx context.Context, cutoff time.Time) error {
-	ids, err := s.client.ZRangeByScore(ctx, s.batchesKey(), &redis.ZRangeBy{Min: "-inf", Max: strconv.FormatInt(cutoff.UnixNano(), 10)}).Result()
+	ids, err := s.zRangeByScore(ctx, s.batchesKey(), "-inf", strconv.FormatInt(cutoff.UnixNano(), 10))
 	if err != nil {
 		return err
 	}
