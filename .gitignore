@@ -3,3 +3,9 @@
 .vscode
 tmp/
 .coverage/
+.claude
+.codex
+.trae
+openspec.yaml
+openspec/
+docs/superpowers/
