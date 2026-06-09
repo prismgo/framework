@@ -1,5 +1,5 @@
 workflow: full
-phase: verify
+phase: archive
 design_doc: docs/superpowers/specs/2026-06-09-github-project-automation-design.md
 plan: docs/superpowers/plans/2026-06-09-github-project-automation.md
 base_ref: 5226a82e9fe736048f0ac58522287de30baa1335
@@ -7,11 +7,11 @@ build_mode: subagent-driven-development
 build_pause: null
 isolation: worktree
 verify_mode: full
-verify_result: pending
+verify_result: pass
 verification_report: docs/superpowers/reports/2026-06-09-add-github-project-automation-verify.md
 branch_status: handled
 created_at: 2026-06-09
-verified_at: null
+verified_at: 2026-06-09
 archived: false
 handoff_context: openspec/changes/add-github-project-automation/.comet/handoff/design-context.json
 handoff_hash: c3e622381d84e2c198be85dd24e11b772c86395ad2174be1f61e1f8adcdedda7
