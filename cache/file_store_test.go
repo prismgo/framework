@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -379,6 +380,29 @@ func TestFileStoreDirectBranches(t *testing.T) {
 	if err := store.Delete(ctx, 123); err == nil {
 		t.Fatal("expected non-string file key delete error")
 	}
+	if err := store.PutMany(ctx, map[string][]byte{"bulk-a": []byte(`"a"`), "bulk-b": []byte(`"b"`)}, time.Minute); err != nil {
+		t.Fatalf("file put many: %v", err)
+	}
+	many, err := store.GetMany(ctx, []string{"bulk-a", "bulk-b", "bulk-missing"})
+	if err != nil {
+		t.Fatalf("file get many: %v", err)
+	}
+	if string(many["bulk-a"]) != `"a"` || string(many["bulk-b"]) != `"b"` {
+		t.Fatalf("file get many values = %#v", many)
+	}
+	if err := store.Set(ctx, "bulk-object", map[string]string{"name": "alice"}, expirationOptions(time.Minute)...); err != nil {
+		t.Fatalf("file set object: %v", err)
+	}
+	objectMany, err := store.GetMany(ctx, []string{"bulk-object"})
+	if err != nil {
+		t.Fatalf("file get many object: %v", err)
+	}
+	if string(objectMany["bulk-object"]) != `{"name":"alice"}` {
+		t.Fatalf("file get many object bytes = %q", string(objectMany["bulk-object"]))
+	}
+	if err := store.ForgetMany(ctx, []string{"bulk-a", "bulk-b"}); err != nil {
+		t.Fatalf("file forget many: %v", err)
+	}
 	if err := store.Clear(ctx); err != nil {
 		t.Fatalf("file clear: %v", err)
 	}
@@ -445,5 +469,61 @@ func TestFileStoreLockAndExpirationBranches(t *testing.T) {
 	}
 	if _, err := store.Release(ctx, "__cache_mutation:blocked", token); err != nil {
 		t.Fatalf("file mutation lock release: %v", err)
+	}
+}
+
+func TestFileStoreGuardFileBranches(t *testing.T) {
+	root := t.TempDir()
+	store := newFileStore(FileConfig{
+		Path:     filepath.Join(root, "data"),
+		LockPath: filepath.Join(root, "locks"),
+	}, 0, "", "")
+	guardPath := filepath.Join(root, "locks", "guard.lock")
+
+	ok, err := store.acquireGuardFile(guardPath, "first")
+	if err != nil || !ok {
+		t.Fatalf("first guard acquire: ok=%v err=%v", ok, err)
+	}
+	ok, err = store.acquireGuardFile(guardPath, "blocked")
+	if err != nil || ok {
+		t.Fatalf("second guard acquire: ok=%v err=%v, want held", ok, err)
+	}
+	store.releaseGuardFile(guardPath, "wrong")
+	if _, err := os.Stat(guardPath); err != nil {
+		t.Fatalf("guard should remain after wrong-token release: %v", err)
+	}
+	store.releaseGuardFile(guardPath, "first")
+	if _, err := os.Stat(guardPath); !os.IsNotExist(err) {
+		t.Fatalf("guard should be removed after owner release, stat err=%v", err)
+	}
+
+	expired := fileLockEntry{Token: "old", ExpiresAt: time.Now().Add(-time.Second).UnixNano()}
+	if err := store.createLockFile(guardPath, expired); err != nil {
+		t.Fatalf("create expired guard: %v", err)
+	}
+	ok, err = store.acquireGuardFile(guardPath, "new")
+	if err != nil || ok {
+		t.Fatalf("expired guard cleanup acquire = ok:%v err:%v, want cleaned but not acquired", ok, err)
+	}
+	if _, err := os.Stat(guardPath); !os.IsNotExist(err) {
+		t.Fatalf("expired guard should be removed, stat err=%v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(guardPath), 0o755); err != nil {
+		t.Fatalf("mkdir guard dir: %v", err)
+	}
+	if err := os.WriteFile(guardPath, []byte("{bad json"), 0o600); err != nil {
+		t.Fatalf("write bad guard: %v", err)
+	}
+	if ok, err = store.acquireGuardFile(guardPath, "bad"); err == nil || ok {
+		t.Fatalf("bad guard acquire = ok:%v err:%v, want parse error", ok, err)
+	}
+
+	parentFile := filepath.Join(root, "locks", "parent-file")
+	if err := os.WriteFile(parentFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("write parent file: %v", err)
+	}
+	if err := store.createLockFile(filepath.Join(parentFile, "child.lock"), fileLockEntry{Token: "x"}); err == nil {
+		t.Fatal("expected createLockFile to fail when parent path is a file")
 	}
 }

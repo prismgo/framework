@@ -330,6 +330,39 @@ func TestRouteListHelpersCoverFiltersSortsAndFallbacks(t *testing.T) {
 	if got := routeListLine(routes[2], 40, console.OutputOptions{}); !strings.Contains(got, "/fallback") {
 		t.Fatalf("routeListLine fallback = %q", got)
 	}
+	if got := colorMethod("POST", console.OutputOptions{ANSI: true}); !strings.Contains(got, "\x1b[") {
+		t.Fatalf("expected colored POST method, got %q", got)
+	}
+	if got := colorMethod("PUT|PATCH", console.OutputOptions{ANSI: true}); !strings.Contains(got, "\x1b[") {
+		t.Fatalf("expected colored PUT/PATCH method, got %q", got)
+	}
+	if got := colorMethod("GET", console.OutputOptions{ANSI: true}); !strings.Contains(got, "\x1b[") {
+		t.Fatalf("expected colored GET method, got %q", got)
+	}
+	if got := colorRouteURI("/users/{id", console.OutputOptions{ANSI: true}); !strings.Contains(got, "{id") {
+		t.Fatalf("unterminated route parameter was not preserved: %q", got)
+	}
+	if got := rightAlign("x", "longer", 2); got != "x" {
+		t.Fatalf("rightAlign with narrow width = %q, want x", got)
+	}
+	t.Setenv("COLUMNS", "bad")
+	if got := terminalWidth(); got != 80 {
+		t.Fatalf("terminalWidth invalid COLUMNS = %d, want 80", got)
+	}
+	var textOut bytes.Buffer
+	if err := writeRouteListText(&textOut, routes, console.OutputOptions{Quiet: true}); err != nil {
+		t.Fatalf("quiet route list returned error: %v", err)
+	}
+	if textOut.Len() != 0 {
+		t.Fatalf("quiet route list wrote output: %q", textOut.String())
+	}
+	var jsonOut bytes.Buffer
+	if err := writeRouteListJSON(&jsonOut, []route.RouteInfo{{Methods: []string{"GET"}, GinPath: "/fallback"}}); err != nil {
+		t.Fatalf("writeRouteListJSON returned error: %v", err)
+	}
+	if !strings.Contains(jsonOut.String(), `"uri": "/fallback"`) {
+		t.Fatalf("json route list did not use GinPath fallback: %s", jsonOut.String())
+	}
 }
 
 func TestRouteListCommandErrorsWhenLoaderMissingAndRoutesEmpty(t *testing.T) {

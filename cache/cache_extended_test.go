@@ -152,6 +152,29 @@ func TestMemoryStoreCloseIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestRawBytesRejectsUnencodableValues(t *testing.T) {
+	if _, err := rawBytes(make(chan int)); err == nil {
+		t.Fatal("expected rawBytes to reject unencodable values")
+	}
+}
+
+func TestCastIntCoversConfigValueTypes(t *testing.T) {
+	cases := []struct {
+		value any
+		want  int
+	}{
+		{value: int64(12), want: 12},
+		{value: float64(3.9), want: 3},
+		{value: " 7 ", want: 7},
+		{value: struct{}{}, want: 0},
+	}
+	for _, tt := range cases {
+		if got := castInt(tt.value); got != tt.want {
+			t.Fatalf("castInt(%T) = %d, want %d", tt.value, got, tt.want)
+		}
+	}
+}
+
 // TestRedisAddCountersAndPull 使用 miniredis 验证 Redis store 的新增原子操作。
 func TestRedisAddCountersAndPull(t *testing.T) {
 	srv, err := miniredis.Run()

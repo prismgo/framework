@@ -30,6 +30,16 @@ func TestCommandFactoriesReturnsGeneratorCommands(t *testing.T) {
 	}
 }
 
+func TestNewArtifactCommandPanicsForUnknownArtifact(t *testing.T) {
+	defer func() {
+		if recovered := recover(); recovered == nil {
+			t.Fatal("expected unknown artifact to panic")
+		}
+	}()
+
+	_ = NewArtifactCommand(Artifact("unknown"))
+}
+
 func TestStubPublishWritesBuiltInTemplatesAndHonorsForce(t *testing.T) {
 	root := testProjectRoot(t)
 	cmd := NewStubPublishCommand()
@@ -120,6 +130,35 @@ func TestGeneratorUsesProjectStubOverrideAndRejectsUnsafeNames(t *testing.T) {
 	err := cmd.Handle(newMakeContext(cmd, makeInput{args: map[string][]string{"name": {"../Secret"}}}, &bytes.Buffer{}))
 	if err == nil || !strings.Contains(err.Error(), "illegal path") {
 		t.Fatalf("Handle error = %v, want illegal path", err)
+	}
+}
+
+func TestGeneratorStubErrorAndFormatFallbackBranches(t *testing.T) {
+	root := testProjectRoot(t)
+	if err := os.MkdirAll(filepath.Join(root, "stubs"), 0o755); err != nil {
+		t.Fatalf("mkdir stubs: %v", err)
+	}
+
+	if _, err := readBuiltInStub("missing.stub"); err == nil || !strings.Contains(err.Error(), "not available") {
+		t.Fatalf("read missing built-in stub err = %v, want not available", err)
+	}
+
+	cmd := NewArtifactCommand(EventArtifact)
+	if err := os.WriteFile(filepath.Join(root, "stubs", "event.stub"), []byte("{{"), 0o644); err != nil {
+		t.Fatalf("write bad template stub: %v", err)
+	}
+	err := cmd.Handle(newMakeContext(cmd, makeInput{args: map[string][]string{"name": {"BadTemplate"}}}, &bytes.Buffer{}))
+	if err == nil {
+		t.Fatal("expected invalid project stub template to fail")
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "stubs", "event.stub"), []byte("package {{ .PackageName }}\n\nfunc {\n"), 0o644); err != nil {
+		t.Fatalf("write unformatted stub: %v", err)
+	}
+	runMakeCommand(t, cmd, makeInput{args: map[string][]string{"name": {"RawOutput"}}}, &bytes.Buffer{})
+	content := readFile(t, filepath.Join(root, "app", "events", "raw_output.go"))
+	if !strings.Contains(content, "func {") {
+		t.Fatalf("unformatted stub fallback output = %q", content)
 	}
 }
 
@@ -345,6 +384,31 @@ func TestMigrationGeneratorInfersTableIntentAndHonorsPathOptions(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), filepath.ToSlash(matches[0])) {
 		t.Fatalf("output = %q, want full path %q", stdout.String(), matches[0])
+	}
+}
+
+func TestMigrationGeneratorRejectsUnsafeCustomPaths(t *testing.T) {
+	testProjectRoot(t)
+	cmd := NewArtifactCommand(MigrationArtifact)
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{name: "absolute without realpath", path: filepath.Join(string(filepath.Separator), "tmp", "migrations")},
+		{name: "parent traversal", path: "../migrations"},
+		{name: "current directory", path: "."},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			err := cmd.Handle(newMakeContext(cmd, makeInput{
+				args:    map[string][]string{"name": {"create_reports_table"}},
+				options: map[string]string{"path": tt.path},
+			}, &bytes.Buffer{}))
+			if err == nil || !strings.Contains(err.Error(), "illegal path") {
+				t.Fatalf("Handle error = %v, want illegal path", err)
+			}
+		})
 	}
 }
 

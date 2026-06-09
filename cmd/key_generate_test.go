@@ -66,6 +66,15 @@ func TestKeyGenerateWritesEnvAppKeyWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestKeyGenerateEnvPathUsesBasePathWhenProvided(t *testing.T) {
+	basePath := t.TempDir()
+	cmd := NewKeyGenerateCommand("  " + basePath + "  ")
+
+	if got := cmd.envPath(); got != filepath.Join(basePath, ".env") {
+		t.Fatalf("envPath = %q, want .env under provided base path", got)
+	}
+}
+
 func TestKeyGenerateRefusesToOverwriteExistingKeyWithoutForce(t *testing.T) {
 	basePath := t.TempDir()
 	envPath := filepath.Join(basePath, ".env")

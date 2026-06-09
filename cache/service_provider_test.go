@@ -10,6 +10,10 @@ import (
 )
 
 func TestServiceProviderRegistersLazyCacheFactory(t *testing.T) {
+	if got := (ServiceProvider{}).Name(); got != "cache" {
+		t.Fatalf("provider name = %q, want cache", got)
+	}
+
 	registry := container.NewContainer()
 	if err := (ServiceProvider{}).Register(providerTestApp{registry: registry}); err != nil {
 		t.Fatalf("Register failed: %v", err)
@@ -19,6 +23,31 @@ func TestServiceProviderRegistersLazyCacheFactory(t *testing.T) {
 	}
 	if registry.Resolved("cache.manager") {
 		t.Fatal("provider Register should not construct cache manager")
+	}
+}
+
+func TestManagerCloseOptionInstallsManagerCloser(t *testing.T) {
+	var binding containercontract.Binding
+	ManagerCloseOption()(&binding)
+	if binding.Closer == nil {
+		t.Fatal("ManagerCloseOption should install a closer")
+	}
+
+	manager, err := NewManager(Config{Default: "memory", Stores: map[string]StoreConfig{"memory": {Driver: "memory"}}})
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+	if _, err := manager.Store("memory").Get(context.Background(), "missing"); err == nil {
+		t.Fatal("expected missing read to construct repository and return an error")
+	}
+	if len(manager.repositories) == 0 {
+		t.Fatal("expected repository to be constructed before closer runs")
+	}
+	if err := binding.Closer(context.Background(), manager); err != nil {
+		t.Fatalf("manager closer returned error: %v", err)
+	}
+	if len(manager.repositories) != 0 {
+		t.Fatalf("manager closer did not clear repositories: %#v", manager.repositories)
 	}
 }
 
