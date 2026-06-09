@@ -7,9 +7,9 @@
 
 ## 2. CI Support
 
-- [ ] 2.1 Confirm the repository default branch and supported Go versions available in GitHub Actions.
-- [ ] 2.2 Add project-owned local commands, such as `Makefile` targets, if missing.
-- [ ] 2.3 Add lint configuration if required by `golangci-lint-action`.
+- [x] 2.1 Confirm the repository default branch and supported Go versions available in GitHub Actions.
+- [x] 2.2 Add project-owned local commands, such as `Makefile` targets, if missing.
+- [x] 2.3 Add lint configuration if required by `golangci-lint-action`.
 - [ ] 2.4 Add `.github/workflows/gin.yml`-equivalent CI adapted for Prismgo with Ubuntu/macOS, selected Go versions, race testing, and Codecov upload.
 - [ ] 2.5 Ensure the workflow preserves existing `codecov.yml` and does not overwrite unrelated user changes.
 
