@@ -7,6 +7,10 @@ COVERAGE_OUT ?= coverage.out
 test:
 	$(GO) test -v -covermode=count -coverprofile=$(COVERAGE_OUT) $(PACKAGES)
 
+.PHONY: covdata
+covdata:
+	./scripts/coverage.sh $(PACKAGES)
+
 .PHONY: test-race
 test-race:
 	$(GO) test -v -race $(PACKAGES)

@@ -99,6 +99,7 @@ Service providers are responsible for registering components and their lifecycle
 
 - `go test ./...`: run the full Go test suite.
 - `make test`: run verbose tests with count coverage and write `coverage.out`.
+- `make covdata`: run `./scripts/coverage.sh` with `PACKAGES` support and write coverage artifacts under `.coverage/`.
 - `make test-race`: run all tests with the race detector.
 - `make vet`: run `go vet ./...`.
 - `make fmt`: format all Go files with `gofmt`, excluding `./tmp`.
@@ -117,10 +118,10 @@ Add or update colocated `*_test.go` files for behavior changes. Use focused unit
 ### Testing and Coverage
 - Any changes to Go code, go.mod, go.sum, test files, or code generation logic must run tests and compute coverage.
 - Coverage must be collected via the project script, selecting the script based on the OS:
-  - Linux/macOS/Git Bash: `./scripts/coverage.sh`
-  - For narrow-scope validation, you can pass a package path, e.g., `./scripts/coverage.sh ./cache`
+  - Linux/macOS/Git Bash: `make covdata`
+  - For narrow-scope validation, pass `PACKAGES`, e.g., `make covdata PACKAGES=./cache`, or pass a package path to the script, e.g., `./scripts/coverage.sh ./cache`
 - Coverage output is placed in `.coverage/`; Go build cache is fixed to `tmp/gocache` by the script to avoid writing to the user's global cache.
-- Before final delivery, run the appropriate OS script based on the scope of changes, e.g., ./scripts/coverage.sh ./prismgo/cache
+- Before final delivery, run the appropriate OS script based on the scope of changes, e.g., `make covdata PACKAGES=./cache`
 - Required coverage for the changed scope is > `95%`. If not met, additional test code must be added.
 - If full covdata is blocked by existing flaky tests (e.g., timer-sensitive tests), you must rerun the failing package(s) in isolation and explain in the results which tests failed and whether they are related to the current changes. You cannot treat a failed full coverage run as passing.
 

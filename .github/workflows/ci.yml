@@ -77,12 +77,12 @@ jobs:
           if [ "${{ matrix.test-mode }}" = "race" ]; then
             make test-race
           else
-            make test
+            make covdata
           fi
 
       - name: Upload coverage to Codecov
         if: matrix.test-mode == 'normal'
         uses: codecov/codecov-action@v7
         with:
-          files: coverage.out
+          files: .coverage/coverage.out
           flags: ${{ matrix.os }},go-${{ matrix.go }},${{ matrix.test-mode }}
