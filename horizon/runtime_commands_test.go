@@ -624,9 +624,7 @@ func TestMasterContextCancelRequestsGracefulTerminateAndWaits(t *testing.T) {
 		control, err := store.Control(context.Background())
 		return err == nil && !control.TerminateRequestedAt.IsZero() && control.TerminateShouldWait
 	})
-	if !notifier.has("supervisor", 9101) {
-		t.Fatalf("expected cancel path to notify supervisor pid 9101, got %#v", notifier.targets)
-	}
+	waitForTestCondition(t, func() bool { return notifier.has("supervisor", 9101) })
 	select {
 	case err := <-done:
 		t.Fatalf("master returned before supervisor drained: %v", err)

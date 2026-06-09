@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -120,7 +121,7 @@ func TestEventRequestFailedOnPanic(t *testing.T) {
 	engine := gin.New()
 	engine.Use(httpmiddleware.Event(bus))
 	// 在 httpmiddleware.Event 之外再挂一个 recovery，模拟生产中异常处理器的兜底。
-	engine.Use(gin.Recovery())
+	engine.Use(gin.RecoveryWithWriter(io.Discard))
 	engine.GET("/panic", func(c *gin.Context) {
 		panic("boom")
 	})
