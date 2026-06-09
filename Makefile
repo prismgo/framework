@@ -13,7 +13,7 @@ covdata:
 
 .PHONY: test-race
 test-race:
-	$(GO) test -v -race $(PACKAGES)
+	./scripts/test_with_summary.sh $(GO) test -v -race $(PACKAGES)
 
 .PHONY: vet
 vet:
