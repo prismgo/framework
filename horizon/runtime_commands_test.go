@@ -3301,10 +3301,6 @@ func poolTarget(pools []ProcessPoolState, queueName string) int {
 	return 0
 }
 
-func (r *fakeProcessRunner) reset() {
-	r.specs = nil
-}
-
 func waitForTestCondition(t *testing.T, condition func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

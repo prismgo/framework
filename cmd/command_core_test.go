@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -455,35 +454,4 @@ func (i fakeInput) HasOption(name string) bool {
 		return true
 	}
 	return i.bools[name]
-}
-
-func captureStdout(t *testing.T, run func()) string {
-	t.Helper()
-	originalStdout := os.Stdout
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe failed: %v", err)
-	}
-	os.Stdout = writer
-	defer func() {
-		os.Stdout = originalStdout
-	}()
-
-	outputCh := make(chan string, 1)
-	go func() {
-		buffer := &bytes.Buffer{}
-		_, _ = io.Copy(buffer, reader)
-		outputCh <- buffer.String()
-	}()
-
-	run()
-	_ = writer.Close()
-
-	select {
-	case output := <-outputCh:
-		return output
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for captured stdout")
-		return ""
-	}
 }

@@ -243,9 +243,7 @@ func normalizePathSegments(key string, path []string) []string {
 	}
 	if prefix != "" {
 		prefixWithSeparator := prefix + string(filepath.Separator)
-		if strings.HasPrefix(cleaned, prefixWithSeparator) {
-			cleaned = strings.TrimPrefix(cleaned, prefixWithSeparator)
-		}
+		cleaned = strings.TrimPrefix(cleaned, prefixWithSeparator)
 	}
 	path[0] = cleaned
 	return path

@@ -250,13 +250,6 @@ func bindQueueManagerForTest(t *testing.T, manager *Manager) *container.Containe
 	return registry
 }
 
-func bindQueueConfigForTest(t *testing.T, cfg *configpkg.Config) *container.Container {
-	t.Helper()
-	registry := useQueueTestContainer(t)
-	bindQueueConfigInRegistry(t, registry, cfg)
-	return registry
-}
-
 func bindQueueConfigInRegistry(t *testing.T, registry *container.Container, cfg *configpkg.Config) {
 	t.Helper()
 	if err := registry.Instance("config.default", cfg); err != nil {
@@ -391,19 +384,6 @@ func mustQueueEnvelope(t *testing.T, manager *Manager, connection string) *redis
 		t.Fatalf("queue %q type = %T, want *redisqueue.RedisQueue", connection, queueConn)
 	}
 	return redisQueue
-}
-
-func mustPopEnvelope(t *testing.T, queueConn queuecontract.Queue, queueName string) *payload.Envelope {
-	t.Helper()
-	reserved, err := queueConn.Pop(context.Background(), []string{queueName})
-	if err != nil {
-		t.Fatalf("pop envelope: %v", err)
-	}
-	env := reservedEnvelope(reserved)
-	if env == nil {
-		t.Fatalf("reserved job %T did not expose envelope", reserved)
-	}
-	return env
 }
 
 func reservedEnvelope(job queuecontract.ReservedJob) *payload.Envelope {

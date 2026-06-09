@@ -68,10 +68,3 @@ func (j *RedisReservedJob) releaseWithEnvelope(ctx context.Context, env *payload
 	}
 	return j.queue.Later(ctx, env.Queue, queuecontract.Payload(body), delay)
 }
-
-func (j *RedisReservedJob) envelope() *payload.Envelope {
-	if j == nil {
-		return nil
-	}
-	return cloneEnvelope(j.env)
-}

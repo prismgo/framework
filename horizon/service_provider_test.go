@@ -3,7 +3,6 @@ package horizon
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/prismgo/framework/console"
 	"github.com/prismgo/framework/container"
@@ -138,8 +137,4 @@ func (a horizonProviderTestApp) Context() context.Context {
 
 func (a horizonProviderTestApp) Container() containercontract.Container {
 	return a.registry
-}
-
-func testNow() time.Time {
-	return time.Now().UTC()
 }

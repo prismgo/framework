@@ -207,9 +207,6 @@ type collector struct {
 	// 诊断记录（最近 N 条）
 	diags []ObservabilityDiagnostic
 
-	// flush 后保留的上一个窗口数据，用于跨 flush 的窗口完整性
-	pendingFlush *flushSnapshot
-
 	// 内存控制状态（暴露给读模型）
 	memState ObservabilityMemoryState
 

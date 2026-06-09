@@ -758,18 +758,6 @@ func (r *Container) register(key, typeName string, closer func(context.Context, 
 	ent.group = normalizedCloseGroup(group)
 }
 
-func (r *Container) set(key string, value any) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	ent := r.ensureEntryLocked(key)
-	ent.typeName = typeOf(value)
-	ent.registered = true
-	ent.value = value
-	ent.resolved = true
-	ent.version++
-}
-
 func (r *Container) setFactory(key string, factory func() (any, error)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

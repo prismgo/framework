@@ -15,5 +15,3 @@ type MigrationFuncMap = contracts.MigrationFuncMap
 //
 // 示例：`DatabaseSeeder -> seeders.Seed`。
 type SeedFuncMap = contracts.SeedFuncMap
-
-const defaultSeederClass = contracts.DefaultSeederClass

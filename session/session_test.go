@@ -1,7 +1,6 @@
 package session
 
 import (
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -75,14 +74,4 @@ func bindSessionConfigInRegistry(t *testing.T, registry *container.Container, cf
 // 不受当前系统时间影响。
 func testNow() time.Time {
 	return time.Date(2030, 5, 6, 12, 0, 0, 0, time.UTC)
-}
-
-// assertErrorIs 断言错误链包含目标错误。
-//
-// 参数 t 用于报告测试失败；err 是实际错误；target 是期望通过 errors.Is 匹配到的错误哨兵。
-func assertErrorIs(t *testing.T, err error, target error) {
-	t.Helper()
-	if !errors.Is(err, target) {
-		t.Fatalf("error = %v, want %v", err, target)
-	}
 }

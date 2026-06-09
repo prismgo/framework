@@ -195,7 +195,7 @@ func TestManagerStartReturnsLockAcquireError(t *testing.T) {
 		t.Fatalf("NewManager error = %v", err)
 	}
 	id := newSessionID()
-	driver.memoryDriver.payloads[id] = Payload{ID: id, Values: map[string]any{"seed": "value"}, LastActivity: testNow()}
+	driver.payloads[id] = Payload{ID: id, Values: map[string]any{"seed": "value"}, LastActivity: testNow()}
 
 	lock, err := driver.Lock(context.Background(), id, time.Second, 20*time.Millisecond)
 	if err != nil {
@@ -225,7 +225,7 @@ func TestManagerStartReleasesRequestLockWhenPayloadExpired(t *testing.T) {
 	manager.clock = testNow
 	id := newSessionID()
 	expiredAt := testNow().Add(-time.Minute)
-	driver.memoryDriver.payloads[id] = Payload{
+	driver.payloads[id] = Payload{
 		ID:           id,
 		Values:       map[string]any{"seed": "value"},
 		LastActivity: testNow(),

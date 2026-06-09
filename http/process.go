@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/prismgo/framework/exception"
 )
 
 // ProcessManager 管理 HTTP 服务器进程的生命周期。
@@ -211,7 +213,14 @@ func spawnReloadChild(listener net.Listener, executable string, args []string, o
 	if err != nil {
 		return fmt.Errorf("listener file failed: %w", err)
 	}
-	defer listenerFile.Close()
+	defer func() {
+		if err := listenerFile.Close(); err != nil {
+			exception.Report(context.Background(), err, map[string]any{
+				"component": "http",
+				"operation": "reload_listener_file_close",
+			})
+		}
+	}()
 	cmd := exec.Command(executable, args...)
 	cmd.ExtraFiles = []*os.File{listenerFile}
 	cmd.Env = append(os.Environ(), fmt.Sprintf("%s=%d", listenerFDEnv, inheritedFD))

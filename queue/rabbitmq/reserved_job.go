@@ -59,15 +59,3 @@ func (j *RabbitMQReservedJob) Release(ctx context.Context, delay time.Duration) 
 	}
 	return j.queue.inner.Release(ctx, j.env, delay)
 }
-
-func cloneEnvelope(env *payload.Envelope) *payload.Envelope {
-	if env == nil {
-		return nil
-	}
-	cloned := *env
-	cloned.Payload = append([]byte(nil), env.Payload...)
-	cloned.BackoffSec = append([]int(nil), env.BackoffSec...)
-	cloned.Chain = append([]payload.PendingJob(nil), env.Chain...)
-	cloned.Tags = append([]string(nil), env.Tags...)
-	return &cloned
-}

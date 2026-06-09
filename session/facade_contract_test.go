@@ -8,13 +8,6 @@ import (
 	containercontract "github.com/prismgo/framework/contracts/container"
 )
 
-func useIsolatedFacadeRegistry(t *testing.T) {
-	t.Helper()
-	registry := container.NewContainer()
-	container.SetProvider(func() *container.Container { return registry })
-	t.Cleanup(func() { container.SetProvider(nil) })
-}
-
 func TestResolveRequiresCurrentRegistry(t *testing.T) {
 	container.SetProvider(nil)
 	t.Cleanup(func() { container.SetProvider(nil) })

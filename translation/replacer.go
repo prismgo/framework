@@ -17,7 +17,7 @@ func NewReplacer() *Replacer {
 }
 
 func (r *Replacer) Replace(message string, replace map[string]any) string {
-	if replace == nil || len(replace) == 0 {
+	if len(replace) == 0 {
 		return message
 	}
 
