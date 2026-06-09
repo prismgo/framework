@@ -1,0 +1,34 @@
+name: Feature Request
+description: Suggest an improvement for Prismgo.
+labels: ["type/proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check existing issues before opening a new feature request.
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+      description: Describe the feature or behavior you want Prismgo to support.
+      placeholder: I think Prismgo should support...
+    validations:
+      required: true
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: Explain the problem this feature solves and who needs it.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-api
+    attributes:
+      label: Proposed API or Behavior
+      description: Describe the API, command, configuration, or behavior you expect.
+      render: go
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe workarounds or alternative designs you considered.

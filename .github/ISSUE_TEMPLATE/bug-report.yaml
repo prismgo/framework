@@ -1,0 +1,72 @@
+name: Bug Report
+description: Found unexpected behavior in Prismgo? Report it here.
+labels: ["type/bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is a security issue, do not open a public issue.
+        Please report it privately through GitHub Security Advisory.
+  - type: markdown
+    attributes:
+      value: |
+        Before opening a bug report, please check the existing issues and make sure you are using a current Prismgo version or commit.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the problem and include links or context that help explain it.
+    validations:
+      required: true
+  - type: input
+    id: prismgo-version
+    attributes:
+      label: Prismgo Version
+      description: Prismgo version or commit reference.
+      placeholder: v0.0.0 or 5226a82
+    validations:
+      required: true
+  - type: dropdown
+    id: can-reproduce
+    attributes:
+      label: Can you reproduce the bug?
+      description: If yes, include the steps or code in the minimal reproduction field.
+      options:
+        - "Yes"
+        - "No"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal Reproduction
+      description: Provide the smallest code sample, command, or configuration that reproduces the issue.
+      render: go
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: Describe what you expected to happen.
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual Behavior
+      description: Describe what actually happened.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or Error Output
+      description: Paste relevant logs, panic output, or command output.
+      render: shell
+  - type: input
+    id: go-version
+    attributes:
+      label: Go Version
+      description: Output of `go version`.
+      placeholder: go version go1.26.2 linux/amd64
+  - type: input
+    id: os-version
+    attributes:
+      label: Operating System
+      description: OS and architecture used to run Prismgo.
+      placeholder: Ubuntu 24.04 amd64
