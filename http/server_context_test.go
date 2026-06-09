@@ -294,10 +294,10 @@ type contractOnlyDispatcher struct{}
 
 func (contractOnlyDispatcher) Listen(string, event.Listener)                               {}
 func (contractOnlyDispatcher) ListenFunc(string, func(context.Context, event.Event) error) {}
-func (contractOnlyDispatcher) Subscribe(event.Subscriber)                                 {}
-func (contractOnlyDispatcher) Forget(string)                                              {}
-func (contractOnlyDispatcher) Has(string) bool                                            { return false }
-func (contractOnlyDispatcher) Dispatch(context.Context, event.Event)                      {}
+func (contractOnlyDispatcher) Subscribe(event.Subscriber)                                  {}
+func (contractOnlyDispatcher) Forget(string)                                               {}
+func (contractOnlyDispatcher) Has(string) bool                                             { return false }
+func (contractOnlyDispatcher) Dispatch(context.Context, event.Event)                       {}
 
 func TestListenAndServeGracefulContextPanicsWithoutConcreteDispatcher(t *testing.T) {
 	registry := useHTTPTestContainer(t)

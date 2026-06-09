@@ -189,6 +189,19 @@ func TestApplicationServerConfigErrorBranches(t *testing.T) {
 	}
 }
 
+func TestNewApplicationServerPortArgumentOverridesConfig(t *testing.T) {
+	bindHTTPApplicationServerServices(t, nil)
+	server, err := NewApplicationServer("9091", func(engine *gin.Engine, useInternalMiddlewares func(*gin.Engine)) error {
+		return nil
+	}, WithServerConfig(ServerConfig{Port: "8080"}))
+	if err != nil {
+		t.Fatalf("NewApplicationServer returned error: %v", err)
+	}
+	if server.Addr != ":9091" {
+		t.Fatalf("server addr = %q, want :9091", server.Addr)
+	}
+}
+
 func TestParseServerDurationFallsBackOnInvalidValues(t *testing.T) {
 	fallback := 9 * time.Second
 	if got := parseServerDuration("1500ms", fallback); got != 1500*time.Millisecond {
