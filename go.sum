@@ -94,8 +94,8 @@ github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkp
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/eko/gocache/lib/v4 v4.2.3 h1:s78TFqEGAH3SbzP4N40D755JYT/aaGFKEPrsUtC1chU=
 github.com/eko/gocache/lib/v4 v4.2.3/go.mod h1:Zus8mwmaPu1VYOzfomb+Dvx2wV7fT5jDRbHYtQM6MEY=
-github.com/eko/gocache/store/redis/v4 v4.2.3 h1:ZBiVedHVjDUl2dxmXxsSZMo4iJPmEM9I7J/GE5vmC04=
-github.com/eko/gocache/store/redis/v4 v4.2.3/go.mod h1:0PMef3sy4AonKqrxdnUsIKDAMtqNyJI4e6asTo00XrE=
+github.com/eko/gocache/store/redis/v4 v4.2.6 h1:btD3TIFAgujZAsvTEBTaDfNTSAf+GO32il0HQ5MIqCI=
+github.com/eko/gocache/store/redis/v4 v4.2.6/go.mod h1:0PMef3sy4AonKqrxdnUsIKDAMtqNyJI4e6asTo00XrE=
 github.com/envoyproxy/go-control-plane v0.13.5-0.20251024222203-75eaa193e329 h1:K+fnvUM0VZ7ZFJf0n4L/BRlnsb9pL/GuDG6FqaH+PwM=
 github.com/envoyproxy/go-control-plane/envoy v1.36.0 h1:yg/JjO5E7ubRyKX3m07GF3reDNEnfOboJ0QySbH736g=
 github.com/envoyproxy/go-control-plane/envoy v1.36.0/go.mod h1:ty89S1YCCVruQAm9OtKeEkQLTb+Lkz0k8v9W0Oxsv98=
