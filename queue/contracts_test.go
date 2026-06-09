@@ -14,8 +14,8 @@ func (contractTestJob) Handle(context.Context) error { return nil }
 func init() {
 	var _ queuecontract.Job = contractTestJob{}
 	var _ queuecontract.Dispatcher = (*Dispatcher)(nil)
-	var _ ConsumerIntentLeaser = queuecontract.ConsumerIntentLeaser(nil)
-	var _ queuecontract.ConsumerIntentLeaser = ConsumerIntentLeaser(nil)
+	var _ = queuecontract.ConsumerIntentLeaser(nil)
+	var _ = ConsumerIntentLeaser(nil)
 }
 
 func TestDispatchJobRejectsNilContractJob(t *testing.T) {

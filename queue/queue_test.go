@@ -1058,10 +1058,10 @@ func TestManagerRestartErrorAndFallbackBranches(t *testing.T) {
 
 	fallback := newRuntimeBackedManagerForTest("bare", "default", map[string]queuecontract.Queue{"bare": bareQueue{}}, NewMemoryFailedStore(), nil, newTestRegistry())
 	started := time.Now()
-	if err := fallback.RequestRestart(nil); err != nil {
+	if err := fallback.RequestRestart(context.TODO()); err != nil {
 		t.Fatalf("fallback restart: %v", err)
 	}
-	if !fallback.restartRequested(nil, started) {
+	if !fallback.restartRequested(context.TODO(), started) {
 		t.Fatal("expected fallback restart timestamp")
 	}
 	if fallback.restartRequested(context.Background(), time.Now().Add(time.Second)) {
@@ -1884,7 +1884,11 @@ func TestRedisQueueAndStateStoreDirectOperations(t *testing.T) {
 	conn := redisqueue.NewRedisQueueFromClient(client, redisqueue.RedisOptions{Prefix: "", RetryAfter: time.Second, BlockFor: time.Second, FailedTTL: time.Second, Codec: encodingpkg.JSON()})
 	failedStore := redisqueue.NewRedisFailedStoreFromClient(client, redisqueue.RedisOptions{Prefix: "", FailedTTL: time.Second, Codec: encodingpkg.JSON()})
 	batchStore := redisqueue.NewRedisBatchStoreFromClient(client, redisqueue.RedisOptions{Prefix: "", FailedTTL: time.Second, Codec: encodingpkg.JSON()})
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close queue connection: %v", err)
+		}
+	}()
 	if conn.ReadyKey("a") != "queue:queues:a" {
 		t.Fatalf("unexpected default prefix key: %s", conn.ReadyKey("a"))
 	}

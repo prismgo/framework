@@ -195,13 +195,21 @@ func (d *FileDriver) atomicWrite(id string, data []byte) error {
 		return err
 	}
 	tempName := temp.Name()
-	defer os.Remove(tempName)
+	defer func() {
+		if err := os.Remove(tempName); err != nil && !errors.Is(err, os.ErrNotExist) {
+			reportCleanupError(context.Background(), err, "remove_temp_session_file", map[string]any{"path": tempName})
+		}
+	}()
 	if _, err := temp.Write(data); err != nil {
-		_ = temp.Close()
+		if closeErr := temp.Close(); closeErr != nil {
+			reportCleanupError(context.Background(), closeErr, "close_temp_session_file_after_write_error", map[string]any{"path": tempName})
+		}
 		return err
 	}
 	if err := temp.Chmod(sessionFilePerm); err != nil {
-		_ = temp.Close()
+		if closeErr := temp.Close(); closeErr != nil {
+			reportCleanupError(context.Background(), closeErr, "close_temp_session_file_after_chmod_error", map[string]any{"path": tempName})
+		}
 		return err
 	}
 	if err := temp.Close(); err != nil {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/mgutz/ansi"
 	consolecontract "github.com/prismgo/framework/contracts/console"
+	"github.com/prismgo/framework/internal/fmtx"
 	"golang.org/x/term"
 )
 
@@ -149,7 +150,7 @@ func (ioo *terminalIO) Ask(question string, defaultValue ...string) (string, err
 	if len(defaultValue) > 0 && strings.TrimSpace(defaultValue[0]) != "" {
 		prompt += " [default: " + strings.TrimSpace(defaultValue[0]) + "]"
 	}
-	fmt.Fprint(ioo.out, prompt+": ")
+	fmtx.Fprint(ioo.out, prompt+": ")
 	answer, err := ioo.reader.ReadString('\n')
 	if err != nil && err != io.EOF {
 		return "", err
@@ -206,7 +207,7 @@ func (ioo *terminalIO) ChoiceWithOptions(question string, options []string, conf
 		attempts = 1
 	}
 	for index, option := range options {
-		fmt.Fprintf(ioo.out, "%d) %s\n", index+1, option)
+		fmtx.Fprintf(ioo.out, "%d) %s\n", index+1, option)
 	}
 	defaultValue := ""
 	if len(config.Defaults) > 0 {
@@ -250,7 +251,7 @@ func (ioo *terminalIO) NewLine(count ...int) {
 		lines = count[0]
 	}
 	for i := 0; i < lines; i++ {
-		fmt.Fprintln(ioo.out)
+		fmtx.Fprintln(ioo.out)
 	}
 }
 
@@ -296,9 +297,9 @@ func (ioo *terminalIO) Secret(question string) (string, error) {
 	if !ok || !term.IsTerminal(int(file.Fd())) {
 		return ioo.Ask(question)
 	}
-	fmt.Fprint(ioo.out, strings.TrimSpace(question)+": ")
+	fmtx.Fprint(ioo.out, strings.TrimSpace(question)+": ")
 	bytes, err := term.ReadPassword(int(file.Fd()))
-	fmt.Fprintln(ioo.out)
+	fmtx.Fprintln(ioo.out)
 	if err != nil {
 		return "", err
 	}
@@ -308,10 +309,10 @@ func (ioo *terminalIO) Secret(question string) (string, error) {
 func (ioo *terminalIO) Table(headers []string, rows [][]string) error {
 	writer := tabwriter.NewWriter(ioo.out, 0, 0, 2, ' ', 0)
 	if len(headers) > 0 {
-		fmt.Fprintln(writer, strings.Join(headers, "\t"))
+		fmtx.Fprintln(writer, strings.Join(headers, "\t"))
 	}
 	for _, row := range rows {
-		fmt.Fprintln(writer, strings.Join(row, "\t"))
+		fmtx.Fprintln(writer, strings.Join(row, "\t"))
 	}
 	return writer.Flush()
 }
@@ -326,14 +327,14 @@ func (p *simpleProgress) Advance(step int) {
 	}
 	p.current += step
 	if p.total > 0 {
-		fmt.Fprintf(p.out, "\r[%d/%d]", p.current, p.total)
+		fmtx.Fprintf(p.out, "\r[%d/%d]", p.current, p.total)
 		return
 	}
-	fmt.Fprintf(p.out, "\r[%d]", p.current)
+	fmtx.Fprintf(p.out, "\r[%d]", p.current)
 }
 
 func (p *simpleProgress) Finish() {
-	fmt.Fprintln(p.out)
+	fmtx.Fprintln(p.out)
 }
 
 func firstStyle(style ...string) string {
@@ -346,11 +347,11 @@ func firstStyle(style ...string) string {
 func writeLine(writer io.Writer, message string, style string, opts OutputOptions) {
 	if opts.ANSI {
 		if ansiStyle, ok := consoleANSIStyles[style]; ok {
-			fmt.Fprintln(writer, ansi.Color(message, ansiStyle))
+			fmtx.Fprintln(writer, ansi.Color(message, ansiStyle))
 			return
 		}
 	}
-	fmt.Fprintln(writer, message)
+	fmtx.Fprintln(writer, message)
 }
 
 func writeAlert(writer io.Writer, message string, opts OutputOptions) {

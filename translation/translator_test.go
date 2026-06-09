@@ -23,6 +23,17 @@ func bindFacadeTranslator(t *testing.T) {
 	}
 }
 
+func writeTranslationFile(t *testing.T, root string, locale string, group string, content string) {
+	t.Helper()
+	dir := filepath.Join(root, locale)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("create translation dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, group+".json"), []byte(content), 0644); err != nil {
+		t.Fatalf("write translation file: %v", err)
+	}
+}
+
 func TestTranslatorGetBasic(t *testing.T) {
 	loader := NewFileLoader()
 	translator := NewTranslator(loader, "en", "en")
@@ -590,9 +601,7 @@ func TestTranslatorGetMapGroup(t *testing.T) {
 	loader := NewFileLoader()
 
 	langDir := t.TempDir()
-	altDir := filepath.Join(langDir, "en")
-	os.MkdirAll(altDir, 0755)
-	os.WriteFile(filepath.Join(altDir, "messages.json"), []byte(`{"welcome":"Welcome","exit":"Goodbye"}`), 0644)
+	writeTranslationFile(t, langDir, "en", "messages", `{"welcome":"Welcome","exit":"Goodbye"}`)
 
 	loader.AddPath(langDir)
 	translator := NewTranslator(loader, "en", "en")
@@ -614,9 +623,7 @@ func TestTranslatorGetMapSubItem(t *testing.T) {
 	loader := NewFileLoader()
 
 	langDir := t.TempDir()
-	altDir := filepath.Join(langDir, "en")
-	os.MkdirAll(altDir, 0755)
-	os.WriteFile(filepath.Join(altDir, "messages.json"), []byte(`{"auth":{"failed":"Auth failed","throttle":"Too many attempts"}}`), 0644)
+	writeTranslationFile(t, langDir, "en", "messages", `{"auth":{"failed":"Auth failed","throttle":"Too many attempts"}}`)
 
 	loader.AddPath(langDir)
 	translator := NewTranslator(loader, "en", "en")
@@ -648,9 +655,7 @@ func TestTranslatorHasGroupFile(t *testing.T) {
 	loader := NewFileLoader()
 
 	langDir := t.TempDir()
-	altDir := filepath.Join(langDir, "en")
-	os.MkdirAll(altDir, 0755)
-	os.WriteFile(filepath.Join(altDir, "messages.json"), []byte(`{"welcome":"Welcome","exit":"Goodbye"}`), 0644)
+	writeTranslationFile(t, langDir, "en", "messages", `{"welcome":"Welcome","exit":"Goodbye"}`)
 
 	loader.AddPath(langDir)
 	translator := NewTranslator(loader, "en", "en")
@@ -664,9 +669,7 @@ func TestTranslatorHasNestedMap(t *testing.T) {
 	loader := NewFileLoader()
 
 	langDir := t.TempDir()
-	altDir := filepath.Join(langDir, "en")
-	os.MkdirAll(altDir, 0755)
-	os.WriteFile(filepath.Join(altDir, "messages.json"), []byte(`{"auth":{"failed":"Auth failed","throttle":"Too many"}}`), 0644)
+	writeTranslationFile(t, langDir, "en", "messages", `{"auth":{"failed":"Auth failed","throttle":"Too many"}}`)
 
 	loader.AddPath(langDir)
 	translator := NewTranslator(loader, "en", "en")
@@ -804,9 +807,7 @@ func TestFacadeGetMap(t *testing.T) {
 	bindFacadeTranslator(t)
 
 	langDir := t.TempDir()
-	altDir := filepath.Join(langDir, "en")
-	os.MkdirAll(altDir, 0755)
-	os.WriteFile(filepath.Join(altDir, "messages.json"), []byte(`{"welcome":"Welcome","exit":"Goodbye"}`), 0644)
+	writeTranslationFile(t, langDir, "en", "messages", `{"welcome":"Welcome","exit":"Goodbye"}`)
 
 	AddPath(langDir)
 
@@ -1040,9 +1041,7 @@ func TestFileLoaderInvalidJSON(t *testing.T) {
 	loader := NewFileLoader()
 
 	langDir := t.TempDir()
-	altDir := filepath.Join(langDir, "en")
-	os.MkdirAll(altDir, 0755)
-	os.WriteFile(filepath.Join(altDir, "messages.json"), []byte(`{invalid json`), 0644)
+	writeTranslationFile(t, langDir, "en", "messages", `{invalid json`)
 
 	loader.AddPath(langDir)
 

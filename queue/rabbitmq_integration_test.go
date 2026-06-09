@@ -145,13 +145,21 @@ func (f rabbitMQIntegrationFixture) cleanup(t *testing.T) {
 		t.Logf("dial rabbitmq for cleanup: %v", err)
 		return
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close rabbitmq connection: %v", err)
+		}
+	}()
 	ch, err := conn.Channel()
 	if err != nil {
 		t.Logf("open rabbitmq cleanup channel: %v", err)
 		return
 	}
-	defer ch.Close()
+	defer func() {
+		if err := ch.Close(); err != nil {
+			t.Errorf("close rabbitmq channel: %v", err)
+		}
+	}()
 
 	_, _ = ch.QueueDelete(f.queue, false, false, false)
 	_, _ = ch.QueueDelete(f.exchange+"."+f.queue+".delay.0s", false, false, false)

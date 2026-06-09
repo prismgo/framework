@@ -100,7 +100,11 @@ func (r *Repository) PutFileAs(ctx context.Context, dir string, file *multipart.
 	if err != nil {
 		return "", err
 	}
-	defer src.Close()
+	defer func() {
+		if err := src.Close(); err != nil {
+			reportCleanupError(ctx, err, "close_upload_source", map[string]any{"disk": r.name, "key": key})
+		}
+	}()
 
 	put := r.resolvePutOptions(opts...)
 	if put.ContentType == "" {
@@ -154,7 +158,11 @@ func (r *Repository) Download(ctx context.Context, key string, w io.Writer) erro
 	if err != nil {
 		return err
 	}
-	defer rc.Close()
+	defer func() {
+		if closeErr := rc.Close(); closeErr != nil {
+			reportCleanupError(ctx, closeErr, "close_download_reader", map[string]any{"disk": r.name, "key": key})
+		}
+	}()
 	_, err = io.Copy(w, rc)
 	return err
 }
@@ -304,7 +312,11 @@ func (r *Repository) MimeType(ctx context.Context, key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer rc.Close()
+	defer func() {
+		if closeErr := rc.Close(); closeErr != nil {
+			reportCleanupError(ctx, closeErr, "close_mime_type_reader", map[string]any{"disk": r.name, "key": key})
+		}
+	}()
 	buffer := make([]byte, 512)
 	n, err := io.ReadFull(rc, buffer)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
@@ -326,7 +338,11 @@ func (r *Repository) Checksum(ctx context.Context, key string, opts ...ChecksumO
 	if err != nil {
 		return "", err
 	}
-	defer rc.Close()
+	defer func() {
+		if closeErr := rc.Close(); closeErr != nil {
+			reportCleanupError(ctx, closeErr, "close_checksum_reader", map[string]any{"disk": r.name, "key": key})
+		}
+	}()
 	hash := sha256.New()
 	if _, err := io.Copy(hash, rc); err != nil {
 		return "", err

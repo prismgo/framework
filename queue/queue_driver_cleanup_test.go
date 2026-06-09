@@ -674,7 +674,7 @@ func TestManagerQueueReturnsRabbitMQDriverContractQueue(t *testing.T) {
 	if _, ok := queueConn.(*rabbitmqdriver.RabbitMQQueue); !ok {
 		t.Fatalf("rabbitmq queue type = %T, want *rabbitmq.RabbitMQQueue", queueConn)
 	}
-	var _ queuecontract.Queue = queueConn
+	_ = queuecontract.Queue(queueConn)
 	if _, ok := queueConn.(queuecontract.ConsumerIntentLeaser); !ok {
 		t.Fatalf("rabbitmq queue type = %T, want ConsumerIntentLeaser on contract path", queueConn)
 	}

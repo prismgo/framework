@@ -69,7 +69,7 @@ func reportHTTP(h *exception.Handler, c *gin.Context, err error, status int, sta
 	if h == nil || c == nil {
 		return
 	}
-	reportErr, statusMessage := reportErrorForStatus(err, status)
+	statusMessage, reportErr := reportErrorForStatus(err, status)
 	if !h.ShouldReport(reportErr, status) {
 		return
 	}
@@ -111,9 +111,9 @@ func reportHTTP(h *exception.Handler, c *gin.Context, err error, status int, sta
 	h.Report(c, reportErr, fields)
 }
 
-func reportErrorForStatus(err error, status int) (error, string) {
+func reportErrorForStatus(err error, status int) (string, error) {
 	if err != nil {
-		return err, ""
+		return "", err
 	}
 	message := http.StatusText(status)
 	if message == "" && status >= http.StatusInternalServerError {
@@ -122,5 +122,5 @@ func reportErrorForStatus(err error, status int) (error, string) {
 	if message == "" {
 		message = "http request rejected"
 	}
-	return fmt.Errorf("%s: status %d", message, status), message
+	return message, fmt.Errorf("%s: status %d", message, status)
 }

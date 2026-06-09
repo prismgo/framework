@@ -157,11 +157,7 @@ func (r dispatcherPayloadRegistry) Marshal(job queuecontract.Job) (payload.Paylo
 // ctx 是投递调用链上下文；job 是实现 contracts/queue.Job 的任务；options 是可选的连接、
 // 队列、延迟、重试、退避和超时设置。
 func (d *Dispatcher) DispatchJob(ctx context.Context, job queuecontract.Job, options queuecontract.DispatchOptions) (string, error) {
-	typed, ok := job.(Job)
-	if !ok {
-		return "", fmt.Errorf("queue: contract job does not implement queue.Job")
-	}
-	return d.Dispatch(ctx, typed, dispatchOptionsFromQueueOptions(options)...)
+	return d.Dispatch(ctx, job, dispatchOptionsFromQueueOptions(options)...)
 }
 
 // RequestRestart 代理 worker 重启信号，满足 contracts/queue.Dispatcher。

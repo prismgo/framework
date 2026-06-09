@@ -1,6 +1,7 @@
 package rabbitmq
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -65,17 +66,17 @@ func (c *Connection) ensurePluginDelayTopology(queue string) error {
 		}
 		channel, err := c.ensureTopologyChannel()
 		if err != nil {
-			c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, delayedExchange, 0, err)
+			c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, delayedExchange, 0, err)
 			return err
 		}
 		if err := channel.ExchangeDeclarePassive(delayedExchange, "x-delayed-message", c.options.ExchangeDurable, c.options.AutoDelete, false, c.options.NoWait, amqp.Table{"x-delayed-type": c.options.ExchangeType}); err != nil {
 			wrapped := fmt.Errorf("queue: rabbitmq delay topology: %w: exchange %q: %v", ErrRabbitMQTopologyMissing, delayedExchange, err)
 			_ = c.resetTopologyChannel()
-			c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, delayedExchange, 0, wrapped)
+			c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, delayedExchange, 0, wrapped)
 			return wrapped
 		}
 		c.markTopologyVerified(key)
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclared, queue, delayedExchange, 0, nil)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclared, queue, delayedExchange, 0, nil)
 		return nil
 	}
 
@@ -88,19 +89,19 @@ func (c *Connection) ensurePluginDelayTopology(queue string) error {
 	}
 	channel, err := c.ensureTopologyChannel()
 	if err != nil {
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, delayedExchange, 0, err)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, delayedExchange, 0, err)
 		return err
 	}
 	if err := channel.ExchangeDeclare(delayedExchange, "x-delayed-message", c.options.ExchangeDurable, c.options.AutoDelete, false, c.options.NoWait, amqp.Table{"x-delayed-type": c.options.ExchangeType}); err != nil {
 		wrapped := fmt.Errorf("queue: rabbitmq delay topology: declare delayed exchange %q: %w", delayedExchange, err)
 		_ = c.resetTopologyChannel()
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, delayedExchange, 0, wrapped)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, delayedExchange, 0, wrapped)
 		return wrapped
 	}
 	if err := channel.QueueBind(queue, queue, delayedExchange, c.options.NoWait, nil); err != nil {
 		wrapped := fmt.Errorf("queue: rabbitmq delay topology: bind queue %q to delayed exchange %q: %w", queue, delayedExchange, err)
 		_ = c.resetTopologyChannel()
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, delayedExchange, 0, wrapped)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, delayedExchange, 0, wrapped)
 		return wrapped
 	}
 	c.mu.Lock()
@@ -111,7 +112,7 @@ func (c *Connection) ensurePluginDelayTopology(queue string) error {
 	c.markTopologyUsageLocked(rabbitMQPluginDelayCacheKey(queue), c.topologyCacheNow())
 	c.mu.Unlock()
 	c.pruneTopologyCacheCapacity()
-	c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclared, queue, delayedExchange, 0, nil)
+	c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclared, queue, delayedExchange, 0, nil)
 	return nil
 }
 
@@ -130,7 +131,7 @@ func (c *Connection) ensureTTLDLXDelayTopology(queue, delayQueue string, bucket 
 		}
 		channel, err := c.ensureTopologyChannel()
 		if err != nil {
-			c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, delayQueue, c.options.Exchange, 0, err)
+			c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, delayQueue, c.options.Exchange, 0, err)
 			return err
 		}
 		expectedArgs := amqp.Table{
@@ -141,11 +142,11 @@ func (c *Connection) ensureTTLDLXDelayTopology(queue, delayQueue string, bucket 
 		if _, err := channel.QueueDeclarePassive(delayQueue, c.options.QueueDurable, c.options.AutoDelete, c.options.Exclusive, c.options.NoWait, expectedArgs); err != nil {
 			wrapped := fmt.Errorf("%w: queue %q: %v", ErrRabbitMQTopologyMissing, delayQueue, err)
 			_ = c.resetTopologyChannel()
-			c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, delayQueue, c.options.Exchange, 0, wrapped)
+			c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, delayQueue, c.options.Exchange, 0, wrapped)
 			return wrapped
 		}
 		c.markTopologyVerified(key)
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclared, delayQueue, c.options.Exchange, 0, nil)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclared, delayQueue, c.options.Exchange, 0, nil)
 		return nil
 	}
 
@@ -158,7 +159,7 @@ func (c *Connection) ensureTTLDLXDelayTopology(queue, delayQueue string, bucket 
 	}
 	channel, err := c.ensureTopologyChannel()
 	if err != nil {
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, delayQueue, c.options.Exchange, 0, err)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, delayQueue, c.options.Exchange, 0, err)
 		return err
 	}
 	args := amqp.Table{
@@ -169,13 +170,13 @@ func (c *Connection) ensureTTLDLXDelayTopology(queue, delayQueue string, bucket 
 	if _, err := channel.QueueDeclare(delayQueue, c.options.QueueDurable, c.options.AutoDelete, c.options.Exclusive, c.options.NoWait, args); err != nil {
 		wrapped := fmt.Errorf("queue: rabbitmq delay topology: declare ttl delay queue %q: %w", delayQueue, err)
 		_ = c.resetTopologyChannel()
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, delayQueue, c.options.Exchange, 0, wrapped)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, delayQueue, c.options.Exchange, 0, wrapped)
 		return wrapped
 	}
 	if err := channel.QueueBind(delayQueue, delayQueue, c.options.Exchange, c.options.NoWait, nil); err != nil {
 		wrapped := fmt.Errorf("queue: rabbitmq delay topology: bind ttl delay queue %q: %w", delayQueue, err)
 		_ = c.resetTopologyChannel()
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, delayQueue, c.options.Exchange, 0, wrapped)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, delayQueue, c.options.Exchange, 0, wrapped)
 		return wrapped
 	}
 	c.mu.Lock()
@@ -186,7 +187,7 @@ func (c *Connection) ensureTTLDLXDelayTopology(queue, delayQueue string, bucket 
 	c.markTopologyUsageLocked(rabbitMQTTLDLXDelayCacheKey(delayQueue, queue), c.topologyCacheNow())
 	c.mu.Unlock()
 	c.pruneTopologyCacheCapacity()
-	c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclared, delayQueue, c.options.Exchange, 0, nil)
+	c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclared, delayQueue, c.options.Exchange, 0, nil)
 	return nil
 }
 
@@ -209,22 +210,22 @@ func (c *Connection) ensureQueueTopology(queue string) error {
 	}
 	channel, err := c.ensureTopologyChannel()
 	if err != nil {
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, err)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, err)
 		return err
 	}
 	if err := channel.ExchangeDeclare(c.options.Exchange, c.options.ExchangeType, c.options.ExchangeDurable, c.options.AutoDelete, false, c.options.NoWait, nil); err != nil {
 		_ = c.resetTopologyChannel()
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, err)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, err)
 		return err
 	}
 	if _, err := channel.QueueDeclare(queue, c.options.QueueDurable, c.options.AutoDelete, c.options.Exclusive, c.options.NoWait, c.queueDeclareArgs()); err != nil {
 		_ = c.resetTopologyChannel()
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, err)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, err)
 		return err
 	}
 	if err := channel.QueueBind(queue, queue, c.options.Exchange, c.options.NoWait, nil); err != nil {
 		_ = c.resetTopologyChannel()
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, err)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, err)
 		return err
 	}
 	c.mu.Lock()
@@ -235,7 +236,7 @@ func (c *Connection) ensureQueueTopology(queue string) error {
 	c.markTopologyUsageLocked(rabbitMQDeclaredQueueCacheKey(queue), c.topologyCacheNow())
 	c.mu.Unlock()
 	c.pruneTopologyCacheCapacity()
-	c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclared, queue, c.options.Exchange, 0, nil)
+	c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclared, queue, c.options.Exchange, 0, nil)
 	return nil
 }
 
@@ -256,14 +257,14 @@ func (c *Connection) ensureExistingQueueTopology(queue string) error {
 	}
 	channel, err := c.ensureTopologyChannel()
 	if err != nil {
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, err)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, err)
 		return err
 	}
 	if !c.isTopologyVerified(exchangeKey) {
 		if err := channel.ExchangeDeclarePassive(c.options.Exchange, c.options.ExchangeType, c.options.ExchangeDurable, c.options.AutoDelete, false, c.options.NoWait, nil); err != nil {
 			wrapped := fmt.Errorf("%w: exchange %q: %v", ErrRabbitMQTopologyMissing, c.options.Exchange, err)
 			_ = c.resetTopologyChannel()
-			c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, wrapped)
+			c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, wrapped)
 			return wrapped
 		}
 		c.markTopologyVerified(exchangeKey)
@@ -275,12 +276,12 @@ func (c *Connection) ensureExistingQueueTopology(queue string) error {
 	if _, err := channel.QueueDeclarePassive(queue, c.options.QueueDurable, c.options.AutoDelete, c.options.Exclusive, c.options.NoWait, c.queueDeclareArgs()); err != nil {
 		wrapped := fmt.Errorf("%w: queue %q: %v", ErrRabbitMQTopologyMissing, queue, err)
 		_ = c.resetTopologyChannel()
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, wrapped)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, wrapped)
 		return wrapped
 	}
 	c.markTopologyVerified(queueKey)
 	c.pruneTopologyCacheCapacity()
-	c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclared, queue, c.options.Exchange, 0, nil)
+	c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclared, queue, c.options.Exchange, 0, nil)
 	return nil
 }
 
@@ -301,13 +302,13 @@ func (c *Connection) ensureExistingExchangeTopologyLocked(queue string) error {
 	}
 	channel, err := c.ensureTopologyChannel()
 	if err != nil {
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, err)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, err)
 		return err
 	}
 	if err := channel.ExchangeDeclarePassive(c.options.Exchange, c.options.ExchangeType, c.options.ExchangeDurable, c.options.AutoDelete, false, c.options.NoWait, nil); err != nil {
 		wrapped := fmt.Errorf("%w: exchange %q: %v", ErrRabbitMQTopologyMissing, c.options.Exchange, err)
 		_ = c.resetTopologyChannel()
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, wrapped)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, wrapped)
 		return wrapped
 	}
 	c.markTopologyVerified(key)

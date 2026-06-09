@@ -67,7 +67,9 @@ func (c applicationRunnerCommand) Handle(console.CommandContext) error {
 func TestApplicationRunContextBootsRunsAndCloses(t *testing.T) {
 	app := NewApplication()
 	provider := &lifecycleProvider{}
-	app.RegisterProvider(provider)
+	if err := app.RegisterProvider(provider); err != nil {
+		t.Fatalf("RegisterProvider error = %v", err)
+	}
 
 	cleanups := 0
 	app.RegisterCleanup(func(app *Application) error {
@@ -214,7 +216,9 @@ func TestApplicationRunContextJoinsBootAndCloseErrors(t *testing.T) {
 	app := NewApplication()
 	bootErr := errors.New("boot failed")
 	closeErr := errors.New("close failed")
-	app.RegisterProvider(bootFailingProvider{err: bootErr})
+	if err := app.RegisterProvider(bootFailingProvider{err: bootErr}); err != nil {
+		t.Fatalf("RegisterProvider error = %v", err)
+	}
 	cleanups := 0
 	app.RegisterCleanup(func(_ *Application) error {
 		cleanups++

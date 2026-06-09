@@ -389,9 +389,7 @@ func (f *flusher) shutdownFlush() {
 	now := f.currentTime()
 
 	// 给 collector 一点时间排空 buffer
-	select {
-	case <-time.After(100 * time.Millisecond):
-	}
+	<-time.After(100 * time.Millisecond)
 
 	// shutdown 不能复用已取消的运行 context；独立 deadline 允许 best-effort 写入完成或明确超时。
 	stopCtx, cancel := context.WithTimeout(context.Background(), f.cfg.FlushTimeout)

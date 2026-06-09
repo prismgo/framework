@@ -77,7 +77,9 @@ func (d *localDriver) Open(ctx context.Context, key string) (io.ReadCloser, File
 	}
 	info, err := d.Stat(ctx, key)
 	if err != nil {
-		reader.Close()
+		if closeErr := reader.Close(); closeErr != nil {
+			reportCleanupError(ctx, closeErr, "close_local_reader_after_stat_error", map[string]any{"key": key})
+		}
 		return nil, FileInfo{}, err
 	}
 	info.ContentType = reader.ContentType()

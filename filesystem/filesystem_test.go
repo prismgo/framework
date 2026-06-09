@@ -620,7 +620,11 @@ func TestRepositoryWithFakeDriver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStream failed: %v", err)
 	}
-	defer stream.Close()
+	defer func() {
+		if err := stream.Close(); err != nil {
+			t.Errorf("close stream: %v", err)
+		}
+	}()
 	streamData, _ := io.ReadAll(stream)
 	if string(streamData) != "hello world" || info.Size == 0 {
 		t.Fatalf("unexpected stream content/info: %s / %+v", string(streamData), info)

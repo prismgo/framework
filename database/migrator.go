@@ -36,7 +36,7 @@ func ManagedTableNames(db *gorm.DB, models []any) ([]string, error) {
 // EnsureInnoDB 将所有受管 MySQL 表强制切换为 InnoDB 引擎。非 MySQL dialect 直接跳过。
 // GORM AutoMigrate 无法改变已有表的 ENGINE，因此需要此辅助完成引擎切换。
 func EnsureInnoDB(db *gorm.DB, models []any) error {
-	if TableOptions(db.Dialector.Name()) == "" {
+	if TableOptions(db.Name()) == "" {
 		return nil
 	}
 	names, err := ManagedTableNames(db, models)
@@ -90,7 +90,7 @@ type CompositeIndex struct {
 // EnsureCompositeIndexes 为 MySQL 和 SQLite 创建普通联合索引（幂等）。
 // 其它 dialect 会被直接忽略，便于在测试环境（如 sqlite）下平滑运行。
 func EnsureCompositeIndexes(db *gorm.DB, indexes []CompositeIndex) error {
-	dialect := strings.ToLower(strings.TrimSpace(db.Dialector.Name()))
+	dialect := strings.ToLower(strings.TrimSpace(db.Name()))
 	switch dialect {
 	case "mysql":
 		for _, idx := range indexes {
@@ -126,7 +126,7 @@ func EnsureCompositeIndexes(db *gorm.DB, indexes []CompositeIndex) error {
 // EnsureCompositeUniqueIndexes 为 MySQL 和 SQLite 创建联合唯一索引（幂等）。
 // 其它 dialect 会被直接忽略，便于在测试环境（如 sqlite）下平滑运行。
 func EnsureCompositeUniqueIndexes(db *gorm.DB, indexes []CompositeUniqueIndex) error {
-	dialect := strings.ToLower(strings.TrimSpace(db.Dialector.Name()))
+	dialect := strings.ToLower(strings.TrimSpace(db.Name()))
 	switch dialect {
 	case "mysql":
 		for _, idx := range indexes {
@@ -170,7 +170,7 @@ type DropIndex struct {
 
 // DropObsoleteIndexes 删除废弃索引（幂等）。仅在 MySQL 下执行，SQLite 跳过（测试库每次重建无需清理）。
 func DropObsoleteIndexes(db *gorm.DB, indexes []DropIndex) error {
-	if TableOptions(db.Dialector.Name()) == "" {
+	if TableOptions(db.Name()) == "" {
 		return nil
 	}
 	for _, idx := range indexes {

@@ -36,14 +36,22 @@ func TestFileDriverDifferentSessionLocksDoNotBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Lock error = %v", err)
 	}
-	defer first.Release(ctx)
+	defer func() {
+		if err := first.Release(ctx); err != nil {
+			t.Errorf("release first lock: %v", err)
+		}
+	}()
 
 	started := time.Now()
 	second, err := driver.Lock(ctx, newSessionID(), time.Second, 200*time.Millisecond)
 	if err != nil {
 		t.Fatalf("different ID Lock error = %v", err)
 	}
-	defer second.Release(ctx)
+	defer func() {
+		if err := second.Release(ctx); err != nil {
+			t.Errorf("release second lock: %v", err)
+		}
+	}()
 	if time.Since(started) > 100*time.Millisecond {
 		t.Fatalf("different session ID lock waited too long")
 	}
@@ -193,7 +201,11 @@ func TestManagerStartReturnsLockAcquireError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed Lock error = %v", err)
 	}
-	defer lock.Release(context.Background())
+	defer func() {
+		if err := lock.Release(context.Background()); err != nil {
+			t.Errorf("release lock: %v", err)
+		}
+	}()
 
 	if _, err := manager.Start(context.Background(), testRequest(t, &http.Cookie{
 		Name:  manager.cfg.Cookie.Name,

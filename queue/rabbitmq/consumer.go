@@ -67,7 +67,7 @@ func (c *Connection) ensureQueueConsumer(queue string) error {
 	c.consumers[queue] = deliveries
 	c.consumerTags[queue] = tag
 	c.mu.Unlock()
-	c.emitInfrastructureEvent(nil, queueevents.EventConsumerStarted, queue, c.options.Exchange, 0, nil)
+	c.emitInfrastructureEvent(context.TODO(), queueevents.EventConsumerStarted, queue, c.options.Exchange, 0, nil)
 	return nil
 }
 
@@ -189,7 +189,7 @@ func (c *Connection) releaseConsumerIntent(queue string) error {
 	}
 	if err := channel.Cancel(tag, c.options.NoWait); err != nil {
 		wrapped := fmt.Errorf("queue: rabbitmq stop consumer %q: %w", queue, err)
-		c.emitInfrastructureEvent(nil, queueevents.EventConsumerStopFailed, queue, c.options.Exchange, 0, wrapped)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventConsumerStopFailed, queue, c.options.Exchange, 0, wrapped)
 		return wrapped
 	}
 	c.finishConsumerIntentRelease(queue, tag, nil, true)
@@ -265,7 +265,7 @@ func (c *Connection) finishConsumerIntentRelease(queue, tag string, _ error, sto
 	}
 	c.mu.Unlock()
 	if stopped {
-		c.emitInfrastructureEvent(nil, queueevents.EventConsumerStopped, queue, c.options.Exchange, 0, nil)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventConsumerStopped, queue, c.options.Exchange, 0, nil)
 	}
 }
 
@@ -477,6 +477,6 @@ func (c *Connection) dropConsumer(queue string) {
 	delete(c.consumerTags, queue)
 	c.mu.Unlock()
 	if existed {
-		c.emitInfrastructureEvent(nil, queueevents.EventConsumerStopped, queue, c.options.Exchange, 0, nil)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventConsumerStopped, queue, c.options.Exchange, 0, nil)
 	}
 }

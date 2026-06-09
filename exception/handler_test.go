@@ -733,7 +733,7 @@ func TestReportPassesOriginalBizErrorToReporter(t *testing.T) {
 		WithContext(map[string]any{"field": "value"}).
 		WithFields(map[string]any{"scope": "reporter"})
 	cause := errors.New("db connection refused")
-	biz.WithCause(cause)
+	biz = biz.WithCause(cause)
 
 	var capturedErr error
 	var capturedFields map[string]any

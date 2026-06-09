@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/prismgo/framework/console"
+	"github.com/prismgo/framework/internal/fmtx"
 	"github.com/prismgo/framework/route"
 )
 
@@ -163,15 +164,15 @@ func writeRouteListText(out io.Writer, routes []route.RouteInfo, opts console.Ou
 	if opts.Quiet || opts.Silent {
 		return nil
 	}
-	fmt.Fprintln(out)
+	fmtx.Fprintln(out)
 	width := terminalWidth()
 	for _, info := range routes {
 		line := routeListLine(info, width, opts)
-		fmt.Fprintln(out, line)
+		fmtx.Fprintln(out, line)
 	}
-	fmt.Fprintln(out)
+	fmtx.Fprintln(out)
 	count := fmt.Sprintf("Showing [%d] routes", len(routes))
-	fmt.Fprintln(out, rightAlign(console.Styled(count, console.StyleBlueBold, opts), count, width))
+	fmtx.Fprintln(out, rightAlign(console.Styled(count, console.StyleBlueBold, opts), count, width))
 	return nil
 }
 

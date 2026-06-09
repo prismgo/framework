@@ -151,10 +151,20 @@ func TestBuilderStoresHTTPRoutesOnApplicationRuntimeRegistry(t *testing.T) {
 		})
 	}).Create()
 
-	defer second.Close()
-	defer first.Close()
+	defer func() {
+		if err := second.Close(); err != nil {
+			t.Errorf("close second app: %v", err)
+		}
+	}()
+	defer func() {
+		if err := first.Close(); err != nil {
+			t.Errorf("close first app: %v", err)
+		}
+	}()
 
-	second.Boot()
+	if err := second.Boot(); err != nil {
+		t.Fatalf("second Boot error = %v", err)
+	}
 
 	server, err := second.runtime.NewHTTPServer(context.Background(), "8080")
 	if err != nil {
@@ -168,7 +178,9 @@ func TestBuilderStoresHTTPRoutesOnApplicationRuntimeRegistry(t *testing.T) {
 		t.Fatalf("GET /first = %d, want 404", response.Code)
 	}
 
-	first.Boot()
+	if err := first.Boot(); err != nil {
+		t.Fatalf("first Boot error = %v", err)
+	}
 
 	server, err = first.runtime.NewHTTPServer(context.Background(), "8080")
 	if err != nil {

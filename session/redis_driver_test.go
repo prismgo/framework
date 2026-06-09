@@ -89,7 +89,9 @@ func TestRedisDriverReadErrorsAreRecoverableAndDestroyIsIdempotent(t *testing.T)
 	if _, err := driver.Read(context.Background(), id); !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("missing read error = %v", err)
 	}
-	server.Set("prismgo_session:sessions:"+id, "{bad payload")
+	if err := server.Set("prismgo_session:sessions:"+id, "{bad payload"); err != nil {
+		t.Fatalf("seed redis session: %v", err)
+	}
 	if _, err := driver.Read(context.Background(), id); !errors.Is(err, ErrPayloadDeserialize) {
 		t.Fatalf("malformed read error = %v", err)
 	}
@@ -120,7 +122,9 @@ func TestRedisDriverRejectsMismatchedExpiredAndInvalidPayloads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode expired fixture error = %v", err)
 	}
-	server.Set("prismgo_session:sessions:"+id, string(raw))
+	if err := server.Set("prismgo_session:sessions:"+id, string(raw)); err != nil {
+		t.Fatalf("seed redis session: %v", err)
+	}
 	if _, err := driver.Read(context.Background(), id); !errors.Is(err, ErrSessionExpired) {
 		t.Fatalf("expired read error = %v", err)
 	}
@@ -163,7 +167,9 @@ func TestRedisDriverEncryptionCloseAndErrorBranches(t *testing.T) {
 func TestRedisDriverMalformedEncryptedAndLockBranches(t *testing.T) {
 	server, driver := newTestRedisDriver(t, Config{Encrypt: true, Encryptor: prefixEncryptor{}})
 	id := newSessionID()
-	server.Set("prismgo_session:sessions:"+id, "not encrypted")
+	if err := server.Set("prismgo_session:sessions:"+id, "not encrypted"); err != nil {
+		t.Fatalf("seed redis session: %v", err)
+	}
 	if _, err := driver.Read(context.Background(), id); !errors.Is(err, ErrDecryptionFailed) {
 		t.Fatalf("encrypted malformed read error = %v", err)
 	}

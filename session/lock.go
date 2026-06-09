@@ -71,7 +71,9 @@ func (m *fileLockManager) removeStale(path string, ttl time.Duration) {
 		return
 	}
 	if time.Since(info.ModTime()) > ttl {
-		_ = os.Remove(path)
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			reportCleanupError(context.Background(), removeErr, "remove_stale_lock_file", map[string]any{"path": path})
+		}
 	}
 }
 
@@ -81,12 +83,18 @@ func tryCreateLockFile(path string, token string) (*fileLock, error) {
 		return nil, err
 	}
 	if _, err := file.WriteString(token); err != nil {
-		_ = file.Close()
-		_ = os.Remove(path)
+		if closeErr := file.Close(); closeErr != nil {
+			reportCleanupError(context.Background(), closeErr, "close_lock_file_after_write_error", map[string]any{"path": path})
+		}
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			reportCleanupError(context.Background(), removeErr, "remove_lock_file_after_write_error", map[string]any{"path": path})
+		}
 		return nil, err
 	}
 	if err := file.Close(); err != nil {
-		_ = os.Remove(path)
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			reportCleanupError(context.Background(), removeErr, "remove_lock_file_after_close_error", map[string]any{"path": path})
+		}
 		return nil, err
 	}
 	return &fileLock{path: path, token: token, held: true}, nil

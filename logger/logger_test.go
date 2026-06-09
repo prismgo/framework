@@ -508,7 +508,7 @@ func TestWithContextNilAndEmptyExtractorAreNoops(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = m.Close() })
 
-	m.Default().WithContext(nil).Info("nil context")
+	m.Default().WithContext(context.TODO()).Info("nil context")
 
 	row := readFirstJSONLogRow(t, path)
 	if _, ok := row["request_id"]; ok {

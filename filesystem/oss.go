@@ -80,7 +80,11 @@ func (d *ossDriver) ReadAll(ctx context.Context, key string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer func() {
+		if err := rc.Close(); err != nil {
+			reportCleanupError(ctx, err, "close_oss_reader", map[string]any{"key": key})
+		}
+	}()
 	return io.ReadAll(rc)
 }
 

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/prismgo/framework/event"
+	"github.com/prismgo/framework/internal/fmtx"
 )
 
 // ---------------------------------------------------------------------------
@@ -45,7 +46,7 @@ func TestMain(m *testing.M) {
 func runReloadChild() {
 	listener, err := InheritedListener()
 	if err != nil || listener == nil {
-		fmt.Fprintf(os.Stderr, "reload child: inherited listener failed: %v\n", err)
+		fmtx.Fprintf(os.Stderr, "reload child: inherited listener failed: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -204,7 +205,11 @@ func TestWatchReloadSignalContextCancellationCleansUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen failed: %v", err)
 	}
-	defer listener.Close()
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cleanup := WatchReloadSignal(ctx, listener, "/bin/true", nil, nil)
@@ -233,7 +238,11 @@ func TestWatchReloadSignalReloadSignalSpawnsChild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen failed: %v", err)
 	}
-	defer listener.Close()
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
 

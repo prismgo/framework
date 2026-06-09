@@ -36,15 +36,15 @@ func TestFacadeReturnsCacheContracts(t *testing.T) {
 		})
 	})
 
-	var factory cachecontract.Factory = Resolve()
+	factory := cachecontract.Factory(Resolve())
 	if factory == nil {
 		t.Fatal("Resolve() = nil, want cache contract factory")
 	}
-	var defaultRepo cachecontract.Repository = Default()
+	defaultRepo := cachecontract.Repository(Default())
 	if defaultRepo == nil {
 		t.Fatal("Default() = nil, want cache contract repository")
 	}
-	var namedRepo cachecontract.Repository = Store("memory")
+	namedRepo := cachecontract.Repository(Store("memory"))
 	if namedRepo == nil {
 		t.Fatal("Store(memory) = nil, want cache contract repository")
 	}

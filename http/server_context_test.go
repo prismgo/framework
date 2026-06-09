@@ -124,7 +124,11 @@ func TestListenAndServeGracefulContextListenErrorReturnsImmediately(t *testing.T
 	if err != nil {
 		t.Fatalf("reserve port failed: %v", err)
 	}
-	defer listener.Close()
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	}()
 
 	server := &http.Server{
 		Addr:    listener.Addr().String(),

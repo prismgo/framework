@@ -285,7 +285,9 @@ func TestApplicationCloseContextDispatchesEventsWithLiveContext(t *testing.T) {
 func TestApplicationBootDispatchesProviderLifecycleEventsInOrder(t *testing.T) {
 	app := NewApplication()
 	provider := &testProvider{}
-	app.RegisterProvider(provider)
+	if err := app.RegisterProvider(provider); err != nil {
+		t.Fatalf("RegisterProvider error = %v", err)
+	}
 	wantName := "foundation.testProvider"
 
 	var mu sync.Mutex
@@ -440,7 +442,9 @@ func TestApplicationShutdownReasonDefaultsWhenActive(t *testing.T) {
 func TestApplicationNilAndFallbackBranches(t *testing.T) {
 	app := NewApplication()
 	app.RegisterCleanup(nil)
-	app.RegisterProvider(nil)
+	if err := app.RegisterProvider(nil); err != nil {
+		t.Fatalf("RegisterProvider error = %v", err)
+	}
 
 	if got := (*Application)(nil).Context(); got == nil {
 		t.Fatal("nil application Context should return background context")

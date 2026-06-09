@@ -68,16 +68,26 @@ func (m *Manager) Start(ctx context.Context, r *http.Request, w http.ResponseWri
 	payload, err = m.driver.Read(ctx, id)
 	if err != nil {
 		if recoverableReadError(err) {
-			_ = m.driver.Destroy(ctx, id)
-			_ = releaseLock(ctx, lock)
+			if destroyErr := m.driver.Destroy(ctx, id); destroyErr != nil {
+				reportCleanupError(ctx, destroyErr, "destroy_recoverable_session", map[string]any{"session_id": id})
+			}
+			if releaseErr := releaseLock(ctx, lock); releaseErr != nil {
+				reportCleanupError(ctx, releaseErr, "release_session_lock_after_recoverable_read_error", map[string]any{"session_id": id})
+			}
 			return newStore(m, Payload{}, w), nil
 		}
-		_ = releaseLock(ctx, lock)
+		if releaseErr := releaseLock(ctx, lock); releaseErr != nil {
+			reportCleanupError(ctx, releaseErr, "release_session_lock_after_read_error", map[string]any{"session_id": id})
+		}
 		return nil, err
 	}
 	if payload.ID != id || m.expired(payload) {
-		_ = m.driver.Destroy(ctx, id)
-		_ = releaseLock(ctx, lock)
+		if destroyErr := m.driver.Destroy(ctx, id); destroyErr != nil {
+			reportCleanupError(ctx, destroyErr, "destroy_expired_session", map[string]any{"session_id": id})
+		}
+		if releaseErr := releaseLock(ctx, lock); releaseErr != nil {
+			reportCleanupError(ctx, releaseErr, "release_session_lock_after_expired_session", map[string]any{"session_id": id})
+		}
 		return newStore(m, Payload{}, w), nil
 	}
 	store := newStore(m, payload, w)
@@ -131,7 +141,11 @@ func (m *Manager) withLock(ctx context.Context, id string, fn func() error) erro
 	if err != nil {
 		return err
 	}
-	defer releaseLock(ctx, lock)
+	defer func() {
+		if releaseErr := releaseLock(ctx, lock); releaseErr != nil {
+			reportCleanupError(ctx, releaseErr, "release_session_lock", map[string]any{"session_id": id})
+		}
+	}()
 	return fn()
 }
 

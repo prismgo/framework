@@ -351,7 +351,11 @@ func TestOSSDriverEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer stream.Close()
+	defer func() {
+		if err := stream.Close(); err != nil {
+			t.Errorf("close stream: %v", err)
+		}
+	}()
 	data, _ := io.ReadAll(stream)
 	if string(data) != "hello oss" || info.ContentType != "text/plain" {
 		t.Fatalf("unexpected Open payload/info: %s / %+v", string(data), info)

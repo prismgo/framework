@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/prismgo/framework/console"
+	"github.com/prismgo/framework/exception"
 	prismhttp "github.com/prismgo/framework/http"
 )
 
@@ -100,7 +101,15 @@ func (c *ServeCommand) startServer(ctx context.Context, port string, io console.
 	if err := pm.SavePID(); err != nil {
 		return fmt.Errorf("save pid failed: %w", err)
 	}
-	defer pm.RemovePID()
+	defer func() {
+		if err := pm.RemovePID(); err != nil {
+			exception.Report(ctx, err, map[string]any{
+				"component": "http",
+				"operation": "remove_pid",
+				"pid_file":  pidFile,
+			})
+		}
+	}()
 
 	listenOptions := make([]prismhttp.ServeOption, 0, 2)
 	if c.inheritedListener != nil {

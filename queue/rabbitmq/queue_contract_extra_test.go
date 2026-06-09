@@ -781,7 +781,7 @@ func TestRabbitMQPoisonAndRestartPublishErrorBranches(t *testing.T) {
 	}
 
 	disabled := newRabbitMQTopologyTestConnection(&rabbitMQTopologyTestChannel{}, Options{Declare: Bool(true), RestartEnabled: Bool(false)})
-	if err := disabled.RequestRestart(nil, time.Time{}); !errors.Is(err, ErrUnsupportedOperation) {
+	if err := disabled.RequestRestart(context.TODO(), time.Time{}); !errors.Is(err, ErrUnsupportedOperation) {
 		t.Fatalf("disabled restart err = %v, want unsupported", err)
 	}
 

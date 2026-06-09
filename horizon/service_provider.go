@@ -121,7 +121,7 @@ func horizonCommandDeclarations() []any {
 	factories := CommandFactories()
 	out := make([]any, 0, len(factories))
 	for _, factory := range factories {
-		var declaration console.CommandFactory = factory
+		declaration := console.CommandFactory(factory)
 		out = append(out, declaration)
 	}
 	return out

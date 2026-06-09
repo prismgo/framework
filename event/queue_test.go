@@ -86,7 +86,11 @@ func TestDispatcherShouldQueueListenerRunsThroughQueueWorker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new queue manager: %v", err)
 	}
-	defer manager.Close()
+	defer func() {
+		if err := manager.Close(); err != nil {
+			t.Errorf("close queue manager: %v", err)
+		}
+	}()
 	UseQueuedDispatcher(queue.NewDispatcher(manager))
 	t.Cleanup(func() { UseQueuedDispatcher(nil) })
 	RegisterEvent[*queuedEvent]()

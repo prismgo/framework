@@ -444,7 +444,9 @@ func TestWorkerHeartbeatTickerRecoversFromPanic(t *testing.T) {
 	}
 
 	// 写入初始 heartbeat（用嵌入的 MemoryStore 直写绕过 panic store 覆盖）
-	store.MemoryStore.HeartbeatWorker(ctx, recorder.state)
+	if err := store.MemoryStore.HeartbeatWorker(ctx, recorder.state); err != nil {
+		t.Fatalf("HeartbeatWorker error = %v", err)
+	}
 
 	// 启动 ticker，第一次 tick 时 heartbeat 会 panic
 	interval := 10 * time.Millisecond

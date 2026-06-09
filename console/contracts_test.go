@@ -28,28 +28,28 @@ var (
 
 func TestDefinitionAliasesContractType(t *testing.T) {
 	definition := Definition{Name: "sample"}
-	var contractDefinition consolecontract.Definition = definition
-	var consoleDefinition Definition = contractDefinition
+	contractDefinition := consolecontract.Definition(definition)
+	consoleDefinition := Definition(contractDefinition)
 	if consoleDefinition.Name != "sample" {
 		t.Fatalf("Definition alias name = %q", consoleDefinition.Name)
 	}
 
 	argument := Argument{Name: "id"}
-	var contractArgument consolecontract.Argument = argument
+	contractArgument := consolecontract.Argument(argument)
 	if contractArgument.Name != "id" {
 		t.Fatalf("Argument alias name = %q", contractArgument.Name)
 	}
 
 	option := Option{Name: "force", ValueMode: OptionValueNone}
-	var contractOption consolecontract.Option = option
+	contractOption := consolecontract.Option(option)
 	if contractOption.ValueMode != consolecontract.OptionValueNone {
 		t.Fatalf("Option alias value mode = %v", contractOption.ValueMode)
 	}
-	var mode consolecontract.OptionValueMode = OptionValueRequired
+	mode := consolecontract.OptionValueMode(OptionValueRequired)
 	if mode != consolecontract.OptionValueRequired {
 		t.Fatalf("OptionValueMode alias = %v", mode)
 	}
-	var optionalMode consolecontract.OptionValueMode = OptionValueOptional
+	optionalMode := consolecontract.OptionValueMode(OptionValueOptional)
 	if optionalMode != consolecontract.OptionValueOptional {
 		t.Fatalf("OptionValueOptional alias = %v", optionalMode)
 	}

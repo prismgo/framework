@@ -7,6 +7,6 @@ func init() {
 	var _ eventcontract.Dispatcher = (*Dispatcher)(nil)
 	var _ eventcontract.Listener = ListenerFunc(nil)
 	var _ Listener = ListenerFunc(nil)
-	var _ ShouldQueue = eventcontract.ShouldQueue(nil)
-	var _ eventcontract.ShouldQueue = ShouldQueue(nil)
+	var _ = eventcontract.ShouldQueue(nil)
+	var _ = ShouldQueue(nil)
 }

@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/prismgo/framework/container"
+	"github.com/prismgo/framework/internal/fmtx"
 )
 
 // Config 是 NewManager 的输入参数，描述整个日志体系的顶层配置。
@@ -112,7 +113,7 @@ func (m *Manager) resolveLocked(name string) Logger {
 	lg, err := m.buildLocked(name, spec)
 	if err != nil {
 		// 构造失败：记录后回退到默认通道（除非自己就是默认通道，此时返回 null 避免递归）。
-		fmt.Fprintf(errWriter(), "logger: build channel %q failed: %v\n", name, err)
+		fmtx.Fprintf(errWriter(), "logger: build channel %q failed: %v\n", name, err)
 		if name == m.defName {
 			lg = m.buildNullFallback()
 		} else {

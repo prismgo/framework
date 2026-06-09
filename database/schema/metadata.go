@@ -1,10 +1,12 @@
 package schema
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
 
+	"github.com/prismgo/framework/exception"
 	"gorm.io/gorm"
 )
 
@@ -531,7 +533,15 @@ func (b *Builder) getSQLiteForeignKeys(db *gorm.DB, table string) ([]ForeignKeyI
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			exception.Report(context.Background(), err, map[string]any{
+				"component": "database",
+				"operation": "close_sqlite_foreign_key_rows",
+				"table":     table,
+			})
+		}
+	}()
 	grouped := map[string]*ForeignKeyInfo{}
 	for rows.Next() {
 		var (

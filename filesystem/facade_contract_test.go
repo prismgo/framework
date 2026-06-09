@@ -19,9 +19,9 @@ func TestContractsCompile(t *testing.T) {
 	manager := newTestManager(t, t.TempDir())
 	t.Cleanup(func() { _ = manager.Close() })
 
-	var defaultDisk fscontract.Repository = manager.Default()
-	var namedDisk fscontract.Repository = manager.Disk("public")
-	var cloudDisk fscontract.Cloud = manager.Cloud()
+	defaultDisk := fscontract.Repository(manager.Default())
+	namedDisk := fscontract.Repository(manager.Disk("public"))
+	cloudDisk := fscontract.Cloud(manager.Cloud())
 
 	if defaultDisk == nil || namedDisk == nil || cloudDisk == nil {
 		t.Fatal("expected contract repositories from manager")
@@ -74,7 +74,7 @@ func TestDefaultDiskResolvesRegisteredFactoryBeforeErrorRepository(t *testing.T)
 	if err := Disk("public").Put(context.Background(), "contract.txt", "ok"); err != nil {
 		t.Fatalf("Disk put via factory manager: %v", err)
 	}
-	var repo fscontract.Repository = Default()
+	repo := fscontract.Repository(Default())
 	if err := repo.Put(context.Background(), "typed-contract.txt", "ok"); err != nil {
 		t.Fatalf("Default contract repository put: %v", err)
 	}

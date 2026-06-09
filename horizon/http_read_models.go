@@ -909,21 +909,7 @@ func batchDetailReadModel(batch BatchSummary) BatchDetailReadModel {
 }
 
 func highValueDetailReadModel(detail HighValueJobDetail) HighValueDetailReadModel {
-	return HighValueDetailReadModel{
-		ID:                  detail.ID,
-		Kind:                detail.Kind,
-		Connection:          detail.Connection,
-		Queue:               detail.Queue,
-		JobID:               detail.JobID,
-		JobName:             detail.JobName,
-		RuntimeMS:           detail.RuntimeMS,
-		ErrorSummary:        detail.ErrorSummary,
-		PoisonDriver:        detail.PoisonDriver,
-		PoisonAction:        detail.PoisonAction,
-		PoisonBodySize:      detail.PoisonBodySize,
-		PoisonBodyTruncated: detail.PoisonBodyTruncated,
-		OccurredAt:          detail.OccurredAt,
-	}
+	return HighValueDetailReadModel(detail)
 }
 
 func highValueDetailReadModels(details []HighValueJobDetail) []HighValueDetailReadModel {

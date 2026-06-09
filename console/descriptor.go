@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/prismgo/framework/internal/fmtx"
 )
 
 // OutputOptions carries user-facing console rendering switches shared by
@@ -115,25 +117,25 @@ func RenderCommandList(out io.Writer, definitions []Definition, opts CommandList
 
 	if opts.Raw {
 		for _, command := range commands {
-			fmt.Fprintf(out, "%s %s\n", command.Name, command.Description)
+			fmtx.Fprintf(out, "%s %s\n", command.Name, command.Description)
 		}
 		return nil
 	}
 	if opts.Short {
 		for _, command := range commands {
-			fmt.Fprintln(out, command.Name)
+			fmtx.Fprintln(out, command.Name)
 		}
 		return nil
 	}
 
 	if strings.TrimSpace(opts.Description) != "" {
-		fmt.Fprintln(out, opts.Description)
-		fmt.Fprintln(out)
+		fmtx.Fprintln(out, opts.Description)
+		fmtx.Fprintln(out)
 	}
-	fmt.Fprintln(out, Styled("Usage:", StyleComment, opts.Output))
-	fmt.Fprintln(out, "  command [options] [arguments]")
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, Styled("Options:", StyleComment, opts.Output))
+	fmtx.Fprintln(out, Styled("Usage:", StyleComment, opts.Output))
+	fmtx.Fprintln(out, "  command [options] [arguments]")
+	fmtx.Fprintln(out)
+	fmtx.Fprintln(out, Styled("Options:", StyleComment, opts.Output))
 	writeOptionLine(out, "-h, --help", "Display help for the given command", opts.Output)
 	writeOptionLine(out, "    --silent", "Do not output any message", opts.Output)
 	writeOptionLine(out, "-q, --quiet", "Only errors are displayed. All other output is suppressed", opts.Output)
@@ -141,8 +143,8 @@ func RenderCommandList(out io.Writer, definitions []Definition, opts CommandList
 	writeOptionLine(out, "    --ansi|--no-ansi", "Force or disable ANSI output", opts.Output)
 	writeOptionLine(out, "-n, --no-interaction", "Do not ask any interactive question", opts.Output)
 	writeOptionLine(out, "-v|vv|vvv, --verbose", "Increase the verbosity of messages", opts.Output)
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, Styled("Available Commands:", StyleComment, opts.Output))
+	fmtx.Fprintln(out)
+	fmtx.Fprintln(out, Styled("Available Commands:", StyleComment, opts.Output))
 	renderCommandGroups(out, groupCommands(commands), opts.Output)
 	return nil
 }
@@ -152,16 +154,16 @@ func renderCommandListMarkdown(out io.Writer, commands []CommandDescriptor, opts
 	if title == "" {
 		title = "Commands"
 	}
-	fmt.Fprintf(out, "# %s\n\n", title)
+	fmtx.Fprintf(out, "# %s\n\n", title)
 	for _, command := range commands {
-		fmt.Fprintf(out, "- `%s`", command.Name)
+		fmtx.Fprintf(out, "- `%s`", command.Name)
 		if command.Description != "" {
-			fmt.Fprintf(out, " - %s", command.Description)
+			fmtx.Fprintf(out, " - %s", command.Description)
 		}
 		if len(command.Aliases) > 0 {
-			fmt.Fprintf(out, " _(aliases: %s)_", strings.Join(command.Aliases, ", "))
+			fmtx.Fprintf(out, " _(aliases: %s)_", strings.Join(command.Aliases, ", "))
 		}
-		fmt.Fprintln(out)
+		fmtx.Fprintln(out)
 	}
 	return nil
 }
@@ -170,7 +172,7 @@ func renderCommandGroups(out io.Writer, groups []commandGroup, opts OutputOption
 	writer := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, group := range groups {
 		if group.Name != "" {
-			fmt.Fprintf(writer, " %s\n", Styled(group.Name, StyleComment, opts))
+			fmtx.Fprintf(writer, " %s\n", Styled(group.Name, StyleComment, opts))
 		}
 		for _, command := range group.Commands {
 			name := command.Name
@@ -178,14 +180,14 @@ func renderCommandGroups(out io.Writer, groups []commandGroup, opts OutputOption
 			if group.Name != "" {
 				indent = "    "
 			}
-			fmt.Fprintf(writer, "%s%s\t%s\n", indent, Styled(name, StyleInfo, opts), commandDescription(command))
+			fmtx.Fprintf(writer, "%s%s\t%s\n", indent, Styled(name, StyleInfo, opts), commandDescription(command))
 		}
 	}
 	_ = writer.Flush()
 }
 
 func writeOptionLine(out io.Writer, synopsis string, description string, opts OutputOptions) {
-	fmt.Fprintf(out, "  %s  %s%s\n", Styled(synopsis, StyleInfo, opts), strings.Repeat(" ", max(0, 22-len(synopsis))), description)
+	fmtx.Fprintf(out, "  %s  %s%s\n", Styled(synopsis, StyleInfo, opts), strings.Repeat(" ", max(0, 22-len(synopsis))), description)
 }
 
 // ArgumentDescriptors 将结构化参数定义转换为 help 可渲染的参数行。

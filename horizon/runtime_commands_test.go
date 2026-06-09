@@ -3781,9 +3781,9 @@ type fakeQueuePopSession struct {
 }
 
 func (s *fakeQueuePopSession) Close() error {
-	s.fakeQueueConnection.mu.Lock()
-	defer s.fakeQueueConnection.mu.Unlock()
-	s.fakeQueueConnection.popSessionCloseCalls++
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.popSessionCloseCalls++
 	return nil
 }
 

@@ -65,7 +65,7 @@ func (h *Handler) reportHTTPTest(c *gin.Context, err error, status int, start ti
 	if c == nil {
 		return
 	}
-	reportErr, statusMessage := reportErrorForStatusTest(err, status)
+	statusMessage, reportErr := reportErrorForStatusTest(err, status)
 	if !h.ShouldReport(reportErr, status) {
 		return
 	}
@@ -107,13 +107,13 @@ func (h *Handler) reportHTTPTest(c *gin.Context, err error, status int, start ti
 	h.Report(c, reportErr, fields)
 }
 
-func reportErrorForStatusTest(err error, status int) (error, string) {
+func reportErrorForStatusTest(err error, status int) (string, error) {
 	if err != nil {
-		return err, ""
+		return "", err
 	}
 	message := "http request rejected"
 	if status >= http.StatusInternalServerError {
 		message = "http request failed"
 	}
-	return fmt.Errorf("%s: status %d", message, status), message
+	return message, fmt.Errorf("%s: status %d", message, status)
 }

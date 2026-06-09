@@ -124,7 +124,7 @@ func dropAllTables(db *gorm.DB) error {
 
 // dropAllViews 按当前数据库方言删除视图。
 func dropAllViews(db *gorm.DB) error {
-	dialect := strings.ToLower(strings.TrimSpace(db.Dialector.Name()))
+	dialect := strings.ToLower(strings.TrimSpace(db.Name()))
 	switch dialect {
 	case "sqlite", "sqlite3":
 		type viewRow struct {
@@ -158,7 +158,7 @@ func dropAllViews(db *gorm.DB) error {
 //
 // 说明：仅在 postgres 方言执行，其他方言直接跳过。
 func dropAllTypes(db *gorm.DB) error {
-	if strings.ToLower(strings.TrimSpace(db.Dialector.Name())) != "postgres" {
+	if strings.ToLower(strings.TrimSpace(db.Name())) != "postgres" {
 		return nil
 	}
 	type typeRow struct {

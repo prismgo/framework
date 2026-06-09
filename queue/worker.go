@@ -140,9 +140,6 @@ func (w *Worker) Begin(ctx context.Context, options WorkerOptions) (queuecontrac
 	if w == nil || w.manager == nil {
 		return nil, fmt.Errorf("queue: worker is not configured")
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	options = w.normalizeOptions(options)
 	queues := w.workerQueues(options)
 	options.Queues = queues

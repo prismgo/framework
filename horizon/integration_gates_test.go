@@ -195,7 +195,11 @@ func TestRedisQueueRedisHorizonIntegrationGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin redis worker session: %v", err)
 	}
-	defer redisSession.Close()
+	defer func() {
+		if err := redisSession.Close(); err != nil {
+			t.Errorf("close redis session: %v", err)
+		}
+	}()
 	if err := redisSession.Activate(ctx); err != nil {
 		t.Fatalf("activate redis worker session: %v", err)
 	}
@@ -312,7 +316,11 @@ func TestRabbitMQHorizonIntegrationGateSkipsUnsupportedFailedAndBatchState(t *te
 	if err != nil {
 		t.Fatalf("begin rabbitmq worker session: %v", err)
 	}
-	defer rabbitSession.Close()
+	defer func() {
+		if err := rabbitSession.Close(); err != nil {
+			t.Errorf("close rabbit session: %v", err)
+		}
+	}()
 	if err := rabbitSession.Activate(ctx); err != nil {
 		t.Fatalf("activate rabbitmq worker session: %v", err)
 	}
@@ -459,13 +467,21 @@ func cleanupIntegrationRabbitMQ(t *testing.T, url, exchange, queueName, restartQ
 		t.Logf("dial rabbitmq cleanup: %v", err)
 		return
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close rabbitmq connection: %v", err)
+		}
+	}()
 	ch, err := conn.Channel()
 	if err != nil {
 		t.Logf("open rabbitmq cleanup channel: %v", err)
 		return
 	}
-	defer ch.Close()
+	defer func() {
+		if err := ch.Close(); err != nil {
+			t.Errorf("close rabbitmq channel: %v", err)
+		}
+	}()
 	_, _ = ch.QueueDelete(queueName, false, false, false)
 	_, _ = ch.QueueDelete(restartQueue, false, false, false)
 	_ = ch.ExchangeDelete(exchange, false, false)

@@ -338,12 +338,12 @@ func (c *Connection) sizeExistingQueue(queue string) (int64, error) {
 	if err != nil {
 		wrapped := fmt.Errorf("%w: queue %q: %v", ErrRabbitMQTopologyMissing, queue, err)
 		_ = c.resetTopologyChannel()
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, wrapped)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclareFailed, queue, c.options.Exchange, 0, wrapped)
 		return 0, wrapped
 	}
 	if !wasVerified {
 		c.markTopologyVerified(queueKey)
-		c.emitInfrastructureEvent(nil, queueevents.EventTopologyDeclared, queue, c.options.Exchange, 0, nil)
+		c.emitInfrastructureEvent(context.TODO(), queueevents.EventTopologyDeclared, queue, c.options.Exchange, 0, nil)
 	}
 	return int64(inspected.Messages), nil
 }

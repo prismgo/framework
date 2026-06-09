@@ -235,7 +235,7 @@ func (b *Builder) SyncModels(models ...any) error {
 	if err != nil {
 		return err
 	}
-	if opts := database.TableOptions(db.Dialector.Name()); opts != "" {
+	if opts := database.TableOptions(db.Name()); opts != "" {
 		db = db.Set("gorm:table_options", opts)
 	}
 	migrator := db.Migrator()
@@ -396,7 +396,7 @@ func dialect(db *gorm.DB) string {
 	if db == nil || db.Dialector == nil {
 		return ""
 	}
-	return strings.ToLower(strings.TrimSpace(db.Dialector.Name()))
+	return strings.ToLower(strings.TrimSpace(db.Name()))
 }
 
 func unsupported(feature string, db *gorm.DB) error {

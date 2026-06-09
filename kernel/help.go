@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/prismgo/framework/console"
+	"github.com/prismgo/framework/internal/fmtx"
 	"github.com/prismgo/framework/version"
 	"github.com/spf13/cobra"
 )
@@ -69,25 +70,25 @@ func renderCommandHelpWithArguments(cmd *cobra.Command, arguments []console.Argu
 	}
 	writeDescription(out, description)
 	writeSection(out, "Usage:", outputOptions)
-	fmt.Fprintf(out, "  %s\n", cmd.UseLine())
+	fmtx.Fprintf(out, "  %s\n", cmd.UseLine())
 	if len(cmd.Aliases) > 0 {
-		fmt.Fprintln(out)
+		fmtx.Fprintln(out)
 		writeSection(out, "Aliases:", outputOptions)
-		fmt.Fprintf(out, "  %s\n", strings.Join(cmd.Aliases, ", "))
+		fmtx.Fprintf(out, "  %s\n", strings.Join(cmd.Aliases, ", "))
 	}
 	if len(console.ArgumentDescriptors(arguments)) > 0 {
-		fmt.Fprintln(out)
+		fmtx.Fprintln(out)
 		writeSection(out, "Arguments:", outputOptions)
 		console.RenderArgumentList(out, arguments, outputOptions)
 	}
 	if cmd.HasAvailableSubCommands() {
-		fmt.Fprintln(out)
+		fmtx.Fprintln(out)
 		writeAvailableCommands(out, groupedHelpCommands(cmd), outputOptions)
 	}
 	if strings.TrimSpace(cmd.Example) != "" {
-		fmt.Fprintln(out)
+		fmtx.Fprintln(out)
 		writeSection(out, "Examples:", outputOptions)
-		fmt.Fprintln(out, cmd.Example)
+		fmtx.Fprintln(out, cmd.Example)
 	}
 	writeFlags(out, "Options", cmd.LocalFlags().FlagUsages(), outputOptions)
 	writeFlags(out, "Global Options", cmd.InheritedFlags().FlagUsages(), outputOptions)
@@ -97,8 +98,8 @@ func writeDescription(out io.Writer, description string) {
 	if strings.TrimSpace(description) == "" {
 		return
 	}
-	fmt.Fprintln(out, description)
-	fmt.Fprintln(out)
+	fmtx.Fprintln(out, description)
+	fmtx.Fprintln(out)
 }
 
 func writeAvailableCommands(out io.Writer, groups []helpGroup, opts console.OutputOptions) {
@@ -109,16 +110,16 @@ func writeAvailableCommands(out io.Writer, groups []helpGroup, opts console.Outp
 	writer := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, group := range groups {
 		if group.parent != nil {
-			fmt.Fprintf(writer, "  %s\t%s\n", console.Styled(group.parent.name, console.StyleInfo, opts), group.parent.description)
+			fmtx.Fprintf(writer, "  %s\t%s\n", console.Styled(group.parent.name, console.StyleInfo, opts), group.parent.description)
 		} else {
-			fmt.Fprintf(writer, "  %s\n", console.Styled(group.name, console.StyleComment, opts))
+			fmtx.Fprintf(writer, "  %s\n", console.Styled(group.name, console.StyleComment, opts))
 		}
 		for _, child := range group.children {
-			fmt.Fprintf(writer, "    %s\t%s\n", console.Styled(child.name, console.StyleInfo, opts), child.description)
+			fmtx.Fprintf(writer, "    %s\t%s\n", console.Styled(child.name, console.StyleInfo, opts), child.description)
 		}
 	}
 	_ = writer.Flush()
-	fmt.Fprintln(out)
+	fmtx.Fprintln(out)
 }
 
 func writeFlags(out io.Writer, title string, usages string, opts console.OutputOptions) {
@@ -126,13 +127,13 @@ func writeFlags(out io.Writer, title string, usages string, opts console.OutputO
 	if strings.TrimSpace(usages) == "" {
 		return
 	}
-	fmt.Fprintln(out)
+	fmtx.Fprintln(out)
 	writeSection(out, title+":", opts)
-	fmt.Fprintln(out, usages)
+	fmtx.Fprintln(out, usages)
 }
 
 func writeSection(out io.Writer, title string, opts console.OutputOptions) {
-	fmt.Fprintln(out, console.Styled(title, console.StyleComment, opts))
+	fmtx.Fprintln(out, console.Styled(title, console.StyleComment, opts))
 }
 
 func groupedHelpCommands(cmd *cobra.Command) []helpGroup {

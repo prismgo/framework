@@ -371,7 +371,11 @@ func TestThrottleAllowsBlocksAndFallsThroughMissingLimiter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new cache manager: %v", err)
 	}
-	defer manager.Close()
+	defer func() {
+		if err := manager.Close(); err != nil {
+			t.Errorf("close manager: %v", err)
+		}
+	}()
 	limiter := ratelimit.New(manager.Default())
 	limiter.For("api", func(*gin.Context) []ratelimit.Limit {
 		return []ratelimit.Limit{ratelimit.PerMinute(1).By("same")}
@@ -413,7 +417,11 @@ func TestThrottleUsesDefaultLimiterAndFallbackKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new cache manager: %v", err)
 	}
-	defer manager.Close()
+	defer func() {
+		if err := manager.Close(); err != nil {
+			t.Errorf("close manager: %v", err)
+		}
+	}()
 
 	registry := container.NewContainer()
 	container.SetProvider(func() *container.Container { return registry })
@@ -454,7 +462,11 @@ func TestThrottleCustomResponseAndAfter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new cache manager: %v", err)
 	}
-	defer manager.Close()
+	defer func() {
+		if err := manager.Close(); err != nil {
+			t.Errorf("close manager: %v", err)
+		}
+	}()
 	limiter := ratelimit.New(manager.Default())
 	limiter.For("custom", func(*gin.Context) []ratelimit.Limit {
 		return []ratelimit.Limit{

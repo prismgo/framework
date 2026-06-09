@@ -98,7 +98,7 @@ type panickingQueueManager struct {
 }
 
 func (m panickingQueueManager) Queue(string) (queuecontract.Queue, error) {
-	return panickingQueueConnection{message: m.message}, nil
+	return panickingQueueConnection(m), nil
 }
 
 func (m panickingQueueManager) Failed() queue.FailedStore {
