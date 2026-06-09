@@ -68,7 +68,32 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## Project Structure & Module Organization
 
-This repository is the Go module `github.com/prismgo/framework`. Framework packages live at the repository root, with one directory per component, such as `foundation`, `route`, `cache`, `queue`, `horizon`, `database`, `filesystem`, `session`, and `console`. Public contracts are under `contracts/`, shared helpers under `internal/`, CLI commands under `cmd/`, and Horizon dashboard assets under `horizon/dashboard/resources/`. Tests are colocated as `*_test.go`. Documentation starts in `README.md` and `docs/README_en.md`; automation lives in `.github/`.
+Framework packages live at the repository root, with one directory per component, such as `foundation`, `route`, `cache`, `queue`, `database`, `filesystem`, `session`, and `console`. Shared helpers under `internal/`, CLI commands under `cmd/`, and Horizon dashboard assets under `horizon/dashboard/resources/`. Tests are colocated as `*_test.go`.  automation lives in `.github/`.
+
+### Contracts
+
+Contracts are public interfaces that define the behavior of a component. They are used to communicate between components, and to validate user input.The `contracts` directory must not contain concrete implementations.
+
+### Facades
+Facades are public interfaces that wrap a component to provide a simpler, more convenient API.
+
+- The `facade.go` in the component package must be implemented based on the `facade` package.
+- APIs exposed by `facade` should preferentially return interface types from the `contracts` package.
+
+### Service Providers
+
+Service providers are responsible for registering components and their lifecycle hooks.Services provided by a component package must be registered via a `service provider`.
+
+
+## Non-Negotiable Rules
+1. Never modify production code solely for testing.
+  - No test-only logic, APIs, helpers, fallbacks, or workarounds.
+  - Production code may only change to fix genuine production bugs.
+2. Never keep compatibility code after feature changes without approval.
+3. Never ignore errors.
+  - Return errors whenever possible.
+  - Otherwise report them via `exception.Report(...)`.
+4. Never change public APIs unless explicitly requested.
 
 ## Build, Test, and Development Commands
 
@@ -81,8 +106,6 @@ This repository is the Go module `github.com/prismgo/framework`. Framework packa
 - `make lint`: run `golangci-lint run`.
 - `make ci`: run the local CI gate.
 
-Use Go 1.26.x, matching `go.mod` and GitHub Actions.
-
 ## Coding Style & Naming Conventions
 
 Follow standard Go conventions: `gofmt` formatting, tabs for indentation, short package names, exported identifiers in `PascalCase`, and unexported identifiers in `camelCase`. Keep package APIs idiomatic and consistent with nearby components. Prefer package-level tests and helpers that mirror existing naming patterns, such as `facade_registry_test.go`, `service_provider_test.go`, or focused behavior names like `redis_lifecycle_test.go`.
@@ -91,10 +114,55 @@ Follow standard Go conventions: `gofmt` formatting, tabs for indentation, short 
 
 Add or update colocated `*_test.go` files for behavior changes. Use focused unit tests for package-level contracts and integration-style tests where external behavior crosses components, such as queue, Redis, RabbitMQ, Horizon, or filesystem flows. Run `make test` before submitting; run `make test-race` for concurrency, worker, lifecycle, or connection-management changes. Coverage is uploaded from `coverage.out` in CI, so avoid bypassing `make test` for final verification.
 
-## Commit & Pull Request Guidelines
-
-Recent history uses short, imperative commit subjects such as `fix golangci-lint`, plus merge commits from Dependabot. Keep commits focused and describe the changed behavior. Open pull requests against `main`, ensure CI passes, add or update tests as needed, document user-facing changes in `README.md` or `docs/`, and call out intentional public API changes in the PR description.
+### Testing and Coverage
+- Any changes to Go code, go.mod, go.sum, test files, or code generation logic must run tests and compute coverage.
+- Coverage must be collected via the project script, selecting the script based on the OS:
+  - Linux/macOS/Git Bash: `./scripts/coverage.sh`
+  - For narrow-scope validation, you can pass a package path, e.g., `./scripts/coverage.sh ./cache`
+- Coverage output is placed in `.coverage/`; Go build cache is fixed to `tmp/gocache` by the script to avoid writing to the user's global cache.
+- Before final delivery, run the appropriate OS script based on the scope of changes, e.g., ./scripts/coverage.sh ./prismgo/cache
+- Required coverage for the changed scope is > `95%`. If not met, additional test code must be added.
+- If full covdata is blocked by existing flaky tests (e.g., timer-sensitive tests), you must rerun the failing package(s) in isolation and explain in the results which tests failed and whether they are related to the current changes. You cannot treat a failed full coverage run as passing.
 
 ## Security & Configuration Tips
 
-Do not commit secrets, local credentials, coverage files, or temporary runtime data. Treat Redis, RabbitMQ, OSS, database, and Horizon credentials as environment-specific. Verify dependency changes with `go mod tidy`, `make lint`, and `make ci`.
+Do not commit secrets, local credentials, coverage files, or temporary runtime data. 
+
+### 9. Checklist
+After completing a feature, the following must be performed:
+
+1. Check for orphaned (dead) code
+   - Report any findings first, then confirm whether to delete.
+
+2. Check for compatibility/fallback code
+   - Report any findings first, then confirm whether to delete.
+
+3. Run static analysis: `golangci-lint run --verbose`
+
+4. Run formatting: `gofmt`
+
+5. Output a summary document: `docs/changes/v{next}-{function-description}.md`, with the following requirements:
+- Written in Chinese (the document content is in Chinese)
+- `{next}` increments numerically
+- Contains the following sections:
+  - Feature overview and implementation goals
+  - Requirements / business background
+  - Impact scope
+  - Which files were modified
+  - What behavioral changes were made
+  - Which checks were executed and a summary of the results
+  - What logic is covered by unit tests (complex logic requires detailed explanation)
+  - Risks and optimization suggestions
+  - Orphaned/dead code
+  - Compatibility/fallback code
+  - Outstanding/incomplete items
+
+6. Final response requirements
+
+For every Go code change task, the final response must report:
+
+- The actual coverage command executed.
+- Whether the collected coverage is from unit tests, integration tests, or both.
+- Total statement coverage.
+- Packages or functions with significantly low coverage.
+- If coverage is skipped or only partially run, the exact reason must be stated.
