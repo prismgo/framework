@@ -82,7 +82,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.test-mode == 'normal'
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: coverage.out
           flags: ${{ matrix.os }},go-${{ matrix.go }},${{ matrix.test-mode }}
