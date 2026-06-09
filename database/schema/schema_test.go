@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/prismgo/framework/config"
+	"github.com/prismgo/framework/container"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -575,6 +577,13 @@ func TestCompileSQLiteAlterDropAndRenameIndexBranches(t *testing.T) {
 }
 
 func TestConnectionAndUnsupportedResolveBranches(t *testing.T) {
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	if err := registry.Instance("config.default", config.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+
 	err := New(nil).Connection("missing").Create("x", func(table *Blueprint) { table.Id() })
 	if err == nil {
 		t.Fatal("expected missing connection error")
@@ -671,7 +680,18 @@ func TestFacadeInspectionAndConditionalHelpers(t *testing.T) {
 	if err != nil || len(listing) != len(columns) {
 		t.Fatalf("expected column listing, got %#v err=%v", listing, err)
 	}
-	_ = Connection("mysql")
+	func() {
+		defer func() {
+			recovered := recover()
+			if recovered == nil {
+				t.Fatal("Connection without config facade did not panic")
+			}
+			if got := strings.TrimSpace(recovered.(error).Error()); got != `container "config.default": container factory is not registered` {
+				t.Fatalf("panic = %q, want config.default not registered", got)
+			}
+		}()
+		_ = Connection("mysql")
+	}()
 }
 
 func TestPackageFacadeFullSurfaceAndUseRegistersBuilder(t *testing.T) {
@@ -1066,9 +1086,16 @@ func TestSyncModelsAddsMissingColumns(t *testing.T) {
 		t.Fatal("expected SyncModels to add missing code column")
 	}
 	useIsolatedFacadeRegistry(t)
-	if err := SyncModels(&syncExpandedWidget{}); err == nil {
-		t.Fatal("package SyncModels without facade DB should use previous facade state or return an error")
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("package SyncModels without facade binding did not panic")
+		}
+		if got := strings.TrimSpace(recovered.(error).Error()); got != `container "database.schema": container factory is not registered` {
+			t.Fatalf("panic = %q, want database.schema not registered", got)
+		}
+	}()
+	_ = SyncModels(&syncExpandedWidget{})
 }
 
 func TestBlueprintAliasAndModifierCoverage(t *testing.T) {

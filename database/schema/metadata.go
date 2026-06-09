@@ -71,12 +71,13 @@ type ForeignKeyInfo struct {
 
 // CreateDatabase 创建数据库。当前仅 MySQL 支持真实执行。
 func (b *Builder) CreateDatabase(name string) (bool, error) {
+	if strings.TrimSpace(name) == "" {
+		return false, fmt.Errorf("schema: database name is required")
+	}
+	// 先完成输入校验，再解析数据库连接，避免无效参数被 facade 装配错误掩盖。
 	db, err := b.resolve()
 	if err != nil {
 		return false, err
-	}
-	if strings.TrimSpace(name) == "" {
-		return false, fmt.Errorf("schema: database name is required")
 	}
 	switch dialect(db) {
 	case "mysql":
@@ -88,12 +89,13 @@ func (b *Builder) CreateDatabase(name string) (bool, error) {
 
 // DropDatabaseIfExists 删除数据库。当前仅 MySQL 支持真实执行。
 func (b *Builder) DropDatabaseIfExists(name string) (bool, error) {
+	if strings.TrimSpace(name) == "" {
+		return false, fmt.Errorf("schema: database name is required")
+	}
+	// 先完成输入校验，再解析数据库连接，避免无效参数被 facade 装配错误掩盖。
 	db, err := b.resolve()
 	if err != nil {
 		return false, err
-	}
-	if strings.TrimSpace(name) == "" {
-		return false, fmt.Errorf("schema: database name is required")
 	}
 	switch dialect(db) {
 	case "mysql":

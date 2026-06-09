@@ -6,9 +6,12 @@ import (
 	"testing"
 
 	"github.com/prismgo/framework/console"
+	"github.com/prismgo/framework/container"
+	"github.com/prismgo/framework/event"
 )
 
 func TestKernelRunApplicationDelegatesToApplicationLifecycle(t *testing.T) {
+	bindLifecycleEventDispatcher(t)
 	k := New("test")
 	command := &applicationLifecycleCommand{}
 	k.Register(command)
@@ -34,6 +37,7 @@ func TestKernelRunApplicationValidatesInputsAndPassesExternalContext(t *testing.
 	}
 
 	k := New("test")
+	bindLifecycleEventDispatcher(t)
 	if err := k.RunApplication(nil); err == nil || !strings.Contains(err.Error(), "application is not initialized") {
 		t.Fatalf("nil application error = %v, want application is not initialized", err)
 	}
@@ -47,6 +51,16 @@ func TestKernelRunApplicationValidatesInputsAndPassesExternalContext(t *testing.
 	}
 	if application.ctx.Value(testContextKey{}) != "external" {
 		t.Fatalf("application context value = %v, want external", application.ctx.Value(testContextKey{}))
+	}
+}
+
+func bindLifecycleEventDispatcher(t *testing.T) {
+	t.Helper()
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	if err := registry.Instance("event.dispatcher", event.New()); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
 	}
 }
 

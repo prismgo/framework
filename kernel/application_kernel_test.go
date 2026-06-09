@@ -5,15 +5,19 @@ import (
 	"time"
 
 	"github.com/prismgo/framework/cache"
+	"github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/console"
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
+	"github.com/prismgo/framework/event"
+	goexception "github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 	"github.com/prismgo/framework/timer"
 )
 
 func newApplicationKernelForTest(t *testing.T, name string, source ApplicationRegistrySource, dependencies ...BuiltinDependencies) *Kernel {
 	t.Helper()
-	registry := container.NewContainer()
+	registry := useKernelTestContainer(t)
 	// 测试意图：NewApplicationKernel 的生产语义要求 Application source 暴露容器契约；
 	// kernel 包单元测试只关注 Kernel 行为，因此这里用隔离 source 补齐该生产前提。
 	application := kernelTestApplicationSource{
@@ -28,6 +32,25 @@ func useKernelTestContainer(t *testing.T) *container.Container {
 	registry := container.NewContainer()
 	container.SetProvider(func() *container.Container { return registry })
 	t.Cleanup(func() { container.SetProvider(nil) })
+	if err := registry.Instance("event.dispatcher", event.New()); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
+	}
+	if err := registry.Instance("config.default", config.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+	if err := registry.Instance("exception.handler", goexception.New(goexception.WithPanicStack(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", manager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
 	return registry
 }
 

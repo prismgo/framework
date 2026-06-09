@@ -10,8 +10,10 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/prismgo/framework/console"
+	"github.com/prismgo/framework/container"
 	providercontract "github.com/prismgo/framework/contracts/provider"
 	"github.com/prismgo/framework/event"
+	goexception "github.com/prismgo/framework/exception"
 	prismhttp "github.com/prismgo/framework/http"
 	basickernel "github.com/prismgo/framework/kernel"
 	"github.com/prismgo/framework/route"
@@ -357,6 +359,9 @@ func TestRuntimeRegistriesLoadHTTPRoutesSilencesGinDebugAndRestoresMode(t *testi
 
 	app := NewApplication()
 	_ = route.ServiceProvider{}.Register(app)
+	if err := app.Container().Instance("exception.handler", goexception.New(goexception.WithLogging(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
 	configureRuntimeRegistries(app, nil, Routing{
 		routes: []func(*Application, *gin.Engine) error{
 			func(_ *Application, _ *gin.Engine) error {

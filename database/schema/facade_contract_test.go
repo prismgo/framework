@@ -2,6 +2,7 @@ package schema
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/prismgo/framework/container"
@@ -12,9 +13,17 @@ func TestResolveRequiresCurrentRegistry(t *testing.T) {
 	container.SetProvider(nil)
 	t.Cleanup(func() { container.SetProvider(nil) })
 
-	if got := Resolve(); got != nil {
-		t.Fatalf("Resolve without current registry returned non-nil: %#v", got)
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("Resolve without current registry did not panic")
+		}
+		if got := fmt.Sprint(recovered); got != `container "database.schema": no current application container` {
+			t.Fatalf("panic = %q, want database.schema no current container", got)
+		}
+	}()
+
+	_ = Resolve()
 }
 
 func TestDefaultResolvesRegisteredFactoryBeforeFallbackBuilder(t *testing.T) {

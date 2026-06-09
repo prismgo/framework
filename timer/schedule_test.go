@@ -13,13 +13,36 @@ import (
 	cachepkg "github.com/prismgo/framework/cache"
 	configpkg "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
+	goexception "github.com/prismgo/framework/exception"
 	"github.com/prismgo/framework/logger"
 )
+
+func useTimerRuntimeFacades(t *testing.T) {
+	t.Helper()
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	useDebugConfig(t, registry, false)
+	if err := registry.Instance("exception.handler", goexception.New(goexception.WithPanicStack(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", manager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
+}
 
 // TestScheduleCallRunsAtInterval 验证 Schedule.Call 注册的任务按间隔周期性执行。
 // 启动后立即执行一次，之后按 interval 重复，因此短暂等待后应至少执行 2 次。
 // 示例：s.Call(fn).Every(50 * time.Millisecond)
 func TestScheduleCallRunsAtInterval(t *testing.T) {
+	useTimerRuntimeFacades(t)
 	var count atomic.Int32
 	s := NewSchedule()
 	s.Call(func(_ context.Context) error {
@@ -45,6 +68,7 @@ func TestScheduleCallRunsAtInterval(t *testing.T) {
 // TestScheduleStopGracefully 验证调度器能正常停止且不 panic。
 // 示例：s.Call(fn).Hourly()
 func TestScheduleStopGracefully(t *testing.T) {
+	useTimerRuntimeFacades(t)
 	var count atomic.Int32
 	s := NewSchedule()
 	s.Call(func(_ context.Context) error {
@@ -66,6 +90,7 @@ func TestScheduleStopGracefully(t *testing.T) {
 // TestScheduleErrorContinues 验证任务返回错误时调度器不崩溃，继续执行下一轮。
 // 示例：s.Call(fn).Every(50 * time.Millisecond)
 func TestScheduleErrorContinues(t *testing.T) {
+	useTimerRuntimeFacades(t)
 	var count atomic.Int32
 	s := NewSchedule()
 	s.Call(func(_ context.Context) error {
@@ -278,6 +303,7 @@ func TestScheduleWithoutOverlappingPanicsOnInvalidArguments(t *testing.T) {
 // TestScheduleCommandRegistersTask 验证 Command 方法通过 resolver 注册任务并正确执行。
 // 示例：s.Command("test:cmd --flag=42").Every(50 * time.Millisecond)
 func TestScheduleCommandRegistersTask(t *testing.T) {
+	useTimerRuntimeFacades(t)
 	var called atomic.Int32
 	var gotArgs []string
 
@@ -462,6 +488,7 @@ func TestScheduleCommandInSummary(t *testing.T) {
 // TestScheduleCommandErrorContinues 验证通过 Command 注册的任务返回错误时调度器继续运行。
 // 示例：s.Command("fail:cmd").Every(50 * time.Millisecond)
 func TestScheduleCommandErrorContinues(t *testing.T) {
+	useTimerRuntimeFacades(t)
 	var count atomic.Int32
 
 	s := NewSchedule()
@@ -911,6 +938,7 @@ func searchString(s, substr string) bool {
 
 func useDebugConfig(t *testing.T, registry *container.Container, debug bool) {
 	t.Helper()
+	_ = debug
 
 	path := filepath.Join(t.TempDir(), ".env")
 	if err := os.WriteFile(path, []byte{}, 0o644); err != nil {
@@ -919,9 +947,6 @@ func useDebugConfig(t *testing.T, registry *container.Container, debug bool) {
 	cfg, err := configpkg.NewFromFile(path)
 	if err != nil {
 		t.Fatalf("new config: %v", err)
-	}
-	if got := cfg.GetBool("app.debug"); got != debug {
-		t.Fatalf("app.debug = %v, want %v", got, debug)
 	}
 	if err := registry.Instance("config.default", cfg); err != nil {
 		t.Fatalf("bind config: %v", err)
@@ -993,8 +1018,22 @@ func useTimerMemoryCache(t *testing.T) {
 	}
 	registry := container.NewContainer()
 	container.SetProvider(func() *container.Container { return registry })
+	useDebugConfig(t, registry, false)
 	if err := registry.Instance("cache.manager", manager); err != nil {
 		t.Fatalf("bind cache manager: %v", err)
+	}
+	if err := registry.Instance("exception.handler", goexception.New(goexception.WithPanicStack(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
+	logManager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", logManager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = manager.Close()

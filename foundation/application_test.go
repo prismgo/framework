@@ -17,8 +17,27 @@ import (
 	containercontract "github.com/prismgo/framework/contracts/container"
 	providercontract "github.com/prismgo/framework/contracts/provider"
 	"github.com/prismgo/framework/event"
+	goexception "github.com/prismgo/framework/exception"
 	pathutil "github.com/prismgo/framework/internal/path"
+	"github.com/prismgo/framework/logger"
 )
+
+func bindApplicationCloseReporterForTest(t *testing.T, app *Application) {
+	t.Helper()
+	if err := app.Container().Instance("exception.handler", goexception.New(goexception.WithPanicStack(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := app.Container().Instance("logger.manager", manager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
+}
 
 func TestApplicationCloseSkipsUninitializedCoreResources(t *testing.T) {
 	app := NewApplication()
@@ -394,6 +413,7 @@ func TestApplicationCloseDispatchesTerminatedError(t *testing.T) {
 	app.RegisterCleanup(func(_ *Application) error {
 		return wantErr
 	})
+	bindApplicationCloseReporterForTest(t, app)
 
 	var terminated event.AppTerminated
 	bus := event.Resolve()

@@ -12,7 +12,22 @@ import (
 	providercontract "github.com/prismgo/framework/contracts/provider"
 	"github.com/prismgo/framework/event"
 	goexception "github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 )
+
+func bindCloseReportLoggerForTest(t *testing.T, app *Application) {
+	t.Helper()
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := app.Container().Instance("logger.manager", manager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
+}
 
 func TestApplicationCloseTerminatesProvidersBeforeCleanupAndFacade(t *testing.T) {
 	withBaseProvidersForTest(t)
@@ -180,6 +195,7 @@ func TestApplicationCloseReportsCleanupErrorBeforeReportingFacadeClose(t *testin
 	), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
 		t.Fatalf("register exception handler: %v", err)
 	}
+	bindCloseReportLoggerForTest(t, app)
 	if err := app.Container().Instance("foundation.reporting.close", &closeContextProbe{}, container.WithCloser(func(*closeContextProbe) error {
 		calls = append(calls, "reporting.close")
 		return nil
@@ -221,6 +237,7 @@ func TestApplicationCloseReportsProviderTerminateErrorBeforeReportingFacadeClose
 	), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
 		t.Fatalf("register exception handler: %v", err)
 	}
+	bindCloseReportLoggerForTest(t, app)
 	provider := &terminableTestProvider{
 		name:  "terminate.error",
 		calls: &calls,
@@ -269,6 +286,7 @@ func TestApplicationCloseReportsNormalFacadeErrorAndRetryDoesNotReportAgain(t *t
 	), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
 		t.Fatalf("register exception handler: %v", err)
 	}
+	bindCloseReportLoggerForTest(t, app)
 	if err := app.Container().Instance("foundation.normal.close.error", &closeContextProbe{}, container.WithCloser(func(*closeContextProbe) error {
 		closeCalls++
 		calls = append(calls, "normal.close")
@@ -320,6 +338,7 @@ func TestApplicationCloseReporterPanicIsReturnedWithoutRecursiveReport(t *testin
 	), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
 		t.Fatalf("register exception handler: %v", err)
 	}
+	bindCloseReportLoggerForTest(t, app)
 	app.RegisterCleanup(func(*Application) error {
 		return cleanupErr
 	})

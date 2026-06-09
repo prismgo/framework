@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -621,6 +622,24 @@ func TestReportNonHTTP(t *testing.T) {
 	})
 }
 
+func bindLoggerManagerForExceptionTest(t *testing.T) {
+	t.Helper()
+	registry := useExceptionTestContainer(t)
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", manager); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = manager.Close()
+	})
+}
+
 func TestReportWritesLoggerContextFields(t *testing.T) {
 	registry := useExceptionTestContainer(t)
 
@@ -707,6 +726,7 @@ func TestReportWithBizErrorCause(t *testing.T) {
 }
 
 func TestReportPassesOriginalBizErrorToReporter(t *testing.T) {
+	bindLoggerManagerForExceptionTest(t)
 	h := New()
 	biz := newTestHTTPError(testCodeInternal, http.StatusInternalServerError, "internal error").
 		WithType("biz_rule").
@@ -792,9 +812,17 @@ func TestRenderErrorNoRegisteredHandler(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil)
 
-	if status := Render(c, testNotFound("missing")); status != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", status)
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("Render without registered handler did not panic")
+		}
+		if got := fmt.Sprint(recovered); got != `container "exception.handler": no current application container` {
+			t.Fatalf("panic = %q, want exception.handler no current container", got)
+		}
+	}()
+
+	_ = Render(c, testNotFound("missing"))
 }
 
 func TestRenderErrorNilContext(t *testing.T) {
@@ -827,9 +855,16 @@ func TestNilContainerClearsHandlerResolution(t *testing.T) {
 
 	bindExceptionHandlerForTest(t, New())
 	resetExceptionForTest()
-	if Resolve() != nil {
-		t.Fatal("nil container should make handler unresolved")
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("Resolve after nil container did not panic")
+		}
+		if got := fmt.Sprint(recovered); got != `container "exception.handler": no current application container` {
+			t.Fatalf("panic = %q, want exception.handler no current container", got)
+		}
+	}()
+	_ = Resolve()
 }
 
 func TestContainerFactoryResolvesHandler(t *testing.T) {
@@ -854,9 +889,16 @@ func TestTestHelperClearsHandler(t *testing.T) {
 	bindExceptionHandlerForTest(t, New())
 	resetExceptionForTest()
 
-	if Resolve() != nil {
-		t.Error("handler should be nil after test helper reset")
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("Resolve after test helper reset did not panic")
+		}
+		if got := fmt.Sprint(recovered); got != `container "exception.handler": no current application container` {
+			t.Fatalf("panic = %q, want exception.handler no current container", got)
+		}
+	}()
+	_ = Resolve()
 }
 
 // =============================================================================
@@ -904,6 +946,7 @@ func TestBuildAndRegisterWithFactory(t *testing.T) {
 // =============================================================================
 
 func TestReporterCalledOnReport(t *testing.T) {
+	bindLoggerManagerForExceptionTest(t)
 	// 使用默认 Handler，LogErrors=true 确保 ShouldReport 放行。
 	// WithLogging(false) 会导致 ShouldReport 立即返回 false，报告器不被调用。
 	h := New()
@@ -919,6 +962,7 @@ func TestReporterCalledOnReport(t *testing.T) {
 }
 
 func TestWithReporterRegistersNonNilReporter(t *testing.T) {
+	bindLoggerManagerForExceptionTest(t)
 	called := false
 	h := New(WithReporter(func(ctx any, err error, fields map[string]any) {
 		called = true
@@ -931,6 +975,7 @@ func TestWithReporterRegistersNonNilReporter(t *testing.T) {
 }
 
 func TestReportScrubsSensitiveFieldsBeforeReporters(t *testing.T) {
+	bindLoggerManagerForExceptionTest(t)
 	h := New()
 	var captured map[string]any
 	h.Reporters = append(h.Reporters, func(ctx any, err error, fields map[string]any) {
@@ -1312,18 +1357,32 @@ func TestFacadeReport(t *testing.T) {
 	Report(context.Background(), nil, nil)
 
 	resetExceptionForTest()
-	if Resolve() != nil {
-		t.Error("Resolve should be nil after clearing provider")
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("Resolve after clearing provider did not panic")
+		}
+		if got := fmt.Sprint(recovered); got != `container "exception.handler": no current application container` {
+			t.Fatalf("panic = %q, want exception.handler no current container", got)
+		}
+	}()
+	_ = Resolve()
 }
 
 func TestResolveWithoutCurrentContainerReturnsNil(t *testing.T) {
 	resetExceptionForTest()
 	t.Cleanup(resetExceptionForTest)
 
-	if got := Resolve(); got != nil {
-		t.Fatalf("Resolve without current container = %#v, want nil", got)
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("Resolve without current container did not panic")
+		}
+		if got := fmt.Sprint(recovered); got != `container "exception.handler": no current application container` {
+			t.Fatalf("panic = %q, want exception.handler no current container", got)
+		}
+	}()
+	_ = Resolve()
 }
 
 func TestExceptionHandlerFacadeUsesReportingCloseGroup(t *testing.T) {
@@ -1404,6 +1463,7 @@ func TestDefaultDontReportBlocksNonHTTPReport(t *testing.T) {
 
 	resetExceptionForTest()
 	t.Cleanup(resetExceptionForTest)
+	bindLoggerManagerForExceptionTest(t)
 
 	h := New()
 	// DefaultDontReport 已在 New() 中注入

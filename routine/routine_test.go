@@ -9,6 +9,7 @@ import (
 
 	"github.com/prismgo/framework/container"
 	goexception "github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 )
 
 type reportedException struct {
@@ -36,6 +37,16 @@ func captureReports(t *testing.T) <-chan reportedException {
 	})
 	if err := registry.Instance("exception.handler", handler, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
 		t.Fatalf("bind exception handler: %v", err)
+	}
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", manager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
 	}
 	return reports
 }

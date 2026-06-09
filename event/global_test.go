@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"testing"
 
@@ -12,9 +13,9 @@ import (
 func TestDefaultNilSafeBeforeSet(t *testing.T) {
 	useIsolatedFacadeRegistry(t)
 
-	// 直接派发不应 panic，也无副作用。
-	Dispatch(context.Background(), fakeEvent{name: "noop"})
-	Listen("noop", ListenerFunc(func(_ context.Context, _ Event) error { return nil }))
+	assertEventFacadePanic(t, `container "event.dispatcher": container factory is not registered`, func() {
+		Dispatch(context.Background(), fakeEvent{name: "noop"})
+	})
 }
 
 func TestContainerBindingRoundTrip(t *testing.T) {
@@ -71,7 +72,9 @@ func TestFacadeExposesDispatcherMethods(t *testing.T) {
 func TestPackageHelpersFallBackToNoopBusWithoutBinding(t *testing.T) {
 	useIsolatedFacadeRegistry(t)
 
-	Dispatch(context.Background(), fakeEvent{name: "noop"})
+	assertEventFacadePanic(t, `container "event.dispatcher": container factory is not registered`, func() {
+		Dispatch(context.Background(), fakeEvent{name: "noop"})
+	})
 }
 
 func TestDefaultAndPackageHelpersResolveRegisteredFactoryBeforeNoopFallback(t *testing.T) {
@@ -104,9 +107,9 @@ func TestResolveReturnsNilWithoutCurrentRegistry(t *testing.T) {
 	container.SetProvider(nil)
 	t.Cleanup(func() { container.SetProvider(nil) })
 
-	if got := Resolve(); got != nil {
-		t.Fatalf("Resolve without current registry = %#v, want nil", got)
-	}
+	assertEventFacadePanic(t, `container "event.dispatcher": no current application container`, func() {
+		_ = Resolve()
+	})
 }
 
 func TestContainerBindingCompatibility(t *testing.T) {
@@ -115,4 +118,18 @@ func TestContainerBindingCompatibility(t *testing.T) {
 	if Resolve() != bus {
 		t.Fatal("container binding should remain compatible with Resolve")
 	}
+}
+
+func assertEventFacadePanic(t *testing.T, want string, fn func()) {
+	t.Helper()
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("expected facade panic")
+		}
+		if got := fmt.Sprint(recovered); got != want {
+			t.Fatalf("panic = %q, want %q", got, want)
+		}
+	}()
+	fn()
 }

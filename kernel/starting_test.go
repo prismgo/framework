@@ -177,6 +177,7 @@ func TestKernelStartingCallbackFailureCanRetry(t *testing.T) {
 }
 
 func TestKernelScheduleCommandSupportsStartingRegisteredCommand(t *testing.T) {
+	useKernelTestContainer(t)
 	executed := make(chan struct{}, 1)
 	k := New("test")
 	if err := k.Starting(func(k *Kernel) error {

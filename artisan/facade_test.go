@@ -10,6 +10,7 @@ import (
 	"github.com/prismgo/framework/console"
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
+	"github.com/prismgo/framework/event"
 	"github.com/prismgo/framework/foundation"
 	"github.com/prismgo/framework/kernel"
 	"github.com/prismgo/framework/timer"
@@ -30,6 +31,9 @@ func TestArtisanUseResolveAndCallUseCurrentApplicationRegistry(t *testing.T) {
 
 	if err := registry.Instance(kernel.ArtisanFacadeKey, k); err != nil {
 		t.Fatalf("bind kernel: %v", err)
+	}
+	if err := registry.Instance("event.dispatcher", event.New()); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
 	}
 	resolved, err := artisan.Resolve()
 	if err != nil {
@@ -57,6 +61,9 @@ func TestArtisanStartingRegistersCallbackOnBoundKernel(t *testing.T) {
 	if err := registry.Instance(kernel.ArtisanFacadeKey, k); err != nil {
 		t.Fatalf("bind kernel: %v", err)
 	}
+	if err := registry.Instance("event.dispatcher", event.New()); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
+	}
 	if err := artisan.Starting(func(k *kernel.Kernel) error {
 		return k.ResolveCommand(startingCommand{})
 	}); err != nil {
@@ -77,6 +84,9 @@ func TestArtisanAllRunsStartingCallbacksAndReturnsDefinitions(t *testing.T) {
 	k := kernel.New("test")
 	if err := registry.Instance(kernel.ArtisanFacadeKey, k); err != nil {
 		t.Fatalf("bind kernel: %v", err)
+	}
+	if err := registry.Instance("event.dispatcher", event.New()); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
 	}
 	if err := artisan.Starting(func(k *kernel.Kernel) error {
 		return k.ResolveCommand(artisanAllCommand{})
@@ -118,6 +128,9 @@ func TestArtisanCallSilentlyDelegatesToBoundKernel(t *testing.T) {
 	if err := registry.Instance(kernel.ArtisanFacadeKey, k); err != nil {
 		t.Fatalf("bind kernel: %v", err)
 	}
+	if err := registry.Instance("event.dispatcher", event.New()); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
+	}
 
 	if err := artisan.CallSilently(context.Background(), "artisan:silent"); err != nil {
 		t.Fatalf("CallSilently() error = %v", err)
@@ -140,6 +153,9 @@ func TestArtisanCallInputDelegatesToBoundKernel(t *testing.T) {
 	})
 	if err := registry.Instance(kernel.ArtisanFacadeKey, k); err != nil {
 		t.Fatalf("bind kernel: %v", err)
+	}
+	if err := registry.Instance("event.dispatcher", event.New()); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
 	}
 
 	if err := artisan.Call(context.Background(), "artisan:with", console.CallInput{Arguments: map[string]any{"name": "demo"}}); err != nil {
@@ -310,6 +326,9 @@ func TestArtisanStartingReturnsKernelLifecycleError(t *testing.T) {
 	k := kernel.New("test")
 	if err := registry.Instance(kernel.ArtisanFacadeKey, k); err != nil {
 		t.Fatalf("bind kernel: %v", err)
+	}
+	if err := registry.Instance("event.dispatcher", event.New()); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
 	}
 	if err := artisan.Call(context.Background(), "list"); err != nil {
 		t.Fatalf("Call(list) error = %v", err)

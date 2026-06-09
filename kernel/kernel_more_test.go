@@ -29,6 +29,7 @@ func TestKernelRegisterLazyAndCommandsSnapshot(t *testing.T) {
 }
 
 func TestKernelAllRunsStartingCallbacks(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	starts := 0
 	if err := k.Starting(func(k *Kernel) error {
@@ -58,6 +59,7 @@ func TestKernelAllRunsStartingCallbacks(t *testing.T) {
 }
 
 func TestKernelAllReturnsCompleteClonedDefinitionSnapshot(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	k.Register(allRichCommand{})
 
@@ -119,6 +121,7 @@ func TestKernelAllReturnsCompleteClonedDefinitionSnapshot(t *testing.T) {
 }
 
 func TestKernelAllReturnsStartingErrorWithoutPartialResult(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	startErr := errors.New("all starting failed")
 	if err := k.Starting(func(*Kernel) error { return startErr }); err != nil {
@@ -135,6 +138,7 @@ func TestKernelAllReturnsStartingErrorWithoutPartialResult(t *testing.T) {
 }
 
 func TestKernelRegisterClosureAndCall(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	called := false
 	k.RegisterClosure(console.Definition{Name: "closure:run", Description: "closure"}, func(ctx console.CommandContext) error {
@@ -151,6 +155,7 @@ func TestKernelRegisterClosureAndCall(t *testing.T) {
 }
 
 func TestKernelScheduleResolverRunsRegisteredCommand(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	cmd := &resolverCommand{}
 	k.Register(cmd)
@@ -168,6 +173,7 @@ func TestKernelScheduleResolverRunsRegisteredCommand(t *testing.T) {
 }
 
 func TestKernelRegisterAcceptsCommandContextIsolationSignature(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	k.Register(&legacyIsolationCommand{})
 
@@ -177,6 +183,7 @@ func TestKernelRegisterAcceptsCommandContextIsolationSignature(t *testing.T) {
 }
 
 func TestKernelResolveCommandAcceptsCommandContextIsolationSignature(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	if err := k.ResolveCommand(&legacyIsolationCommand{}); err != nil {
 		t.Fatalf("ResolveCommand returned error: %v", err)

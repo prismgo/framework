@@ -4,6 +4,11 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/prismgo/framework/container"
+	"github.com/prismgo/framework/event"
+	goexception "github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 )
 
 func TestWithBuiltinsRegistersBuiltinCommandsOnNew(t *testing.T) {
@@ -69,9 +74,28 @@ func assertBuiltinCommandsRegistered(t *testing.T, k *Kernel) {
 }
 
 func TestBuiltInGeneratorRejectsUnsupportedOption(t *testing.T) {
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	if err := registry.Instance("event.dispatcher", event.New()); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
+	}
+	if err := registry.Instance("exception.handler", goexception.New(goexception.WithPanicStack(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", manager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
 	k := New("test", WithBuiltins(BuiltinDependencies{}))
 
-	err := k.Call(context.Background(), "make:model User --tenant")
+	err = k.Call(context.Background(), "make:model User --tenant")
 	if err == nil || !strings.Contains(err.Error(), "unknown flag: --tenant") {
 		t.Fatalf("Call error = %v, want unknown flag", err)
 	}

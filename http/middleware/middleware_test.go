@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,14 +13,33 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/prismgo/framework/cache"
+	"github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 	"github.com/prismgo/framework/cookie"
 	"github.com/prismgo/framework/event"
 	"github.com/prismgo/framework/exception"
 	"github.com/prismgo/framework/http/internal/requestid"
+	"github.com/prismgo/framework/logger"
 	"github.com/prismgo/framework/ratelimit"
 	"github.com/prismgo/framework/session"
 )
+
+func bindMiddlewareLoggerForTest(t *testing.T) {
+	t.Helper()
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", manager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
+}
 
 func TestDeferredRunsQueuedTasks(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -74,6 +94,18 @@ func TestDeferredRunsQueuedTasks(t *testing.T) {
 
 func TestUseWithConfigRegistersConfiguredChain(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	if err := registry.Instance("event.dispatcher", event.New()); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
+	}
+	if err := registry.Instance("config.default", config.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+	if err := registry.Instance("exception.handler", exception.New(exception.WithLogging(false))); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
 
 	engine := gin.New()
 	UseWithConfig(engine, middlewareTestConfig{accessLog: false, exceptionHandler: true})
@@ -115,6 +147,12 @@ func TestRequestIDPropagatesHeaderAndContext(t *testing.T) {
 
 func TestEventMiddlewareDispatchesHandledFailedAndPanicEvents(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	if err := registry.Instance("config.default", config.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
 
 	bus := event.New()
 	seen := map[string]int{}
@@ -198,10 +236,18 @@ func TestStartSessionUsesResolvedManagerAndReportsMissingManager(t *testing.T) {
 	missing.Use(StartSession())
 	missing.GET("/missing", func(c *gin.Context) { c.String(http.StatusOK, "should not run") })
 	missingRecorder := httptest.NewRecorder()
-	missing.ServeHTTP(missingRecorder, httptest.NewRequest(http.MethodGet, "/missing", nil))
-	if missingRecorder.Code != http.StatusInternalServerError {
-		t.Fatalf("missing manager code = %d, want 500", missingRecorder.Code)
-	}
+	func() {
+		defer func() {
+			recovered := recover()
+			if recovered == nil {
+				t.Fatal("StartSession without current manager did not panic")
+			}
+			if got := fmt.Sprint(recovered); got != `container "session.manager": no current application container` {
+				t.Fatalf("panic = %q, want session.manager no current container", got)
+			}
+		}()
+		missing.ServeHTTP(missingRecorder, httptest.NewRequest(http.MethodGet, "/missing", nil))
+	}()
 
 	manager := newMiddlewareSessionManager(t)
 	registry := container.NewContainer()
@@ -230,6 +276,7 @@ func TestStartSessionUsesResolvedManagerAndReportsMissingManager(t *testing.T) {
 
 func TestExceptionRecoversReportsAndReraisesWhenDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	bindMiddlewareLoggerForTest(t)
 	var reported bool
 	h := exception.New(exception.WithReporter(func(_ any, err error, fields map[string]any) {
 		reported = err != nil && fields["status"] == http.StatusInternalServerError
@@ -281,6 +328,7 @@ func TestExceptionRendersContextErrorsAndWrittenResponses(t *testing.T) {
 
 func TestExceptionAbortWithStatus500Reports(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	bindMiddlewareLoggerForTest(t)
 	var capturedErr error
 	var capturedFields map[string]any
 	h := exception.New(exception.WithReporter(func(_ any, err error, fields map[string]any) {
@@ -372,6 +420,9 @@ func TestThrottleUsesDefaultLimiterAndFallbackKeys(t *testing.T) {
 	t.Cleanup(func() { container.SetProvider(nil) })
 	if err := registry.Instance("cache.manager", manager); err != nil {
 		t.Fatalf("bind cache manager: %v", err)
+	}
+	if err := registry.Instance("config.default", config.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
 	}
 
 	ratelimit.For("default", func(*gin.Context) []ratelimit.Limit {

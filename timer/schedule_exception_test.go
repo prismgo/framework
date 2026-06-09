@@ -13,8 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 	goexception "github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 )
 
 func bindTimerExceptionHandler(t *testing.T, handler *goexception.Handler) {
@@ -24,6 +26,19 @@ func bindTimerExceptionHandler(t *testing.T, handler *goexception.Handler) {
 	t.Cleanup(func() { container.SetProvider(nil) })
 	if err := registry.Instance("exception.handler", handler, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
 		t.Fatalf("bind exception handler: %v", err)
+	}
+	if err := registry.Instance("config.default", config.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", manager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
 	}
 }
 

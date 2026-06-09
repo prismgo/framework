@@ -14,6 +14,7 @@ import (
 )
 
 func TestKernelRegistersDefinitionAndRunsCommand(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	cmd := &integrationCommand{}
 	k.Register(cmd)
@@ -34,6 +35,7 @@ func TestKernelRegistersDefinitionAndRunsCommand(t *testing.T) {
 }
 
 func TestKernelVersionFlagIsGlobalAndDoesNotRunCommand(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("artisan")
 	cmd := &versionProbeCommand{}
 	k.Register(cmd)
@@ -66,6 +68,7 @@ func TestKernelVersionFlagIsGlobalAndDoesNotRunCommand(t *testing.T) {
 }
 
 func TestKernelVersionLongFlagAndOutputSuppression(t *testing.T) {
+	useKernelTestContainer(t)
 	for _, args := range [][]string{
 		{"--version"},
 		{"--version", "--quiet"},
@@ -92,6 +95,7 @@ func TestKernelVersionLongFlagAndOutputSuppression(t *testing.T) {
 }
 
 func TestKernelCallSilentlySuppressesOutput(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	k.Register(&silentCommand{})
 	if err := k.CallSilently(context.Background(), "silent:run"); err != nil {
@@ -100,6 +104,7 @@ func TestKernelCallSilentlySuppressesOutput(t *testing.T) {
 }
 
 func TestKernelCallParsesSignatureAndReturnsCommandErrors(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	cmd := &programmaticCommand{}
 	k.Register(cmd)
@@ -130,6 +135,7 @@ func TestKernelCallParsesSignatureAndReturnsCommandErrors(t *testing.T) {
 }
 
 func TestKernelCallEncodesStructuredInput(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	cmd := &programmaticCommand{}
 	k.Register(cmd)
@@ -171,6 +177,7 @@ func TestKernelCallEncodesStructuredInput(t *testing.T) {
 }
 
 func TestKernelCallSilentlyInputAndCallInputValueTypes(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	cmd := &programmaticCommand{}
 	k.Register(cmd)
@@ -205,6 +212,7 @@ func TestKernelCallSilentlyInputAndCallInputValueTypes(t *testing.T) {
 }
 
 func TestKernelPromptsForMissingRequiredArguments(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	cmd := &promptedCommand{}
 	k.Register(cmd)
@@ -229,6 +237,7 @@ func TestKernelPromptsForMissingRequiredArguments(t *testing.T) {
 }
 
 func TestKernelManualFailWritesError(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	k.Register(&manualFailCommand{})
 	output := &strings.Builder{}
@@ -246,6 +255,7 @@ func TestKernelManualFailWritesError(t *testing.T) {
 }
 
 func TestKernelCompletionCommandOutputsScript(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	output := &strings.Builder{}
 	k.rootCmd.SetOut(output)
@@ -273,6 +283,7 @@ func TestKernelCompletionCommandOutputsScript(t *testing.T) {
 }
 
 func TestCommandContextCallUsesCurrentIOAndSilentSuppressesNestedOutput(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	parent := &parentCallCommand{}
 	k.Register(parent, &childOutputCommand{})
@@ -340,6 +351,7 @@ func TestIsolatableCommandUsesLaravelStyleExplicitIsolatedOption(t *testing.T) {
 }
 
 func TestKernelRunContextSuppressesUsageForContextCancellation(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	k.Register(&alwaysCanceledCommand{})
 	output := &strings.Builder{}
@@ -412,6 +424,7 @@ func TestKernelDispatchesConsoleLifecycleEvents(t *testing.T) {
 }
 
 func TestKernelListCommandShowsVisibleCommands(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	k.Register(&listVisibleCommand{}, &listHiddenCommand{})
 	buffer := &strings.Builder{}
@@ -432,6 +445,7 @@ func TestKernelListCommandShowsVisibleCommands(t *testing.T) {
 }
 
 func TestKernelRootHelpGroupsNamespacedCommandsAlphabetically(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	k.Register(
 		&helpAlphaCommand{},
@@ -472,6 +486,7 @@ func TestKernelRootHelpGroupsNamespacedCommandsAlphabetically(t *testing.T) {
 }
 
 func TestKernelCommandHelpShowsAliasesExamplesSubcommandsAndFlags(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	k.Register(&helpParentCommand{}, &helpParentChildCommand{})
 	buffer := &strings.Builder{}
@@ -496,6 +511,7 @@ func TestKernelCommandHelpShowsAliasesExamplesSubcommandsAndFlags(t *testing.T) 
 }
 
 func TestKernelCommandHelpShowsDefinitionArgumentDescriptions(t *testing.T) {
+	useKernelTestContainer(t)
 	// 需求背景：手写 Definition 的 Argument.Description 必须进入 --help，
 	// 否则命令作者已经声明的参数说明对终端用户不可见。
 	k := New("test")
@@ -528,6 +544,7 @@ func TestKernelCommandHelpShowsDefinitionArgumentDescriptions(t *testing.T) {
 }
 
 func TestKernelCommandHelpHonorsOutputOptions(t *testing.T) {
+	useKernelTestContainer(t)
 	t.Setenv("FORCE_COLOR", "1")
 	t.Setenv("NO_COLOR", "")
 	k := New("artisan")
@@ -564,6 +581,7 @@ func TestKernelCommandHelpHonorsOutputOptions(t *testing.T) {
 }
 
 func TestRenderCommandHelpShowsAvailableSubcommands(t *testing.T) {
+	useKernelTestContainer(t)
 	parent := &cobra.Command{Use: "parent", Short: "parent command"}
 	child := &cobra.Command{Use: "child", Short: "child command", Run: func(*cobra.Command, []string) {}}
 	parent.AddCommand(child)
@@ -579,6 +597,7 @@ func TestRenderCommandHelpShowsAvailableSubcommands(t *testing.T) {
 }
 
 func TestKernelCallParsesQuotedAndEscapedSignatureParts(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	cmd := &programmaticCommand{}
 	k.Register(cmd)

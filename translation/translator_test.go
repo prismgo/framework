@@ -2,6 +2,7 @@ package translation
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,17 @@ import (
 	containercontract "github.com/prismgo/framework/contracts/container"
 	transcontract "github.com/prismgo/framework/contracts/translation"
 )
+
+func bindFacadeTranslator(t *testing.T) {
+	t.Helper()
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	translator := NewTranslator(NewFileLoader(), "en", "en")
+	if err := registry.Instance(serviceKey, translator); err != nil {
+		t.Fatalf("bind translator: %v", err)
+	}
+}
 
 func TestTranslatorGetBasic(t *testing.T) {
 	loader := NewFileLoader()
@@ -684,14 +696,21 @@ func TestTranslatorHasNoFalsePositive(t *testing.T) {
 func TestFacadeResetAfterUse(t *testing.T) {
 	Reset()
 
-	result := Get("hello", nil)
-	if result != "hello" {
-		t.Errorf("Get after Reset without container = %v, want hello (key fallback)", result)
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("Get after Reset without container did not panic")
+		}
+		if got := fmt.Sprint(recovered); got != `container "translator": no current application container` {
+			t.Fatalf("panic = %q, want translator no current container", got)
+		}
+	}()
+
+	_ = Get("hello", nil)
 }
 
 func TestFacadeGet(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	AddLines(map[string]any{"welcome": "Hello"}, "en")
 
@@ -702,7 +721,7 @@ func TestFacadeGet(t *testing.T) {
 }
 
 func TestFacadeHas(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	AddLines(map[string]any{"welcome": "Hello"}, "en")
 
@@ -716,7 +735,7 @@ func TestFacadeHas(t *testing.T) {
 }
 
 func TestFacadeChoice(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	AddLines(map[string]any{"apples": "{0}:count|{1}:count|[2,*]:count"}, "en")
 
@@ -727,7 +746,7 @@ func TestFacadeChoice(t *testing.T) {
 }
 
 func TestFacadeLocale(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	if err := SetLocale("zh_CN"); err != nil {
 		t.Errorf("SetLocale error: %v", err)
@@ -739,7 +758,7 @@ func TestFacadeLocale(t *testing.T) {
 }
 
 func TestFacadeSetLocale(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	if err := SetLocale("fr"); err != nil {
 		t.Errorf("SetLocale error: %v", err)
@@ -755,7 +774,7 @@ func TestFacadeSetLocale(t *testing.T) {
 }
 
 func TestFacadeFallback(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	if GetFallback() != "en" {
 		t.Errorf("Facade GetFallback = %v, want en", GetFallback())
@@ -771,7 +790,7 @@ func TestFacadeFallback(t *testing.T) {
 }
 
 func TestFacadeAddLines(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	AddLines(map[string]any{"greeting": "Hi"}, "en")
 
@@ -782,7 +801,7 @@ func TestFacadeAddLines(t *testing.T) {
 }
 
 func TestFacadeGetMap(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	langDir := t.TempDir()
 	altDir := filepath.Join(langDir, "en")
@@ -801,7 +820,7 @@ func TestFacadeGetMap(t *testing.T) {
 }
 
 func TestFacadeStringable(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	Stringable("sample", func(any) string { return "formatted" })
 
@@ -814,7 +833,7 @@ func TestFacadeStringable(t *testing.T) {
 }
 
 func TestFacadeHandleMissingKeysUsing(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	HandleMissingKeysUsing(func(ctx context.Context, key, locale string) (string, bool) {
 		return "missing:" + key, true
@@ -827,7 +846,7 @@ func TestFacadeHandleMissingKeysUsing(t *testing.T) {
 }
 
 func TestFacadeHasForLocale(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	AddLines(map[string]any{"welcome": "Hello"}, "en")
 
@@ -837,7 +856,7 @@ func TestFacadeHasForLocale(t *testing.T) {
 }
 
 func TestFacadeCurrentLocale(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	if CurrentLocale() != "en" {
 		t.Errorf("CurrentLocale = %v, want en", CurrentLocale())
@@ -845,7 +864,7 @@ func TestFacadeCurrentLocale(t *testing.T) {
 }
 
 func TestFacadeAddNamespace(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	AddNamespace("test", "/test/path")
 
@@ -861,7 +880,7 @@ func TestFacadeAddNamespace(t *testing.T) {
 }
 
 func TestFacadeAddJSONPath(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	AddJSONPath("/test/path")
 
@@ -877,7 +896,7 @@ func TestFacadeAddJSONPath(t *testing.T) {
 }
 
 func TestFacadeDetermineLocalesUsing(t *testing.T) {
-	Reset()
+	bindFacadeTranslator(t)
 
 	DetermineLocalesUsing(func(key string, requested string) []string {
 		return []string{requested}
@@ -1057,8 +1076,15 @@ func TestFileLoaderDuplicatePath(t *testing.T) {
 func TestFacadeLoaderFallback(t *testing.T) {
 	Reset()
 
-	loader := Loader()
-	if loader == nil {
-		t.Error("Loader should return a fallback loader instance")
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("Loader after Reset without container did not panic")
+		}
+		if got := fmt.Sprint(recovered); got != `container "translator": no current application container` {
+			t.Fatalf("panic = %q, want translator no current container", got)
+		}
+	}()
+
+	_ = Loader()
 }

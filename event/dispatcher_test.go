@@ -9,8 +9,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prismgo/framework/container"
 	"github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 )
+
+func bindEventReportDependencies(t *testing.T, registry *container.Container, handler *exception.Handler) {
+	t.Helper()
+	if err := registry.Instance("exception.handler", handler, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", manager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
+}
 
 // fakeEvent 是测试专用事件类型，名称由实例字段决定。
 type fakeEvent struct {
@@ -52,6 +71,9 @@ func TestDispatcherNoMatchIsNoop(t *testing.T) {
 }
 
 func TestDispatcherListenerErrorDoesNotAbort(t *testing.T) {
+	registry := useIsolatedFacadeRegistry(t)
+	bindEventReportDependencies(t, registry, exception.New(exception.WithPanicStack(false)))
+
 	d := New()
 	var fired int32
 	d.ListenFunc("e", func(_ context.Context, _ Event) error {
@@ -75,15 +97,13 @@ func TestDispatcherListenerErrorIsReported(t *testing.T) {
 	boom := errors.New("boom")
 	var reported error
 	var fields map[string]any
-	if err := registry.Instance("exception.handler", exception.New(
+	bindEventReportDependencies(t, registry, exception.New(
 		exception.WithPanicStack(false),
 		exception.WithReporter(func(_ any, err error, got map[string]any) {
 			reported = err
 			fields = got
 		}),
-	)); err != nil {
-		t.Fatalf("bind exception handler: %v", err)
-	}
+	))
 
 	d := New()
 	var fired int32
@@ -110,15 +130,13 @@ func TestDispatcherListenerPanicIsReported(t *testing.T) {
 
 	var reported error
 	var fields map[string]any
-	if err := registry.Instance("exception.handler", exception.New(
+	bindEventReportDependencies(t, registry, exception.New(
 		exception.WithPanicStack(false),
 		exception.WithReporter(func(_ any, err error, got map[string]any) {
 			reported = err
 			fields = got
 		}),
-	)); err != nil {
-		t.Fatalf("bind exception handler: %v", err)
-	}
+	))
 
 	d := New()
 	var second int32
@@ -216,6 +234,15 @@ func TestDispatcherAsyncRunsInGoroutine(t *testing.T) {
 }
 
 func TestDispatcherAsyncPanicIsRecovered(t *testing.T) {
+	registry := useIsolatedFacadeRegistry(t)
+	reported := make(chan struct{}, 1)
+	bindEventReportDependencies(t, registry, exception.New(
+		exception.WithPanicStack(false),
+		exception.WithReporter(func(any, error, map[string]any) {
+			reported <- struct{}{}
+		}),
+	))
+
 	d := New()
 	done := make(chan struct{}, 1)
 	d.Listen("e", Async(func(_ context.Context, _ Event) error {
@@ -229,6 +256,11 @@ func TestDispatcherAsyncPanicIsRecovered(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("async listener panic should still allow defer to run")
+	}
+	select {
+	case <-reported:
+	case <-time.After(time.Second):
+		t.Fatal("async listener panic report did not complete")
 	}
 	// 主流程能继续执行即视为通过：dispatcher 不会因 goroutine panic 退出进程，
 	// 真实环境由 logrus 记录栈。

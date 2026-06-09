@@ -3,6 +3,7 @@ package horizon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,11 @@ func TestServiceProviderSmallErrorBranches(t *testing.T) {
 		t.Fatalf("provider name = %q, want horizon", name)
 	}
 	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	if err := reloadConfigFacadeForTest(t, registry); err != nil {
+		t.Fatalf("reload config facade: %v", err)
+	}
 	if _, err := buildProviderManager(registry); err == nil || !strings.Contains(err.Error(), "queue manager is not configured") {
 		t.Fatalf("buildProviderManager missing queue error = %v", err)
 	}
@@ -127,7 +133,14 @@ func TestDefaultReportsFactoryErrorBeforeFallbackManager(t *testing.T) {
 func TestHorizonFacadeResolveWithoutCurrentContainer(t *testing.T) {
 	container.SetProvider(nil)
 	t.Cleanup(func() { container.SetProvider(nil) })
-	if manager := Resolve(); manager != nil {
-		t.Fatalf("Resolve without current container = %#v, want nil", manager)
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("Resolve without current container did not panic")
+		}
+		if got := fmt.Sprint(recovered); got != `container "horizon.manager": no current application container` {
+			t.Fatalf("panic = %q, want horizon.manager no current container", got)
+		}
+	}()
+	_ = Resolve()
 }

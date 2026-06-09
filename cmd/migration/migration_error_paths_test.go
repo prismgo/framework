@@ -12,7 +12,9 @@ import (
 	"github.com/spf13/cobra"
 	"gorm.io/gorm"
 
+	"github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/console"
+	"github.com/prismgo/framework/container"
 	dbregistry "github.com/prismgo/framework/database"
 )
 
@@ -77,6 +79,14 @@ func TestApplyMigrationErrorBranches(t *testing.T) {
 }
 
 func TestMigrateAndSeedErrorBranches(t *testing.T) {
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	if err := registry.Instance("config.default", config.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+	t.Setenv("APP_ENV", "local")
+
 	db, err := gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite failed: %v", err)

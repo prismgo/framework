@@ -1137,6 +1137,7 @@ func TestSupervisorRuntimeLoopTerminateDoesNotWaitForBlockedWorkloadSample(t *te
 }
 
 func TestSupervisorRuntimeLoopWorkerErrorDoesNotCrashSupervisor(t *testing.T) {
+	bindHorizonPanicReporter(t)
 	// 测试目的：对齐 Laravel Horizon — worker 子进程 wait 失败时上报错误但不崩溃 supervisor。
 	// supervisor loop 应继续运行，等待 context 取消才退出。
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -1247,6 +1248,7 @@ func TestRunMasterDoesNotReturnSupervisorErrorAfterStartupProcessSurvives(t *tes
 }
 
 func TestWaitProcessesWithHeartbeatHeartbeatErrorDoesNotCrashMaster(t *testing.T) {
+	bindHorizonPanicReporter(t)
 	// 测试目的：对齐 Laravel Horizon — master heartbeat 写入失败时上报错误但不崩溃 master 循环。
 	// master 应继续运行直到所有子进程退出。
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2129,6 +2131,7 @@ func TestRunWorkerTreatsCanceledContextAsGracefulShutdown(t *testing.T) {
 }
 
 func TestWorkCommandReportsRunnerConfigurationAndExecutionErrors(t *testing.T) {
+	bindHorizonPanicReporter(t)
 	// 需求背景：horizon:work 的 worker runner 是显式依赖；缺失或执行失败时应返回清晰错误，
 	// 并在执行失败后把 worker heartbeat 恢复为空闲边界状态。
 	ctx := context.Background()

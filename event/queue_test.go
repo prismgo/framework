@@ -10,6 +10,7 @@ import (
 
 	"github.com/prismgo/framework/container"
 	"github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 	"github.com/prismgo/framework/queue"
 	prismredis "github.com/prismgo/framework/redis"
 )
@@ -147,6 +148,16 @@ func TestQueuedListenerDispatchErrorIsReported(t *testing.T) {
 	)); err != nil {
 		t.Fatalf("bind exception handler: %v", err)
 	}
+	logManager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", logManager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
 
 	bus := New()
 	bus.Listen("bad.json", queueOptionsListener{})
@@ -177,6 +188,16 @@ func TestQueuedListenerMissingDispatcherIsReported(t *testing.T) {
 		}),
 	)); err != nil {
 		t.Fatalf("bind exception handler: %v", err)
+	}
+	logManager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", logManager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
 	}
 
 	var count atomic.Int32

@@ -14,6 +14,7 @@ import (
 	eventcontract "github.com/prismgo/framework/contracts/event"
 	rediscontract "github.com/prismgo/framework/contracts/redis"
 	goexception "github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -327,7 +328,9 @@ func TestFacadeAndServiceProviderCoverContainerLifecycle(t *testing.T) {
 				"default": {Name: "default", Addr: server.Addr()},
 			},
 		})
-	}); err != nil {
+	}, container.WithContextCloser(func(ctx context.Context, manager *Manager) error {
+		return manager.Close(ctx)
+	})); err != nil {
 		t.Fatalf("RegisterFactory error = %v", err)
 	}
 
@@ -944,6 +947,16 @@ func captureRedisReports(t *testing.T) <-chan redisReportedException {
 	})
 	if err := c.Instance("exception.handler", handler); err != nil {
 		t.Fatalf("bind exception handler: %v", err)
+	}
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := c.Instance("logger.manager", manager); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
 	}
 	return reports
 }

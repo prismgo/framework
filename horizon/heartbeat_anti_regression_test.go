@@ -9,7 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prismgo/framework/container"
+	goexception "github.com/prismgo/framework/exception"
 	horizoncmd "github.com/prismgo/framework/horizon/cmd"
+	"github.com/prismgo/framework/logger"
 	goprocess "github.com/prismgo/framework/process"
 	"github.com/prismgo/framework/queue"
 	"github.com/prismgo/framework/queue/payload"
@@ -414,6 +417,23 @@ func (s *panicStore) HeartbeatWorker(_ context.Context, _ WorkerState) error {
 // TestWorkerHeartbeatTickerRecoversFromPanic 验证 ticker goroutine 内部 panic 被 recover 捕获，
 // goroutine 安全退出且 heartbeatError 被记录，不会导致整个进程崩溃。
 func TestWorkerHeartbeatTickerRecoversFromPanic(t *testing.T) {
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	if err := registry.Instance("exception.handler", goexception.New(goexception.WithPanicStack(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
+	logManager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", logManager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

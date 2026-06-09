@@ -10,6 +10,8 @@ import (
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
 	queuecontract "github.com/prismgo/framework/contracts/queue"
+	goexception "github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 	"github.com/prismgo/framework/queue"
 )
 
@@ -92,7 +94,21 @@ func TestFacadeFactoryAndLifecycleNames(t *testing.T) {
 }
 
 func TestQueuedHelpersAndErrors(t *testing.T) {
-	useIsolatedFacadeRegistry(t)
+	registry := useIsolatedFacadeRegistry(t)
+	handler := goexception.New(goexception.WithPanicStack(false))
+	if err := registry.Instance("exception.handler", handler, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
+	logManager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", logManager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
 
 	wrapped := Queued(ListenerFunc(func(context.Context, Event) error { return nil }))
 	if !isQueued(wrapped) {

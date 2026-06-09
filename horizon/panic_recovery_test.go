@@ -11,6 +11,7 @@ import (
 	"github.com/prismgo/framework/container"
 	queuecontract "github.com/prismgo/framework/contracts/queue"
 	goexception "github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 	"github.com/prismgo/framework/queue"
 )
 
@@ -65,7 +66,31 @@ func captureReportedExceptions(t *testing.T) <-chan reportedException {
 	if err := registry.Instance("exception.handler", handler, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
 		t.Fatalf("bind exception handler: %v", err)
 	}
+	bindHorizonPanicLogger(t, registry)
 	return reports
+}
+
+func bindHorizonPanicReporter(t *testing.T) {
+	t.Helper()
+	registry := useHorizonTestContainer(t)
+	if err := registry.Instance("exception.handler", goexception.New(goexception.WithPanicStack(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
+	bindHorizonPanicLogger(t, registry)
+}
+
+func bindHorizonPanicLogger(t *testing.T, registry *container.Container) {
+	t.Helper()
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", manager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
 }
 
 type panickingQueueManager struct {
@@ -121,6 +146,7 @@ func (c panickingQueueConnection) Close() error {
 // 需求背景：supervisor runtime loop 通过 watchProcess 监听 worker 子进程退出。
 // process.Wait() 意外 panic 时如果传播到 goroutine 外部，会导致整个 supervisor 进程崩溃。
 func TestWatchProcessRecoversFromPanic(t *testing.T) {
+	bindHorizonPanicReporter(t)
 	exits := make(chan processExit, 1)
 	watchProcess(0, panickingManagedProcess{pid: 1, msg: "test panic in Wait"}, exits)
 
@@ -258,6 +284,7 @@ func TestSupervisorRuntimeLoopReportsWorkloadSamplePanic(t *testing.T) {
 // 需求背景：对齐 Laravel Horizon — master 等待 supervisor 退出时，任一 goroutine panic
 // 应上报错误并继续监控其他 supervisor，不崩溃 master。
 func TestWaitProcessesWithHeartbeatRecoversFromPanic(t *testing.T) {
+	bindHorizonPanicReporter(t)
 	ctx := context.Background()
 	processes := []ManagedProcess{
 		fakeManagedProcess{pid: 1},                                    // 正常退出的进程
@@ -293,6 +320,7 @@ func TestWaitProcessesWithHeartbeatNormalExit(t *testing.T) {
 //
 // 需求背景：对齐 Laravel Horizon — supervisor 异常退出时 master 上报错误并继续监控其他 supervisor。
 func TestWaitProcessesWithHeartbeatErrorExit(t *testing.T) {
+	bindHorizonPanicReporter(t)
 	ctx := context.Background()
 	processes := []ManagedProcess{
 		fakeManagedProcess{pid: 1},
@@ -390,6 +418,7 @@ func TestWaitProcessesWithHeartbeatContextCancellation(t *testing.T) {
 // 需求背景：horizon:listen 命令通过 startListenProcess 启动 horizon 子进程。
 // process.Wait() 意外 panic 会导致 listen 进程崩溃，开发者需要手动重启。
 func TestStartListenProcessRecoversFromPanic(t *testing.T) {
+	bindHorizonPanicReporter(t)
 	cfg := Config{Environment: "testing", Watch: []string{"missing-path"}}
 	manager, err := NewManager(cfg,
 		WithProcessRunner(&panickingProcessRunner{pid: 9001, msg: "listen process panic"}),

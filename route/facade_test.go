@@ -1,6 +1,7 @@
 package route
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 )
 
@@ -18,6 +20,9 @@ func setupTestContainer(t *testing.T) *container.Container {
 	t.Cleanup(func() { container.SetProvider(nil) })
 	if err := (ServiceProvider{}).Register(providerTestApp{registry: c}); err != nil {
 		t.Fatalf("register route service provider: %v", err)
+	}
+	if err := c.Instance("config.default", config.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
 	}
 	return c
 }
@@ -42,10 +47,17 @@ func TestResolveReturnsRouterFromContainer(t *testing.T) {
 func TestResolveReturnsNilWhenNoContainer(t *testing.T) {
 	container.SetProvider(nil)
 
-	router := Resolve()
-	if router != nil {
-		t.Fatalf("Resolve returned %#v, want nil", router)
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("Resolve without current registry did not panic")
+		}
+		if got := fmt.Sprint(recovered); got != `container "route.router": no current application container` {
+			t.Fatalf("panic = %q, want route.router no current container", got)
+		}
+	}()
+
+	_ = Resolve()
 }
 
 func TestFacadeRegistersHTTPMethodsAndHelpers(t *testing.T) {

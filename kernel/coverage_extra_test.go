@@ -11,6 +11,7 @@ import (
 )
 
 func TestKernelScheduleStartStopAndRun(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	var calls atomic.Int32
 	k.Schedule().Call(func(context.Context) error {
@@ -68,6 +69,7 @@ func TestKernelRegisterClosureRejectsOptionalArgumentBeforeRequired(t *testing.T
 }
 
 func TestKernelArgumentValidatorRejectsMissingRequiredArgument(t *testing.T) {
+	useKernelTestContainer(t)
 	k := New("test")
 	cmd := &validatorCommand{}
 	k.Register(cmd)

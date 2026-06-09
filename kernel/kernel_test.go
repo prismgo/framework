@@ -10,6 +10,8 @@ import (
 )
 
 func TestKernelRunContextPassesContextToCommand(t *testing.T) {
+	useKernelTestContainer(t)
+
 	k := New("test")
 	ctx := context.WithValue(context.Background(), testContextKey{}, "root")
 	cmd := &testCommand{}
@@ -28,6 +30,8 @@ func TestKernelRunContextPassesContextToCommand(t *testing.T) {
 }
 
 func TestKernelRootRendersLaravelStyleCommandList(t *testing.T) {
+	useKernelTestContainer(t)
+
 	t.Setenv("FORCE_COLOR", "1")
 	t.Setenv("NO_COLOR", "")
 	k := New("artisan")
@@ -55,6 +59,8 @@ func TestKernelRootRendersLaravelStyleCommandList(t *testing.T) {
 }
 
 func TestKernelRootHonorsQuietAndNoANSI(t *testing.T) {
+	useKernelTestContainer(t)
+
 	t.Setenv("FORCE_COLOR", "1")
 	k := New("artisan")
 	k.Register(&testCommand{})
@@ -78,6 +84,8 @@ func TestKernelRootHonorsQuietAndNoANSI(t *testing.T) {
 }
 
 func TestKernelCommandsUseAutoDetectedConsoleColors(t *testing.T) {
+	useKernelTestContainer(t)
+
 	t.Setenv("FORCE_COLOR", "1")
 	t.Setenv("NO_COLOR", "")
 	k := New("artisan")
@@ -102,6 +110,8 @@ func TestKernelCommandsUseAutoDetectedConsoleColors(t *testing.T) {
 }
 
 func TestKernelExplicitANSIConflictFollowsSymfonyStyleOrder(t *testing.T) {
+	useKernelTestContainer(t)
+
 	t.Setenv("FORCE_COLOR", "")
 	t.Setenv("NO_COLOR", "")
 	k := New("artisan")
@@ -118,6 +128,8 @@ func TestKernelExplicitANSIConflictFollowsSymfonyStyleOrder(t *testing.T) {
 }
 
 func TestKernelRunContextArgvExposesExplicitFullArgvBoundary(t *testing.T) {
+	useKernelTestContainer(t)
+
 	k := New("artisan")
 	k.Register(&outputCommand{})
 	stdout := &bytes.Buffer{}

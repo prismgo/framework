@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -899,6 +900,10 @@ func TestRedisStoreErrorBranches(t *testing.T) {
 func TestDefaultManagerAndLoadConfigEntryPoints(t *testing.T) {
 	// 需求背景：应用注册的命令使用 defaultManager 作为入口。本测试验证 LoadConfig/defaultManager
 	// 能提供完整的 Store 配置与 Store resolver。
+	registry := useHorizonTestContainer(t)
+	if err := reloadConfigFacadeForTest(t, registry); err != nil {
+		t.Fatalf("reload config facade: %v", err)
+	}
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("load config: %v", err)
@@ -906,7 +911,6 @@ func TestDefaultManagerAndLoadConfigEntryPoints(t *testing.T) {
 	if cfg.Store == "" || cfg.Connection == "" || cfg.HeartbeatTTL <= 0 {
 		t.Fatalf("unexpected loaded config: %#v", cfg)
 	}
-	registry := useHorizonTestContainer(t)
 	bound, err := NewManager(Config{Store: "memory", HeartbeatTTL: time.Minute}, WithStoreFactory(defaultStoreFactory))
 	if err != nil {
 		t.Fatalf("new default manager: %v", err)
@@ -972,12 +976,30 @@ func TestStoreFactoryRedisAndDefaultManagerFailureBranches(t *testing.T) {
 	if err := reloadConfigFacadeForTest(t, registry); err != nil {
 		t.Fatalf("reload invalid config facade: %v", err)
 	}
-	if Resolve() != nil {
-		t.Fatal("invalid fallback config should keep facade manager nil")
-	}
-	if _, err := defaultManager(); !errors.Is(err, ErrStoreNotConfigured) {
-		t.Fatalf("defaultManager invalid config error = %v, want %v", err, ErrStoreNotConfigured)
-	}
+	func() {
+		defer func() {
+			recovered := recover()
+			if recovered == nil {
+				t.Fatal("Resolve without bound manager did not panic")
+			}
+			if got := fmt.Sprint(recovered); got != `container "horizon.manager": container factory is not registered` {
+				t.Fatalf("panic = %q, want horizon.manager not registered", got)
+			}
+		}()
+		_ = Resolve()
+	}()
+	func() {
+		defer func() {
+			recovered := recover()
+			if recovered == nil {
+				t.Fatal("defaultManager without bound manager did not panic")
+			}
+			if got := fmt.Sprint(recovered); got != `container "horizon.manager": container factory is not registered` {
+				t.Fatalf("panic = %q, want horizon.manager not registered", got)
+			}
+		}()
+		_, _ = defaultManager()
+	}()
 }
 
 func TestSmallHelperBranches(t *testing.T) {

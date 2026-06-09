@@ -8,6 +8,7 @@ import (
 	"github.com/prismgo/framework/console"
 	"github.com/prismgo/framework/container"
 	contractprovider "github.com/prismgo/framework/contracts/provider"
+	"github.com/prismgo/framework/event"
 	"github.com/prismgo/framework/kernel"
 	"github.com/prismgo/framework/timer"
 )
@@ -125,6 +126,9 @@ func bindProviderStartingRegistrar(t *testing.T, source *providerKernelSource) {
 	registry := container.NewContainer()
 	container.SetProvider(func() *container.Container { return registry })
 	t.Cleanup(func() { container.SetProvider(nil) })
+	if err := registry.Instance("event.dispatcher", event.New()); err != nil {
+		t.Fatalf("bind event dispatcher: %v", err)
+	}
 	if err := registry.Instance(kernel.StartingRegistrarKey, kernel.StartingRegistrar(func(callbacks ...kernel.StartingCallback) error {
 		source.starting = append(source.starting, callbacks...)
 		return nil

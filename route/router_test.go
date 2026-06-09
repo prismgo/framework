@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prismgo/framework/cache"
+	"github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 )
 
@@ -28,6 +29,9 @@ func useRouteMemoryCache(t *testing.T) {
 	container.SetProvider(func() *container.Container { return registry })
 	if err := registry.Instance("cache.manager", manager); err != nil {
 		t.Fatalf("bind cache manager: %v", err)
+	}
+	if err := registry.Instance("config.default", config.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
 	}
 	if err := (ServiceProvider{}).Register(providerTestApp{registry: registry}); err != nil {
 		t.Fatalf("register route provider: %v", err)
