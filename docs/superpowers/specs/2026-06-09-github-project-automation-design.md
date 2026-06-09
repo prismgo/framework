@@ -229,13 +229,16 @@ Trivy 与 gin 对齐：
 - format: `sarif` 用于上传 GitHub Security
 - table output 用于日志
 - severity: `CRITICAL,HIGH,MEDIUM`
-- ignore-unfixed: `true`
+
+实现备注：初版不设置 `ignore-unfixed`，避免 broad suppression。只有确认具体仓库产物导致稳定误报时，才应新增有明确 CVE/规则编号和理由的定向忽略。
 
 执行顺序必须保证 SARIF 上传优先于失败：
 
 1. 生成 SARIF。
 2. `if: always()` 上传 SARIF。
 3. `if: always()` 运行 table 输出并设置 `exit-code: "1"`。
+
+SARIF 上传步骤应在 `trivy-results.sarif` 存在时运行，避免 SARIF 生成失败后再产生无关上传失败。
 
 本仓库存在 `storage/logs` 这类运行时文件。实现阶段不能用广泛 ignore 掩盖真实风险；只能对明确不应纳入仓库或已经被 `.gitignore` 排除的本地运行产物做有边界处理。
 

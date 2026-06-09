@@ -15,15 +15,15 @@
 
 ## 3. Dependency and Security Automation
 
-- [ ] 3.1 Add `.github/dependabot.yml` for daily `gomod` and grouped GitHub Actions updates.
-- [ ] 3.2 Add `.github/workflows/codeql.yml` for Go CodeQL on push, pull request, and weekly schedule.
-- [ ] 3.3 Add `.github/workflows/trivy-scan.yml` for filesystem vulnerability, secret, and misconfiguration scans.
-- [ ] 3.4 Tune Trivy scope or ignore behavior only for deliberate repository artifacts, not broad suppression.
+- [x] 3.1 Add `.github/dependabot.yml` for daily `gomod` and grouped GitHub Actions updates.
+- [x] 3.2 Add `.github/workflows/codeql.yml` for Go CodeQL on push, pull request, and weekly schedule.
+- [x] 3.3 Add `.github/workflows/trivy-scan.yml` for filesystem vulnerability, secret, and misconfiguration scans.
+- [x] 3.4 Tune Trivy scope or ignore behavior only for deliberate repository artifacts, not broad suppression.
 
 ## 4. Release Readiness
 
-- [ ] 4.1 Document the gin GoReleaser behavior and why automatic tag publishing is deferred.
-- [ ] 4.2 Leave tag-triggered release automation disabled unless a later maintainer decision enables it.
+- [x] 4.1 Document the gin GoReleaser behavior and why automatic tag publishing is deferred.
+- [x] 4.2 Leave tag-triggered release automation disabled unless a later maintainer decision enables it.
 
 ## 5. Verification
 
