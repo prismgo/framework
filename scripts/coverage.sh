@@ -105,12 +105,18 @@ IFS=, read -r -a COVERPKG_LIST <<< "$COVERPKG"
 echo "==> Cover package count: ${#COVERPKG_LIST[@]}"
 
 echo "==> Running go test with covdata"
-if ! go test "${EXTRA_TEST_FLAGS[@]}" "${TEST_PATTERNS[@]}" \
+GO_TEST_CMD=(go test)
+if [ "${#EXTRA_TEST_FLAGS[@]}" -gt 0 ]; then
+  GO_TEST_CMD+=("${EXTRA_TEST_FLAGS[@]}")
+fi
+GO_TEST_CMD+=("${TEST_PATTERNS[@]}" \
   "-count=$COUNT" \
   -cover \
   "-covermode=$COVERMODE" \
   "-coverpkg=$COVERPKG" \
-  -args "-test.gocoverdir=$COV_DIR_NATIVE" >"$TEST_LOG" 2>&1; then
+  -args "-test.gocoverdir=$COV_DIR_NATIVE")
+
+if ! "${GO_TEST_CMD[@]}" >"$TEST_LOG" 2>&1; then
   cat "$TEST_LOG" >&2
   exit 1
 fi
