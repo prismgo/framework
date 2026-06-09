@@ -3546,16 +3546,21 @@ func (p fakeManagedProcess) PID() int    { return p.pid }
 func (p fakeManagedProcess) Wait() error { return p.err }
 
 type fakeControlNotifier struct {
+	mu      sync.Mutex
 	targets []ControlTarget
 	err     error
 }
 
 func (n *fakeControlNotifier) Notify(_ context.Context, targets []ControlTarget) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	n.targets = append(n.targets, targets...)
 	return n.err
 }
 
 func (n *fakeControlNotifier) has(kind string, pid int) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	for _, target := range n.targets {
 		if target.Type == kind && target.PID == pid {
 			return true

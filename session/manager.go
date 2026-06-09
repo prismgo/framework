@@ -102,6 +102,8 @@ func (m *Manager) Save(ctx context.Context, store *Store) error {
 	if m == nil || m.driver == nil || store == nil {
 		return ErrInvalidConfig
 	}
+	store.saveMu.Lock()
+	defer store.saveMu.Unlock()
 	expiresAt := m.expiresAt()
 	save := func() error {
 		store.advanceFlash()

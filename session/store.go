@@ -25,6 +25,7 @@ type Store struct {
 	manager       *Manager
 	response      http.ResponseWriter
 	dirty         bool
+	saveMu        sync.Mutex
 	lockMu        sync.Mutex
 	requestLock   Lock
 	requestLockID string
