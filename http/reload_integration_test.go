@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,11 +32,27 @@ import (
 // 子进程通过 PRISMGO_TEST_RELOAD_CHILD 环境变量识别自身角色，执行 reload 子进程逻辑后直接退出，
 // 不进入测试框架。父进程正常执行所有测试用例。
 func TestMain(m *testing.M) {
+	if marker := os.Getenv("PRISMGO_TEST_RELOAD_ENV_MARKER"); marker != "" {
+		captureReloadEnv(marker)
+		return
+	}
 	if os.Getenv("PRISMGO_TEST_RELOAD_CHILD") == "1" {
 		runReloadChild()
 		return
 	}
 	os.Exit(m.Run())
+}
+
+func captureReloadEnv(marker string) {
+	content := strings.Join([]string{
+		os.Getenv(listenerFDEnv),
+		os.Getenv(reloadSignalEnv),
+	}, "\n")
+	if err := os.WriteFile(marker, []byte(content), 0644); err != nil {
+		fmtx.Fprintf(os.Stderr, "reload env capture failed: %v\n", err)
+		os.Exit(1)
+	}
+	os.Exit(0)
 }
 
 // runReloadChild 执行 reload 子进程的核心逻辑：
@@ -211,7 +228,7 @@ func TestSpawnReloadChildRejectsNonTCPListener(t *testing.T) {
 	}
 }
 
-func TestSpawnReloadChildStartErrorIncludesReadyEnv(t *testing.T) {
+func TestSpawnReloadChildStartError(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen failed: %v", err)
@@ -222,9 +239,54 @@ func TestSpawnReloadChildStartErrorIncludesReadyEnv(t *testing.T) {
 		}
 	}()
 
-	err = spawnReloadChild(listener, "/path/to/missing/executable", nil, func() {})
+	err = spawnReloadChild(listener, filepath.Join(t.TempDir(), "missing-executable"), nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "start reload child failed") {
 		t.Fatalf("spawnReloadChild error = %v, want start reload child failed", err)
+	}
+}
+
+func TestSpawnReloadChildIncludesReadyEnv(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	}()
+
+	marker := filepath.Join(t.TempDir(), "reload-env.txt")
+	t.Setenv("PRISMGO_TEST_RELOAD_ENV_MARKER", marker)
+
+	err = spawnReloadChild(listener, os.Args[0], nil, func() {})
+	if err != nil {
+		t.Fatalf("spawnReloadChild error = %v, want nil", err)
+	}
+
+	var lines []string
+	for i := 0; i < 20; i++ {
+		var data []byte
+		data, err = os.ReadFile(marker)
+		if err == nil {
+			lines = strings.Split(strings.TrimSpace(string(data)), "\n")
+		}
+		if len(lines) == 2 && lines[0] != "" && lines[1] != "" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("read reload env marker: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("reload env marker = %v, want listener and parent pid", lines)
+	}
+	if lines[0] != strconv.Itoa(inheritedFD) {
+		t.Fatalf("%s = %q, want %d", listenerFDEnv, lines[0], inheritedFD)
+	}
+	if lines[1] != strconv.Itoa(os.Getpid()) {
+		t.Fatalf("%s = %q, want %d", reloadSignalEnv, lines[1], os.Getpid())
 	}
 }
 
