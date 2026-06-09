@@ -1,0 +1,14 @@
+{
+  "change": "add-github-project-automation",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "c3e622381d84e2c198be85dd24e11b772c86395ad2174be1f61e1f8adcdedda7",
+  "files": [
+    { "path": "openspec/changes/add-github-project-automation/proposal.md", "sha256": "4be9c777a7016cd5834ef81613745165edd938f8235266036b0a1c53188ac67f" },
+    { "path": "openspec/changes/add-github-project-automation/design.md", "sha256": "a55dbfa144c550301abaa053c42dc2b0e7cc3f020099da87ccc264b8ef653d6a" },
+    { "path": "openspec/changes/add-github-project-automation/tasks.md", "sha256": "2ace1ad00bbaf98d5d8fd19a6ea1b81a8249d85156ae060bbe1d4ac0000571f0" },
+    { "path": "openspec/changes/add-github-project-automation/specs/github-project-automation/spec.md", "sha256": "b2253915ab46875031551640082c964438cd80adfe29100cbe907a1ba44e27ea" }
+  ]
+}

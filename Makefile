@@ -21,12 +21,21 @@ fmt:
 
 .PHONY: fmt-check
 fmt-check:
-	@diff="$$( $(GOFMT) -d $$(find . -name '*.go' -not -path './tmp/*') )"; \
-	if [ -n "$$diff" ]; then \
-		echo "Please run 'make fmt' and commit the result:"; \
-		echo "$$diff"; \
-		exit 1; \
-	fi
+	@tmp="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	status=0; \
+	for file in $$(find . -name '*.go' -not -path './tmp/*'); do \
+		current="$$tmp/current"; \
+		formatted="$$tmp/formatted"; \
+		sed 's/\r$$//' "$$file" > "$$current"; \
+		$(GOFMT) "$$file" > "$$formatted"; \
+		if ! cmp -s "$$current" "$$formatted"; then \
+			echo "Please run 'make fmt' and commit the result for $$file:"; \
+			diff -u "$$current" "$$formatted" || true; \
+			status=1; \
+		fi; \
+	done; \
+	exit "$$status"
 
 .PHONY: lint
 lint:

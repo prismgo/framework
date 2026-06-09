@@ -27,6 +27,6 @@
 
 ## 5. Verification
 
-- [ ] 5.1 Run formatting or YAML validation for added files where available.
-- [ ] 5.2 Run local Go test command used by CI, or document why it cannot run.
-- [ ] 5.3 Review generated GitHub workflows for least-privilege permissions and default-branch consistency.
+- [x] 5.1 Run formatting or YAML validation for added files where available.
+- [x] 5.2 Run local Go test command used by CI, or document why it cannot run.
+- [x] 5.3 Review generated GitHub workflows for least-privilege permissions and default-branch consistency.
