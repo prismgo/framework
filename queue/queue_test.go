@@ -1928,10 +1928,11 @@ func TestMiddlewareLocksRateLimitAndTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first rate limit: %v", err)
 	}
-	if limited, err := ratelimit.TooManyAttempts(context.Background(), "rate", 1); err != nil || !limited {
+	limiter := ratelimit.New(queueCacheRepositoryFromContext(context.Background(), nil, ""))
+	if limited, err := limiter.TooManyAttempts(context.Background(), "rate", 1); err != nil || !limited {
 		t.Fatalf("queue rate limit should use prismgo/ratelimit, limited=%v err=%v", limited, err)
 	}
-	t.Cleanup(func() { _ = ratelimit.Clear(context.Background(), "rate") })
+	t.Cleanup(func() { _ = limiter.Clear(context.Background(), "rate") })
 	err = limited.Handle(context.Background(), &testJob{Key: "r2"}, func(context.Context) error { return nil })
 	if _, ok := ReleaseDelay(err); !ok {
 		t.Fatalf("expected rate limit release, got %v", err)
