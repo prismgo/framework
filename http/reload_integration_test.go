@@ -136,6 +136,35 @@ func TestInheritedListenerUnusableFD(t *testing.T) {
 	}
 }
 
+func TestInheritedListenerReturnsListenerFromEnvFD(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	}()
+
+	file, err := listener.(*net.TCPListener).File()
+	if err != nil {
+		t.Fatalf("listener file failed: %v", err)
+	}
+
+	t.Setenv(listenerFDEnv, strconv.Itoa(int(file.Fd())))
+	inherited, err := InheritedListener()
+	if err != nil {
+		t.Fatalf("InheritedListener returned error: %v", err)
+	}
+	if inherited == nil {
+		t.Fatal("InheritedListener returned nil listener")
+	}
+	if err := inherited.Close(); err != nil {
+		t.Fatalf("close inherited listener: %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // NotifyReloadParent 错误分支测试
 // ---------------------------------------------------------------------------

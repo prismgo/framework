@@ -320,7 +320,7 @@ func TestListenAndServeGracefulContextAcceptsNilContext(t *testing.T) {
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }),
 	}
 
-	err := ListenAndServeGracefulContext(nil, server, time.Second, WithDispatcher(event.New()), WithStartedHook(func() {
+	err := ListenAndServeGracefulContext(nil, server, time.Second, WithDispatcher(event.New()), WithStartedHook(func() { //nolint:staticcheck
 		go func() {
 			_ = server.Shutdown(context.Background())
 		}()
