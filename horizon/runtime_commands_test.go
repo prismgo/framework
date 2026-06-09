@@ -42,7 +42,7 @@ func TestRuntimeCommandsUseStoreForControlAndStatus(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed supervisor: %v", err)
 	}
-	manager, err := NewManager(Config{Store: "memory", Prefix: "cmd", HeartbeatTTL: time.Minute}, WithStoreFactory(staticStoreResolver{store: store}), WithQueueManager(&fakeRuntimeQueueManager{connections: map[string]*fakeQueueConnection{}}))
+	manager, err := NewManager(Config{Store: "memory", Prefix: "cmd", HeartbeatTTL: time.Minute}, WithStoreFactory(staticStoreResolver{store: store}), WithQueueManager(&fakeRuntimeQueueManager{connections: map[string]*fakeQueueConnection{}}), WithControlNotifier(&fakeControlNotifier{}))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}
