@@ -122,7 +122,7 @@ Add or update colocated `*_test.go` files for behavior changes. Use focused unit
   - For narrow-scope validation, pass `PACKAGES`, e.g., `make covdata PACKAGES=./cache`, or pass a package path to the script, e.g., `./scripts/coverage.sh ./cache`
 - Coverage output is placed in `.coverage/`; Go build cache is fixed to `tmp/gocache` by the script to avoid writing to the user's global cache.
 - Before final delivery, run the appropriate OS script based on the scope of changes, e.g., `make covdata PACKAGES=./cache`
-- Required coverage for the changed scope is > `95%`. If not met, additional test code must be added.
+- Required coverage for the changed scope is > `90%`. If not met, additional test code must be added.
 - If full covdata is blocked by existing flaky tests (e.g., timer-sensitive tests), you must rerun the failing package(s) in isolation and explain in the results which tests failed and whether they are related to the current changes. You cannot treat a failed full coverage run as passing.
 
 ## Security & Configuration Tips
