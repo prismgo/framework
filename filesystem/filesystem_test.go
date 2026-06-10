@@ -928,6 +928,17 @@ func TestFacadeAndManagerClose(t *testing.T) {
 	if err := Put(context.Background(), "demo.txt", "demo"); err != nil {
 		t.Fatalf("facade Put failed: %v", err)
 	}
+	// 测试意图：facade 上传 API 只做默认 disk 转发，具体写入语义仍由 Repository 统一处理。
+	if err := PutReader(context.Background(), "reader.txt", strings.NewReader("reader"), PutOptions{ContentType: "text/plain"}); err != nil {
+		t.Fatalf("facade PutReader failed: %v", err)
+	}
+	header := newMultipartHeader(t, "file", "facade.txt", []byte("facade-upload"))
+	if path, err := PutFile(context.Background(), "uploads", header); err != nil || path != "uploads/facade.txt" {
+		t.Fatalf("facade PutFile failed: %v / %s", err, path)
+	}
+	if path, err := PutFileAs(context.Background(), "uploads", header, "renamed.txt"); err != nil || path != "uploads/renamed.txt" {
+		t.Fatalf("facade PutFileAs failed: %v / %s", err, path)
+	}
 	if exists, err := Exists(context.Background(), "demo.txt"); err != nil || !exists {
 		t.Fatalf("facade Exists failed: %v / %v", err, exists)
 	}
@@ -1047,6 +1058,16 @@ func TestLocalDriverIntegration(t *testing.T) {
 	if err := privateDisk.MakeDirectory(context.Background(), "uploads/images"); err != nil {
 		t.Fatalf("MakeDirectory failed: %v", err)
 	}
+	// 测试意图：本地驱动的目录判断直接依赖 OS stat，需要区分目录、缺失路径和普通文件。
+	if exists, err := privateDisk.DirectoryExists(context.Background(), "uploads/images"); err != nil || !exists {
+		t.Fatalf("DirectoryExists existing dir failed: %v / %v", err, exists)
+	}
+	if exists, err := privateDisk.DirectoryExists(context.Background(), "uploads/missing"); err != nil || exists {
+		t.Fatalf("DirectoryExists missing dir failed: %v / %v", err, exists)
+	}
+	if exists, err := privateDisk.DirectoryExists(context.Background(), "notes/test.txt"); err != nil || exists {
+		t.Fatalf("DirectoryExists file path failed: %v / %v", err, exists)
+	}
 	if err := privateDisk.Put(context.Background(), "uploads/images/a.txt", "A"); err != nil {
 		t.Fatalf("nested Put failed: %v", err)
 	}
@@ -1136,6 +1157,9 @@ func TestLocalDriverIntegration(t *testing.T) {
 			t.Fatalf("expected direct local Open info size > 0, got %+v", info)
 		}
 	}
+	if !localDriverRef.ProvidesTemporaryURLs() {
+		t.Fatal("expected served local driver to provide temporary URLs")
+	}
 
 	secondManager, err := NewManager(Config{
 		Default: "local",
@@ -1200,6 +1224,9 @@ func TestLocalDriverIntegration(t *testing.T) {
 	}
 	if _, err := localWithNoURL.TemporaryURL(context.Background(), "a.txt", expires); !errors.Is(err, ErrTemporaryURLDisabled) {
 		t.Fatalf("expected temporary url disabled, got %v", err)
+	}
+	if localWithNoURL.ProvidesTemporaryURLs() {
+		t.Fatal("expected local driver without temp URL callback to report disabled")
 	}
 	if err := localWithNoURL.Write(context.Background(), "a.txt", strings.NewReader("x"), PutOptions{Visibility: VisibilityPrivate}); !errors.Is(err, ErrUnsupportedVisibility) {
 		t.Fatalf("expected unsupported visibility, got %v", err)

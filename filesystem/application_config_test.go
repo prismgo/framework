@@ -102,6 +102,80 @@ func TestApplicationManagerBuildConfigWithCustomDriver(t *testing.T) {
 	}
 }
 
+func TestNewManagerFromConfigAndProviderLifecycleBranches(t *testing.T) {
+	// 测试意图：覆盖从运行时配置构造 Manager 的生产入口，以及 ServiceProvider 的无副作用生命周期分支。
+	registry := useFilesystemTestContainer(t)
+	root := t.TempDir()
+
+	configpkg.Add("app", func() map[string]any {
+		return map[string]any{
+			"key": "new-manager-config-key",
+			"url": "http://app.test",
+		}
+	})
+	configpkg.Add("filesystem", func() map[string]any {
+		return map[string]any{
+			"default": "local",
+			"cloud":   "local",
+			"disks": map[string]any{
+				"local": map[string]any{
+					"driver":     "local",
+					"root":       filepath.Join(root, "local"),
+					"visibility": "private",
+					"serve":      true,
+				},
+			},
+		}
+	})
+
+	cfg := configpkg.New()
+	if err := cfg.ReloadFromFile(filepath.Join(t.TempDir(), ".env")); err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if err := registry.Instance("config.default", cfg); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+
+	closeManager, manager, err := NewManagerFromConfig()
+	if err != nil {
+		t.Fatalf("NewManagerFromConfig error = %v", err)
+	}
+	if manager.DefaultName() != "local" || manager.CloudName() != "local" {
+		t.Fatalf("unexpected manager aliases: default=%s cloud=%s", manager.DefaultName(), manager.CloudName())
+	}
+	if err := manager.Default().Put(context.Background(), "docs/readme.txt", "ok"); err != nil {
+		t.Fatalf("manager from config put: %v", err)
+	}
+	if closeManager == nil {
+		t.Fatal("NewManagerFromConfig returned nil close function")
+	}
+	if err := closeManager(); err != nil {
+		t.Fatalf("close manager from config: %v", err)
+	}
+
+	provider := ServiceProvider{}
+	if provider.Name() != "filesystem" {
+		t.Fatalf("provider name = %q, want filesystem", provider.Name())
+	}
+	if err := provider.Boot(filesystemProviderApp{registry: registry}); err != nil {
+		t.Fatalf("provider boot: %v", err)
+	}
+	if ManagerCloseOption() == nil {
+		t.Fatal("ManagerCloseOption returned nil binding option")
+	}
+
+	explicit := newTestManager(t, t.TempDir())
+	if err := registry.Instance(serviceKey, explicit); err != nil {
+		t.Fatalf("bind explicit manager: %v", err)
+	}
+	if err := provider.Register(filesystemProviderApp{registry: registry}); err != nil {
+		t.Fatalf("provider register with existing manager: %v", err)
+	}
+	if got := Resolve(); got != explicit {
+		t.Fatal("provider should preserve explicitly bound manager")
+	}
+}
+
 func TestBuildConfigResolvesLocalRootsFromApplicationStorage(t *testing.T) {
 	base := t.TempDir()
 	c := useFilesystemTestContainer(t)
