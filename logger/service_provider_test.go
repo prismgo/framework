@@ -50,6 +50,23 @@ func TestServiceProviderPreservesExplicitLoggerManager(t *testing.T) {
 	}
 }
 
+func TestServiceProviderIdentityAndBootAreStable(t *testing.T) {
+	// Provider identity is used by application lifecycle bookkeeping and should stay stable.
+	provider := ServiceProvider{}
+	if got := provider.Name(); got != "logger" {
+		t.Fatalf("provider name = %q, want logger", got)
+	}
+
+	// Boot intentionally has no side effects; channel construction remains lazy after Register.
+	registry := container.NewContainer()
+	if err := provider.Boot(providerTestApp{registry: registry}); err != nil {
+		t.Fatalf("Boot failed: %v", err)
+	}
+	if registry.Bound("logger.manager") {
+		t.Fatal("Boot should not register logger.manager")
+	}
+}
+
 type providerTestApp struct {
 	registry containercontract.Container
 }

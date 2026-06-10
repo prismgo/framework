@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -433,7 +434,85 @@ func TestManagerCloseReturnsFirstDriverError(t *testing.T) {
 	}
 }
 
+func TestStandardHookHelperBranches(t *testing.T) {
+	// Panic-level logrus entries are downgraded to Error because the logger facade has no Panic method.
+	target := &recordingLogger{}
+	entry := logrus.NewEntry(logrus.New())
+	entry.Level = logrus.PanicLevel
+	entry.Message = "panic payload"
+	entry.Data = logrus.Fields{"scope": "hook"}
+	if err := writeLogrusEntry(target, entry); err != nil {
+		t.Fatalf("write logrus entry: %v", err)
+	}
+	if target.lastLevel != "error" {
+		t.Fatalf("panic entry level = %q, want error", target.lastLevel)
+	}
+	if target.lastMessage != "panic payload" {
+		t.Fatalf("panic entry message = %q, want panic payload", target.lastMessage)
+	}
+	if target.fields["scope"] != "hook" {
+		t.Fatalf("entry fields were not forwarded: %#v", target.fields)
+	}
+
+	// Unknown Logger implementations use info as the broadest safe standard-logrus level.
+	if got := maxLoggerLevel(target); got != logrus.InfoLevel {
+		t.Fatalf("max level for custom logger = %s, want info", got)
+	}
+}
+
 type closeErrorDriver struct{}
 
 func (closeErrorDriver) Write(p []byte) (int, error) { return len(p), nil }
 func (closeErrorDriver) Close() error                { return errors.New("close failed") }
+
+// recordingLogger captures facade helper dispatch without invoking logrus fatal exit paths.
+type recordingLogger struct {
+	lastLevel   string
+	lastMessage string
+	fields      map[string]any
+}
+
+func (l *recordingLogger) Debug(args ...any) { l.record("debug", args...) }
+func (l *recordingLogger) Debugf(format string, args ...any) {
+	l.record("debug", append([]any{format}, args...)...)
+}
+func (l *recordingLogger) Info(args ...any) { l.record("info", args...) }
+func (l *recordingLogger) Infof(format string, args ...any) {
+	l.record("info", append([]any{format}, args...)...)
+}
+func (l *recordingLogger) Warn(args ...any) { l.record("warn", args...) }
+func (l *recordingLogger) Warnf(format string, args ...any) {
+	l.record("warn", append([]any{format}, args...)...)
+}
+func (l *recordingLogger) Error(args ...any) { l.record("error", args...) }
+func (l *recordingLogger) Errorf(format string, args ...any) {
+	l.record("error", append([]any{format}, args...)...)
+}
+func (l *recordingLogger) Fatal(args ...any) { l.record("fatal", args...) }
+func (l *recordingLogger) Fatalf(format string, args ...any) {
+	l.record("fatal", append([]any{format}, args...)...)
+}
+func (l *recordingLogger) WithField(key string, value any) Logger {
+	return l.WithFields(map[string]any{key: value})
+}
+func (l *recordingLogger) WithFields(fields map[string]any) Logger {
+	if l.fields == nil {
+		l.fields = make(map[string]any, len(fields))
+	}
+	for key, value := range fields {
+		l.fields[key] = value
+	}
+	return l
+}
+func (l *recordingLogger) WithError(err error) Logger {
+	return l.WithField(logrus.ErrorKey, err)
+}
+func (l *recordingLogger) WithContext(_ context.Context) Logger { return l }
+func (l *recordingLogger) Channel(string) Logger                { return l }
+
+func (l *recordingLogger) record(level string, args ...any) {
+	l.lastLevel = level
+	if len(args) > 0 {
+		l.lastMessage, _ = args[0].(string)
+	}
+}
