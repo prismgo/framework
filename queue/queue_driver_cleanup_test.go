@@ -420,14 +420,12 @@ func TestRedisQueueSecondaryQueueHitSuppressesNextPrimaryBlock(t *testing.T) {
 		t.Fatalf("first secondary id = %q", first.ID())
 	}
 	blpopBefore := recorder.commandCount("blpop")
-	start := time.Now()
 	_, err = redisQueue.Pop(ctx, []string{"default"}, queuecontract.PopNoWait)
 	if !errors.Is(err, ErrEmpty) {
 		t.Fatalf("primary second pop err = %v, want empty", err)
 	}
-	if elapsed := time.Since(start); elapsed >= 20*time.Millisecond {
-		t.Fatalf("primary second pop took %s, want no block_for wait", elapsed)
-	}
+	// 逻辑说明：PopNoWait 的行为边界是不能进入 BLPOP；墙钟耗时会受 Redis/miniredis 调度影响，
+	// 因此用命令记录器验证没有发生阻塞命令。
 	if got := recorder.commandCount("blpop"); got != blpopBefore {
 		t.Fatalf("blpop count after secondary hit = %d, want %d", got, blpopBefore)
 	}
