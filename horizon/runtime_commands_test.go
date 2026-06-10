@@ -101,6 +101,43 @@ func TestStatusCommandReturnsErrorForInactiveAndSucceedsForPausedState(t *testin
 	}
 }
 
+func TestRuntimeReadAdaptersExposeSupervisorDetail(t *testing.T) {
+	// 需求背景：runtime command adapter 是 CLI 读模型边界，必须把 Store 中的单个 supervisor
+	// 及相关 master/worker 字段按 command contract 原样透出。
+	ctx := context.Background()
+	now := time.Now().UTC()
+	store := NewMemoryStore(StoreOptions{HeartbeatTTL: time.Minute})
+	if err := store.HeartbeatMaster(ctx, MasterState{ID: "master-1", Host: "host-1", PID: 7001, Status: MasterRunning, StartedAt: now, LastHeartbeatAt: now, SupervisorCount: 1, Environment: "local"}); err != nil {
+		t.Fatalf("seed master: %v", err)
+	}
+	if err := store.HeartbeatSupervisor(ctx, SupervisorState{Name: "s1", Host: "host-1", PID: 7002, Status: SupervisorRunning, StartedAt: now, LastHeartbeatAt: now, Connection: "redis", Queues: []string{"default"}, WorkerCount: 1, MasterID: "master-1", Environment: "local"}); err != nil {
+		t.Fatalf("seed supervisor: %v", err)
+	}
+	if err := store.HeartbeatWorker(ctx, WorkerState{ID: "w1", Supervisor: "s1", Host: "host-1", PID: 7003, Status: WorkerIdle, LastHeartbeatAt: now}); err != nil {
+		t.Fatalf("seed worker: %v", err)
+	}
+	runtime := &runtimeCommandAdapter{store: store}
+
+	supervisor, found, err := runtime.Supervisor(ctx, "s1", now)
+	if err != nil || !found {
+		t.Fatalf("supervisor detail: found=%v err=%v", found, err)
+	}
+	if supervisor.Name != "s1" || supervisor.PID != 7002 || supervisor.WorkerCount != 1 || supervisor.Connection != "redis" || len(supervisor.Queues) != 1 || supervisor.Queues[0] != "default" {
+		t.Fatalf("supervisor detail = %#v", supervisor)
+	}
+	if _, found, err := runtime.Supervisor(ctx, "missing", now); err != nil || found {
+		t.Fatalf("missing supervisor: found=%v err=%v", found, err)
+	}
+	masters, err := runtime.Masters(ctx, now)
+	if err != nil || len(masters) != 1 || masters[0].Environment != "local" {
+		t.Fatalf("masters = %#v err=%v", masters, err)
+	}
+	workers, err := runtime.Workers(ctx, now)
+	if err != nil || len(workers) != 1 || workers[0].Supervisor != "s1" {
+		t.Fatalf("workers = %#v err=%v", workers, err)
+	}
+}
+
 func TestTerminateCommandRequestsQueueRestartButPauseContinueDoNot(t *testing.T) {
 	// 需求背景：Laravel Horizon terminate 会同时触发底层 queue restart 语义，
 	// pause/continue 只是 Horizon Store 控制状态，不能让正在执行的 queue worker 退出。

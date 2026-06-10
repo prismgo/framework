@@ -2,6 +2,7 @@ package horizon
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -455,5 +456,33 @@ func TestMemoryStoreRejectsInvalidOrphanProcessesAndKeepsFirstSeen(t *testing.T)
 	}
 	if len(remaining) != 0 {
 		t.Fatalf("last orphan should remove master bucket, got %#v", remaining)
+	}
+}
+
+func TestStoreStateSortingTieBreakers(t *testing.T) {
+	// 逻辑说明：状态列表用于 CLI/API 展示，排序必须在 heartbeat 相同或不同的情况下保持稳定可预测。
+	now := time.Now().UTC()
+	supervisors := []SupervisorState{
+		{Name: "beta", Host: "host-b", Environment: "prod", PID: 3, LastHeartbeatAt: now},
+		{Name: "alpha", Host: "host-b", Environment: "prod", PID: 2, LastHeartbeatAt: now},
+		{Name: "alpha", Host: "host-a", Environment: "prod", PID: 4, LastHeartbeatAt: now},
+		{Name: "alpha", Host: "host-a", Environment: "local", PID: 5, LastHeartbeatAt: now},
+		{Name: "alpha", Host: "host-a", Environment: "local", PID: 1, LastHeartbeatAt: now.Add(time.Second)},
+	}
+	sortSupervisorStates(supervisors)
+	if got := []int{supervisors[0].PID, supervisors[1].PID, supervisors[2].PID, supervisors[3].PID, supervisors[4].PID}; !reflect.DeepEqual(got, []int{1, 5, 4, 2, 3}) {
+		t.Fatalf("supervisor order = %v", got)
+	}
+
+	workers := []WorkerState{
+		{ID: "worker-b", Host: "host-b", Environment: "prod", Supervisor: "s2", LastHeartbeatAt: now},
+		{ID: "worker-a", Host: "host-b", Environment: "prod", Supervisor: "s2", LastHeartbeatAt: now},
+		{ID: "worker-a", Host: "host-a", Environment: "prod", Supervisor: "s2", LastHeartbeatAt: now},
+		{ID: "worker-a", Host: "host-a", Environment: "local", Supervisor: "s2", LastHeartbeatAt: now},
+		{ID: "worker-a", Host: "host-a", Environment: "local", Supervisor: "s1", LastHeartbeatAt: now.Add(time.Second)},
+	}
+	sortWorkerStates(workers)
+	if got := []string{workers[0].Supervisor, workers[1].Supervisor, workers[2].Environment, workers[3].Host, workers[4].ID}; !reflect.DeepEqual(got, []string{"s1", "s2", "prod", "host-b", "worker-b"}) {
+		t.Fatalf("worker order = %v", got)
 	}
 }

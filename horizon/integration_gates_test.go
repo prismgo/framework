@@ -156,6 +156,9 @@ func TestRedisQueueRedisHorizonIntegrationGate(t *testing.T) {
 		WithQueueManager(NewQueueAdapter(queueManager)),
 		WithWorkerRunner(NewQueueWorkerAdapter(queueManager)),
 		WithEventDispatcher(bus),
+		// 逻辑说明：本集成门验证 Redis store/queue 跨实例可见性，OS control signal 由 runtime_commands_test 覆盖；
+		// 注入 fake notifier 避免测试 PID 在 CI race 环境碰到宿主进程权限边界。
+		WithControlNotifier(&fakeControlNotifier{}),
 	)
 	if err != nil {
 		t.Fatalf("new horizon manager A: %v", err)
