@@ -274,6 +274,46 @@ func TestStartSessionUsesResolvedManagerAndReportsMissingManager(t *testing.T) {
 	}
 }
 
+// TestStartSessionReportsStartAndSaveErrors verifies session lifecycle failures are surfaced through Gin errors.
+func TestStartSessionReportsStartAndSaveErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	startFailure := gin.New()
+	startFailure.Use(StartSession(session.WithManager(&session.Manager{})))
+	startFailure.GET("/start", func(c *gin.Context) { c.String(http.StatusOK, "should not run") })
+
+	startRecorder := httptest.NewRecorder()
+	startFailure.ServeHTTP(startRecorder, httptest.NewRequest(http.MethodGet, "/start", nil))
+	if startRecorder.Code != http.StatusInternalServerError {
+		t.Fatalf("start failure status = %d, want 500", startRecorder.Code)
+	}
+	if startRecorder.Body.String() != "" {
+		t.Fatalf("start failure body = %q, want empty aborted response", startRecorder.Body.String())
+	}
+
+	saveErr := errors.New("session write failed")
+	manager, err := session.NewManager(session.DefaultConfig(), middlewareFailingSessionDriver{writeErr: saveErr})
+	if err != nil {
+		t.Fatalf("new session manager: %v", err)
+	}
+	saveFailure := gin.New()
+	saveFailure.Use(StartSession(session.WithManager(manager)))
+	saveFailure.GET("/save", func(c *gin.Context) {
+		if err := session.Put(c, "status", "dirty"); err != nil {
+			t.Fatalf("put session: %v", err)
+		}
+		c.String(http.StatusAccepted, "buffered")
+	})
+
+	saveRecorder := httptest.NewRecorder()
+	saveFailure.ServeHTTP(saveRecorder, httptest.NewRequest(http.MethodGet, "/save", nil))
+	if saveRecorder.Code != http.StatusInternalServerError {
+		t.Fatalf("save failure status = %d, want 500", saveRecorder.Code)
+	}
+	if saveRecorder.Body.String() != "" {
+		t.Fatalf("save failure body = %q, want buffered response discarded", saveRecorder.Body.String())
+	}
+}
+
 func TestExceptionRecoversReportsAndReraisesWhenDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	bindMiddlewareLoggerForTest(t)
@@ -359,6 +399,39 @@ func TestExceptionAbortWithStatus500Reports(t *testing.T) {
 	}
 	if got := capturedErr.Error(); got != "Internal Server Error: status 500" {
 		t.Fatalf("reported error = %q, want synthetic status error", got)
+	}
+}
+
+// TestExceptionStatusFallbacksAndSingleReport covers non-standard status messages and duplicate report suppression.
+func TestExceptionStatusFallbacksAndSingleReport(t *testing.T) {
+	if message, err := reportErrorForStatus(nil, 599); message != "http request failed" || err == nil {
+		t.Fatalf("server fallback message=%q err=%v", message, err)
+	}
+	if message, err := reportErrorForStatus(nil, 299); message != "http request rejected" || err == nil {
+		t.Fatalf("client fallback message=%q err=%v", message, err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	bindMiddlewareLoggerForTest(t)
+	var reports int
+	h := exception.New(
+		exception.WithReporter(func(_ any, _ error, _ map[string]any) { reports++ }),
+		exception.WithContext(func(*gin.Context) map[string]any { return map[string]any{"tenant": "acme"} }),
+	)
+	engine := gin.New()
+	engine.Use(Exception(h))
+	engine.GET("/twice", func(c *gin.Context) {
+		_ = c.Error(errors.New("first"))
+		reportHTTP(h, c, errors.New("already reported"), http.StatusInternalServerError, time.Now(), nil, nil)
+	})
+
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/twice?id=1", nil))
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", recorder.Code)
+	}
+	if reports != 1 {
+		t.Fatalf("reports = %d, want duplicate report suppressed", reports)
 	}
 }
 
@@ -504,6 +577,37 @@ func TestThrottleCustomResponseAndAfter(t *testing.T) {
 	}
 }
 
+// TestThrottleHelperBranches covers low-level header and error helpers used by the middleware path.
+func TestThrottleHelperBranches(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Writer.WriteHeader(http.StatusCreated)
+	context.Writer.WriteHeaderNow()
+	writeSuccessHeaders(context, []ratelimit.Result{{MaxAttempts: 10, Remaining: 2}})
+	if got := recorder.Header().Get("X-RateLimit-Limit"); got != "" {
+		t.Fatalf("written response limit header = %q, want empty", got)
+	}
+
+	freshRecorder := httptest.NewRecorder()
+	freshContext, _ := gin.CreateTestContext(freshRecorder)
+	writeSuccessHeaders(freshContext, []ratelimit.Result{
+		{MaxAttempts: 10, Remaining: 7},
+		{MaxAttempts: 5, Remaining: 1},
+	})
+	if got := freshRecorder.Header().Get("X-RateLimit-Limit"); got != "5" {
+		t.Fatalf("selected limit = %q, want lowest remaining result", got)
+	}
+	if got := freshRecorder.Header().Get("X-RateLimit-Remaining"); got != "1" {
+		t.Fatalf("selected remaining = %q, want 1", got)
+	}
+
+	err := tooManyRequestsError{}
+	if err.Error() != "too many requests" || err.StatusCode() != http.StatusTooManyRequests || err.PublicMessage() == "" {
+		t.Fatalf("unexpected throttle error contract: error=%q status=%d public=%q", err.Error(), err.StatusCode(), err.PublicMessage())
+	}
+}
+
 type middlewareTestConfig struct {
 	accessLog        bool
 	exceptionHandler bool
@@ -525,4 +629,24 @@ func newMiddlewareSessionManager(t *testing.T) *session.Manager {
 		t.Fatalf("new session manager: %v", err)
 	}
 	return manager
+}
+
+type middlewareFailingSessionDriver struct {
+	writeErr error
+}
+
+func (d middlewareFailingSessionDriver) Read(context.Context, string) (session.Payload, error) {
+	return session.Payload{}, session.ErrSessionNotFound
+}
+
+func (d middlewareFailingSessionDriver) Write(context.Context, string, session.Payload, *time.Time) error {
+	return d.writeErr
+}
+
+func (d middlewareFailingSessionDriver) Destroy(context.Context, string) error {
+	return nil
+}
+
+func (d middlewareFailingSessionDriver) GC(context.Context, time.Time) error {
+	return nil
 }
