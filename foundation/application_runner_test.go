@@ -13,6 +13,7 @@ import (
 	providercontract "github.com/prismgo/framework/contracts/provider"
 	"github.com/prismgo/framework/event"
 	prismhttp "github.com/prismgo/framework/http"
+	"github.com/prismgo/framework/kernel"
 )
 
 // lifecycleProvider 记录 provider 生命周期调用次数。
@@ -136,6 +137,60 @@ func TestApplicationHandleCommandUsesFullArgvEntry(t *testing.T) {
 	}
 	if !ran {
 		t.Fatal("HandleCommand did not execute command from full argv input")
+	}
+}
+
+// TestApplicationRunnerConstructorsRejectUninitializedApplication verifies runner helpers fail loudly on nil apps.
+func TestApplicationRunnerConstructorsRejectUninitializedApplication(t *testing.T) {
+	var app *Application
+	if kernel := app.NewConsoleKernel(); kernel != nil {
+		t.Fatalf("NewConsoleKernel nil app = %#v, want nil", kernel)
+	}
+
+	if server, err := app.NewHTTPServer(context.Background(), "8080"); err == nil || server != nil || !strings.Contains(err.Error(), "application is not initialized") {
+		t.Fatalf("NewHTTPServer nil app = (%#v, %v), want initialization error", server, err)
+	}
+
+	if err := app.HandleCommand(context.Background(), []string{"artisan"}); err == nil || !strings.Contains(err.Error(), "application is not initialized") {
+		t.Fatalf("HandleCommand nil app error = %v, want initialization error", err)
+	}
+}
+
+// TestApplicationNewHTTPServerRequiresRuntime verifies partially initialized applications cannot build servers.
+func TestApplicationNewHTTPServerRequiresRuntime(t *testing.T) {
+	app := NewApplication()
+	app.runtime = nil
+
+	server, err := app.NewHTTPServer(context.Background(), "8080")
+	if err == nil || server != nil || !strings.Contains(err.Error(), "application is not initialized") {
+		t.Fatalf("NewHTTPServer without runtime = (%#v, %v), want initialization error", server, err)
+	}
+}
+
+// TestApplicationRegisterConsoleStartingStoresCallbacks verifies console starting hooks are stored on runtime.
+func TestApplicationRegisterConsoleStartingStoresCallbacks(t *testing.T) {
+	app := NewApplication()
+	callback := func(*kernel.Kernel) error { return nil }
+
+	if err := app.registerConsoleStarting(callback); err != nil {
+		t.Fatalf("registerConsoleStarting error = %v", err)
+	}
+	if got := app.runtime.StartingCallbacks(); len(got) != 1 {
+		t.Fatalf("starting callbacks = %d, want 1", len(got))
+	}
+}
+
+// TestApplicationRegisterConsoleStartingRejectsUninitializedApplication verifies registration requires runtime state.
+func TestApplicationRegisterConsoleStartingRejectsUninitializedApplication(t *testing.T) {
+	var app *Application
+	if err := app.registerConsoleStarting(); err == nil || !strings.Contains(err.Error(), "application is not initialized") {
+		t.Fatalf("registerConsoleStarting nil app error = %v, want initialization error", err)
+	}
+
+	app = NewApplication()
+	app.runtime = nil
+	if err := app.registerConsoleStarting(); err == nil || !strings.Contains(err.Error(), "application is not initialized") {
+		t.Fatalf("registerConsoleStarting without runtime error = %v, want initialization error", err)
 	}
 }
 

@@ -206,6 +206,78 @@ func TestApplyOptionsNilHandler(t *testing.T) {
 	h.ApplyOptions(WithRecovery(false))
 }
 
+// TestProblemForErrorMapsFrameworkStatusBranches verifies framework-owned status mapping stays stable.
+func TestProblemForErrorMapsFrameworkStatusBranches(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantType   string
+		wantDetail string
+	}{
+		{
+			name:       "canceled",
+			err:        context.Canceled,
+			wantStatus: http.StatusRequestTimeout,
+			wantType:   "http.408",
+			wantDetail: http.StatusText(http.StatusRequestTimeout),
+		},
+		{
+			name:       "deadline",
+			err:        context.DeadlineExceeded,
+			wantStatus: http.StatusGatewayTimeout,
+			wantType:   "internal_error",
+			wantDetail: "Internal Server Error",
+		},
+		{
+			name:       "no cookie",
+			err:        http.ErrNoCookie,
+			wantStatus: http.StatusBadRequest,
+			wantType:   "bad_request",
+			wantDetail: http.StatusText(http.StatusBadRequest),
+		},
+		{
+			name:       "invalid http status",
+			err:        newTestHTTPError(testCodeInternal, 99, "hidden"),
+			wantStatus: http.StatusInternalServerError,
+			wantType:   "internal_error",
+			wantDetail: "Internal Server Error",
+		},
+		{
+			name:       "unknown client status",
+			err:        newTestHTTPError(testCodeInvalidInput, http.StatusIMUsed, "already processed"),
+			wantStatus: http.StatusIMUsed,
+			wantType:   "http.226",
+			wantDetail: "already processed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			problem := problemForError(tt.err, "req-123")
+			if problem.Status != tt.wantStatus || problem.Type != tt.wantType || problem.Detail != tt.wantDetail {
+				t.Fatalf("problem = %#v, want status/type/detail %d/%q/%q", problem, tt.wantStatus, tt.wantType, tt.wantDetail)
+			}
+			if problem.RequestID != "req-123" {
+				t.Fatalf("request id = %q, want req-123", problem.RequestID)
+			}
+		})
+	}
+}
+
+// TestProblemDebugHelpersHandleMissingLocations verifies debug trace parsing tolerates frames without Go locations.
+func TestProblemDebugHelpersHandleMissingLocations(t *testing.T) {
+	file, line := firstTraceLocation([]string{"runtime/debug.Stack", "plain frame"})
+	if file != "" || line != 0 {
+		t.Fatalf("firstTraceLocation = (%q, %d), want empty location", file, line)
+	}
+
+	file, line = splitFileLine("not-a-go-frame")
+	if file != "" || line != 0 {
+		t.Fatalf("splitFileLine invalid = (%q, %d), want empty location", file, line)
+	}
+}
+
 // =============================================================================
 // ShouldReport 测试
 // =============================================================================

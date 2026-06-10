@@ -79,6 +79,49 @@ func TestRoutingCommandsMountIntoApplicationKernel(t *testing.T) {
 	}
 }
 
+// TestRuntimeRegistriesNilAccessorsReturnNil verifies nil runtime registries expose empty snapshots.
+func TestRuntimeRegistriesNilAccessorsReturnNil(t *testing.T) {
+	var registry *runtimeRegistries
+	if got := registry.Container(); got != nil {
+		t.Fatalf("Container nil registry = %#v, want nil", got)
+	}
+	if got := registry.StartingCallbacks(); got != nil {
+		t.Fatalf("StartingCallbacks nil registry = %#v, want nil", got)
+	}
+	if got := registry.CommandFactories(); got != nil {
+		t.Fatalf("CommandFactories nil registry = %#v, want nil", got)
+	}
+}
+
+// TestRuntimeRegistriesStartingCallbacksAreSnapshots verifies callers cannot mutate stored starting hooks.
+func TestRuntimeRegistriesStartingCallbacksAreSnapshots(t *testing.T) {
+	registry := newRuntimeRegistries()
+	called := "none"
+	first := func(*basickernel.Kernel) error {
+		called = "first"
+		return nil
+	}
+	second := func(*basickernel.Kernel) error {
+		called = "second"
+		return nil
+	}
+
+	registry.RegisterStarting(first)
+	snapshot := registry.StartingCallbacks()
+	snapshot[0] = second
+
+	got := registry.StartingCallbacks()
+	if len(got) != 1 {
+		t.Fatalf("starting callbacks = %d, want 1", len(got))
+	}
+	if err := got[0](nil); err != nil {
+		t.Fatalf("starting callback error = %v", err)
+	}
+	if called != "first" {
+		t.Fatalf("stored callback = %q, want first", called)
+	}
+}
+
 func TestBuilderWithCommandsMergesWithRoutingCommands(t *testing.T) {
 	app := Configure().WithCommands(
 		func() console.Command { return runtimeRegistryCommand("app:builder-command") },
