@@ -85,6 +85,7 @@ Facades are public interfaces that wrap a component to provide a simpler, more c
 Service providers are responsible for registering components and their lifecycle hooks.Services provided by a component package must be registered via a `service provider`.
 
 ## Non-Negotiable Rules
+
 1. Never modify production code solely for testing.
   - No test-only logic, APIs, helpers, fallbacks, or workarounds.
   - Production code may only change to fix genuine production bugs.
@@ -111,6 +112,7 @@ Service providers are responsible for registering components and their lifecycle
 Follow standard Go conventions: `gofmt` formatting, tabs for indentation, short package names, exported identifiers in `PascalCase`, and unexported identifiers in `camelCase`. Keep package APIs idiomatic and consistent with nearby components. Prefer package-level tests and helpers that mirror existing naming patterns, such as `facade_registry_test.go`, `service_provider_test.go`, or focused behavior names like `redis_lifecycle_test.go`.
 
 ### General Principles
+
 - Prefer code reuse over reimplementation
   - If existing code doesn't fit or has unclear boundaries, refactor properly
 - Follow single responsibility principle
@@ -122,6 +124,7 @@ Follow standard Go conventions: `gofmt` formatting, tabs for indentation, short 
 - Use consistent and clear naming (classes, functions, variables, tables, fields)
 
 ### Code Comments
+
 - Modified and newly added code must include comments
   - Explanation of the logic
   - Design rationale
@@ -132,6 +135,26 @@ Follow standard Go conventions: `gofmt` formatting, tabs for indentation, short 
 ## Testing Guidelines
 
 Add or update colocated `*_test.go` files for behavior changes. Use focused unit tests for package-level contracts and integration-style tests where external behavior crosses components, such as queue, Redis, RabbitMQ, Horizon, or filesystem flows. Run `make test` before submitting; run `make test-race` for concurrency, worker, lifecycle, or connection-management changes. Coverage is uploaded from `coverage.out` in CI, so avoid bypassing `make test` for final verification.
+
+## Test Failure Boundary
+
+When fixing failing tests, first identify whether the failure is caused by bad test setup or a real production bug.
+
+Do not change production code to tolerate incomplete tests.
+
+Forbidden unless explicitly approved:
+- adding fallback config/service behavior
+- making required services optional
+- replacing required resolution with silent defaults
+- adding nil checks only to avoid test panics
+- adding test-only branches, helpers, or alternate runtime paths
+- weakening validation, lifecycle, or provider requirements
+
+Production code may be changed only when the failure proves a real production bug under valid runtime setup.
+
+If unsure, stop and ask before editing production code.
+
+A panic caused by missing required test setup is a test bug, not a production bug.
 
 ### Testing and Coverage
 - Any changes to Go code, go.mod, go.sum, test files, or code generation logic must run tests and compute coverage.
