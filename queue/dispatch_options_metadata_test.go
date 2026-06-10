@@ -52,12 +52,24 @@ func TestContractDispatchOptionsConvertToFunctionalOptions(t *testing.T) {
 }
 
 type contractDispatchOptions struct {
-	connection string
-	queue      string
-	delay      time.Duration
-	tries      int
-	timeout    time.Duration
-	backoff    []time.Duration
+	connection    string
+	queue         string
+	delay         time.Duration
+	tries         int
+	maxExceptions int
+	timeout       time.Duration
+	failOnTimeout bool
+	encrypted     bool
+	backoff       []time.Duration
+	retryUntil    time.Time
+	batchID       string
+	uniqueKey     string
+	uniqueFor     time.Duration
+	uniqueUntil   bool
+	debounceKey   string
+	debounceFor   time.Duration
+	tags          []string
+	silenced      bool
 }
 
 func (o contractDispatchOptions) QueueConnection() string     { return o.connection }
@@ -68,15 +80,17 @@ func (o contractDispatchOptions) QueueTimeout() time.Duration { return o.timeout
 func (o contractDispatchOptions) QueueBackoff() []time.Duration {
 	return append([]time.Duration(nil), o.backoff...)
 }
-func (o contractDispatchOptions) QueueMaxExceptions() int         { return 0 }
-func (o contractDispatchOptions) QueueFailOnTimeout() bool        { return false }
-func (o contractDispatchOptions) QueueEncrypted() bool            { return false }
-func (o contractDispatchOptions) QueueRetryUntil() time.Time      { return time.Time{} }
-func (o contractDispatchOptions) QueueBatchID() string            { return "" }
-func (o contractDispatchOptions) QueueUniqueKey() string          { return "" }
-func (o contractDispatchOptions) QueueUniqueFor() time.Duration   { return 0 }
-func (o contractDispatchOptions) QueueUniqueUntil() bool          { return false }
-func (o contractDispatchOptions) QueueDebounceKey() string        { return "" }
-func (o contractDispatchOptions) QueueDebounceFor() time.Duration { return 0 }
-func (o contractDispatchOptions) QueueTags() []string             { return nil }
-func (o contractDispatchOptions) QueueSilenced() bool             { return false }
+func (o contractDispatchOptions) QueueMaxExceptions() int         { return o.maxExceptions }
+func (o contractDispatchOptions) QueueFailOnTimeout() bool        { return o.failOnTimeout }
+func (o contractDispatchOptions) QueueEncrypted() bool            { return o.encrypted }
+func (o contractDispatchOptions) QueueRetryUntil() time.Time      { return o.retryUntil }
+func (o contractDispatchOptions) QueueBatchID() string            { return o.batchID }
+func (o contractDispatchOptions) QueueUniqueKey() string          { return o.uniqueKey }
+func (o contractDispatchOptions) QueueUniqueFor() time.Duration   { return o.uniqueFor }
+func (o contractDispatchOptions) QueueUniqueUntil() bool          { return o.uniqueUntil }
+func (o contractDispatchOptions) QueueDebounceKey() string        { return o.debounceKey }
+func (o contractDispatchOptions) QueueDebounceFor() time.Duration { return o.debounceFor }
+func (o contractDispatchOptions) QueueTags() []string {
+	return append([]string(nil), o.tags...)
+}
+func (o contractDispatchOptions) QueueSilenced() bool { return o.silenced }
