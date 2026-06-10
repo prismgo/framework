@@ -6,6 +6,7 @@ tmp/
 .claude
 .codex
 .trae
+.agents/
 openspec.yaml
 openspec/
 docs/superpowers/
