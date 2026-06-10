@@ -175,6 +175,7 @@ After completing a feature, the following must be performed:
   - Orphaned/dead code
   - Compatibility/fallback code
   - Outstanding/incomplete items
+  - If `docs/changes` is ignored, do not commit the related documents.
 
 6. Final response requirements
 
