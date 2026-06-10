@@ -488,6 +488,37 @@ func TestContainerSingletonRetriesAfterFactoryError(t *testing.T) {
 	}
 }
 
+func TestContainerSingletonRetriesAfterNilFactoryValue(t *testing.T) {
+	// 需求背景：singleton factory 返回 nil 与返回错误一样不能冻结服务，后续 Make
+	// 必须仍能重新执行 factory 并缓存第一次有效实例。
+	c := NewContainer()
+	calls := 0
+	shared := &closeProbe{name: "shared"}
+	if err := c.Singleton("shared.nil", func(containercontract.Resolver) (any, error) {
+		calls++
+		if calls == 1 {
+			return nil, nil
+		}
+		return shared, nil
+	}); err != nil {
+		t.Fatalf("singleton: %v", err)
+	}
+
+	if _, err := c.Make("shared.nil"); !errors.Is(err, ErrFactoryReturnedNil) {
+		t.Fatalf("first make error = %v, want %v", err, ErrFactoryReturnedNil)
+	}
+	got, err := c.Make("shared.nil")
+	if err != nil {
+		t.Fatalf("second make: %v", err)
+	}
+	if got != shared {
+		t.Fatalf("cached value = %#v, want shared", got)
+	}
+	if calls != 2 {
+		t.Fatalf("factory calls = %d, want 2", calls)
+	}
+}
+
 func TestContainerSingletonConcurrentFailuresRetryUntilOneSuccess(t *testing.T) {
 	// 设计思路：并发 Make 只能串行进入同一个 singleton factory，但失败尝试不能写入最终实例。
 	// 该测试通过前 3 次失败、第 4 次成功验证重试语义；成功后所有后续 goroutine 必须拿到同一实例。

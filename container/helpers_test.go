@@ -244,6 +244,72 @@ func TestContainerMakeAndCallErrorBranches(t *testing.T) {
 	if _, err := c.Call(func(*helperProbe) {}); err == nil {
 		t.Fatal("missing implicit argument should fail")
 	}
+	if err := c.Instance(reflect.TypeOf((*helperProbe)(nil)).String(), "not probe"); err != nil {
+		t.Fatalf("implicit mismatch instance: %v", err)
+	}
+	if _, err := c.Call(func(*helperProbe) {}); err == nil {
+		t.Fatal("resolved implicit argument type mismatch should fail")
+	}
+	out, err := c.Call(func(value int64, probe *helperProbe) (int64, bool) {
+		return value, probe == nil
+	}, int(7), nil)
+	if err != nil {
+		t.Fatalf("call convertible and nil args: %v", err)
+	}
+	if !reflect.DeepEqual(out, []any{int64(7), true}) {
+		t.Fatalf("call output = %#v", out)
+	}
+}
+
+func TestContainerNilReceiversAndCurrentErrorBranches(t *testing.T) {
+	// 逻辑说明：nil container 和未安装 current provider 是 facade 装配错误；这些入口应返回
+	// 稳定错误或零值，便于上层用 errors.Is 做明确诊断。
+	SetProvider(nil)
+	var c *Container
+	c.Forget("missing")
+	c.SetMissingFactoryLoader(func(string) error { return nil })
+
+	if err := c.Bind("service", func(containercontract.Resolver) (any, error) { return nil, nil }); !errors.Is(err, ErrNoCurrentContainer) {
+		t.Fatalf("nil bind error = %v", err)
+	}
+	if err := c.Singleton("service", func(containercontract.Resolver) (any, error) { return nil, nil }); !errors.Is(err, ErrNoCurrentContainer) {
+		t.Fatalf("nil singleton error = %v", err)
+	}
+	if err := c.Instance("service", &helperProbe{}); !errors.Is(err, ErrNoCurrentContainer) {
+		t.Fatalf("nil instance error = %v", err)
+	}
+	if _, err := c.Factory("service"); !errors.Is(err, ErrNoCurrentContainer) {
+		t.Fatalf("nil factory error = %v", err)
+	}
+	if err := c.Alias("service", "alias"); !errors.Is(err, ErrNoCurrentContainer) {
+		t.Fatalf("nil alias error = %v", err)
+	}
+	if c.Has("service") || c.Bound("service") || c.Resolved("service") {
+		t.Fatal("nil container should not report service state")
+	}
+	if err := Close(context.Background()); !errors.Is(err, ErrNoCurrentContainer) {
+		t.Fatalf("package close without current error = %v", err)
+	}
+	if _, err := Make[*helperProbe](""); !errors.Is(err, ErrNoCurrentContainer) {
+		t.Fatalf("empty package make error = %v", err)
+	}
+	if got := newNoCurrentContainerError(""); !errors.Is(got, ErrNoCurrentContainer) {
+		t.Fatalf("empty no-current error = %v", got)
+	}
+}
+
+func TestContainerAliasCyclesResolveSafely(t *testing.T) {
+	// 设计原因：alias 可以由多个 provider 注册，循环别名不能让 canonical 解析陷入死循环。
+	c := NewContainer()
+	if err := c.Alias("alpha", "beta"); err != nil {
+		t.Fatalf("alias beta: %v", err)
+	}
+	if err := c.Alias("beta", "alpha"); err != nil {
+		t.Fatalf("alias alpha: %v", err)
+	}
+	if c.Has("alpha") || c.Resolved("beta") {
+		t.Fatal("alias cycle without binding should remain unresolved")
+	}
 }
 
 func TestInternalFactoryRegistrationCompatibility(t *testing.T) {
@@ -296,6 +362,22 @@ func TestHelperNilAndMismatchBranches(t *testing.T) {
 	}
 	if err := c.Instance("nil.option", &helperProbe{name: "nil"}, WithCloser[*helperProbe](nil)); err != nil {
 		t.Fatalf("nil closer option: %v", err)
+	}
+	if err := c.Instance("wrong.closer", "value", WithCloser(func(*helperProbe) error {
+		t.Fatal("typed closer should ignore non-matching value")
+		return nil
+	})); err != nil {
+		t.Fatalf("wrong closer instance: %v", err)
+	}
+	var nilProbe *helperProbe
+	if err := c.Instance("nil.closer", nilProbe, WithContextCloser(func(context.Context, *helperProbe) error {
+		t.Fatal("typed context closer should ignore nil pointer values")
+		return nil
+	})); err != nil {
+		t.Fatalf("nil closer instance: %v", err)
+	}
+	if err := c.Close(context.Background()); err != nil {
+		t.Fatalf("close ignored closers: %v", err)
 	}
 	var nilBinding *containercontract.Binding
 	WithCloseGroup(CloseGroupReporting)(nilBinding)
