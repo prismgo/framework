@@ -9,11 +9,11 @@ test:
 
 .PHONY: covdata
 covdata:
-	./scripts/coverage.sh $(PACKAGES)
+	./.github/scripts/coverage.sh $(PACKAGES)
 
 .PHONY: test-race
 test-race:
-	./scripts/test_with_summary.sh $(GO) test -v -race $(PACKAGES)
+	./.github/scripts/test_with_summary.sh $(GO) test -v -race $(PACKAGES)
 
 .PHONY: vet
 vet:

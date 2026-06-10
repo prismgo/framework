@@ -2,7 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
+# Scripts live under .github/scripts, so walk two levels up to reach the repository root.
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 
 cd "$REPO_ROOT"
 

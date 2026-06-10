@@ -6,7 +6,8 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
-REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# Scripts live under .github/scripts, so walk two levels up to place logs at the repository root.
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 LOG_ROOT="${TEST_SUMMARY_LOG_DIR:-$REPO_ROOT/.coverage}"
 mkdir -p "$LOG_ROOT"
 
