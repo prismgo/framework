@@ -50,6 +50,22 @@ func TestServiceProviderPreservesExplicitConfig(t *testing.T) {
 	}
 }
 
+func TestServiceProviderNameAndBootAreStableNoops(t *testing.T) {
+	// provider identity 与 Boot 空实现是框架生命周期契约的一部分，需要保持稳定。
+	registry := container.NewContainer()
+	provider := ServiceProvider{}
+
+	if got := provider.Name(); got != "config" {
+		t.Fatalf("Name() = %q, want config", got)
+	}
+	if err := provider.Boot(providerTestApp{registry: registry}); err != nil {
+		t.Fatalf("Boot should be a no-op, got %v", err)
+	}
+	if registry.Bound("config.default") {
+		t.Fatal("Boot should not bind config.default")
+	}
+}
+
 type providerTestApp struct {
 	registry containercontract.Container
 }

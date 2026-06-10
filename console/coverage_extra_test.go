@@ -3,6 +3,8 @@ package console
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -28,6 +30,47 @@ func TestTerminalIOWritesMessagesToConfiguredStreams(t *testing.T) {
 	}
 	if got := stderr.String(); !strings.Contains(got, "warn") || !strings.Contains(got, "error") {
 		t.Fatalf("stderr = %q, want warn and error", got)
+	}
+}
+
+func TestManualFailureCoversMessageWrappingAndNilReceiver(t *testing.T) {
+	// 手动失败错误会同时服务用户可读消息和 errors.As/errors.Is 识别。
+	var nilFailure *ManuallyFailedError
+	if nilFailure.Error() != "" {
+		t.Fatal("nil manual failure should render empty message")
+	}
+	if nilFailure.Unwrap() != nil {
+		t.Fatal("nil manual failure should unwrap to nil")
+	}
+
+	rootErr := errors.New("root")
+	extraErr := errors.New("extra")
+	err := Fail("deploy", rootErr, 7, nil, extraErr)
+	if err.Error() != "deploy root 7 extra" {
+		t.Fatalf("Fail message = %q, want combined message", err.Error())
+	}
+	if !errors.Is(err, rootErr) || !errors.Is(err, extraErr) {
+		t.Fatal("Fail should wrap all provided errors")
+	}
+	if failed, ok := IsManualFailure(errors.Join(errors.New("outer"), err)); !ok || failed == nil {
+		t.Fatalf("IsManualFailure should find wrapped manual failure, got %+v, %v", failed, ok)
+	}
+	if failed, ok := IsManualFailure(errors.New("plain")); ok || failed != nil {
+		t.Fatalf("plain error should not be manual failure, got %+v, %v", failed, ok)
+	}
+}
+
+func TestIOFallbackHelpersForNilAndUnknownImplementations(t *testing.T) {
+	// helper fallback 覆盖非 terminal IO 场景，避免格式化代码拿到 nil writer。
+	emptyIO := &terminalIO{}
+	if OutputWriter(emptyIO) != io.Discard {
+		t.Fatal("nil terminal output should fall back to discard")
+	}
+	if ErrorOutputWriter(emptyIO) != io.Discard {
+		t.Fatal("nil terminal error output should fall back to discard")
+	}
+	if OutputOptionsForIO(nil) != (OutputOptions{}) {
+		t.Fatal("unknown IO should use zero output options")
 	}
 }
 

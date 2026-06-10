@@ -129,6 +129,30 @@ func TestFacadeReloadAndSetDefault(t *testing.T) {
 	}
 }
 
+func TestReloadFromFileReplacesStoreWithExplicitEnvFile(t *testing.T) {
+	// 覆盖实例级 ReloadFromFile 分支，确保显式文件重载会替换旧仓库而不是合并旧值。
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("RELOAD_FILE_VALUE=fresh\n"), 0o644); err != nil {
+		t.Fatalf("write env file failed: %v", err)
+	}
+	Add("reload_file_extra", func() map[string]any {
+		return map[string]any{"value": Env("RELOAD_FILE_VALUE", "missing")}
+	})
+
+	cfg := &Config{store: map[string]any{"reload_file_extra": map[string]any{"value": "stale"}}}
+	if err := cfg.ReloadFromFile(path); err != nil {
+		t.Fatalf("ReloadFromFile failed: %v", err)
+	}
+	if got := cfg.GetString("reload_file_extra.value"); got != "fresh" {
+		t.Fatalf("ReloadFromFile value = %q, want fresh", got)
+	}
+
+	var nilCfg *Config
+	if err := nilCfg.ReloadFromFile(path); err != nil {
+		t.Fatalf("nil ReloadFromFile should still validate readable file, got %v", err)
+	}
+}
+
 func TestReloadReadsDefaultEnvFromProjectRoot(t *testing.T) {
 	registry := useConfigTestContainer(t)
 

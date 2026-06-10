@@ -122,3 +122,32 @@ func TestBindDefinitionFlagsSupportsOptionalValueOption(t *testing.T) {
 		t.Fatalf("input.Option(queue) = %q, want empty string for bare optional option", got)
 	}
 }
+
+func TestInputCoversNilCommandAndStringSliceBranches(t *testing.T) {
+	// nil command 输入用于命令上下文缺省路径，所有 option 读取都应返回零值。
+	nilInput := NewInput(Definition{Name: "sample"}, nil, nil)
+	if nilInput.Option("missing") != "" {
+		t.Fatal("nil command option should be empty")
+	}
+	if nilInput.OptionStrings("missing") != nil {
+		t.Fatal("nil command option strings should be nil")
+	}
+	if nilInput.OptionBool("missing") {
+		t.Fatal("nil command bool option should be false")
+	}
+
+	cmd := &cobra.Command{Use: "sample"}
+	cmd.Flags().StringSlice("names", []string{"seed"}, "")
+	if err := cmd.Flags().Set("names", "alice,bob"); err != nil {
+		t.Fatalf("set string slice failed: %v", err)
+	}
+	input := NewInput(Definition{Name: "sample"}, cmd, nil)
+	if got := input.OptionStrings("names"); !reflect.DeepEqual(got, []string{"alice", "bob"}) {
+		t.Fatalf("OptionStrings(names) = %#v, want [alice bob]", got)
+	}
+
+	cmd.Flags().String("blank", "", "")
+	if got := input.OptionStrings("blank"); got != nil {
+		t.Fatalf("blank option strings = %#v, want nil", got)
+	}
+}
