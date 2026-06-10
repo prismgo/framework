@@ -1,6 +1,7 @@
 .idea
 .DS_Store
 .vscode
+.agent/
 tmp/
 .coverage/
 .claude
@@ -12,3 +13,4 @@ openspec/
 docs/superpowers/
 coverage.out
 docs/changes/
+skills-lock.json
