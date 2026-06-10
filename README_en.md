@@ -1,4 +1,6 @@
-# PrismGo
+<p align="center">
+  <img src=".github/assets/logo.png" width="250">
+</p>
 
 <div align="center">
 
@@ -8,7 +10,7 @@
 [![Module](https://img.shields.io/badge/module-github.com%2Fprismgo%2Fframework-blue)](https://github.com/prismgo/framework)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
-[简体中文](../README.md) | English
+[简体中文](README.md) | English
 
 </div>
 
@@ -56,25 +58,25 @@ go get github.com/prismgo/framework
 package main
 
 import (
-	"context"
-	"os"
+    "context"
+    "os"
 
-	"github.com/prismgo/framework/foundation"
-	"github.com/prismgo/framework/route"
+    "github.com/prismgo/framework/foundation"
+    "github.com/prismgo/framework/route"
 )
 
 func main() {
-	app := foundation.Configure().
-		WithRouting(func(r route.Registrar) {
-			r.Get("/", func(c *gin.Context) {
-				c.JSON(200, gin.H{"message": "Hello PrismGo!"})
-			})
-		}).
-		Create()
+    app := foundation.Configure().
+        WithRouting(func(r route.Registrar) {
+            r.Get("/", func(c *gin.Context) {
+                c.JSON(200, gin.H{"message": "Hello PrismGo!"})
+            })
+        }).
+        Create()
 
-	if err := app.HandleCommand(context.Background(), os.Args); err != nil {
-		console.Exit(err.Error())
-	}
+    if err := app.HandleCommand(context.Background(), os.Args); err != nil {
+        console.Exit(err.Error())
+    }
 }
 ```
 

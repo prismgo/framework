@@ -10,7 +10,7 @@
 [![Module](https://img.shields.io/badge/module-github.com%2Fprismgo%2Fframework-blue)](https://github.com/prismgo/framework)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
-简体中文 | [English](docs/README_en.md)
+简体中文 | [English](README_en.md)
 
 </div>
 
