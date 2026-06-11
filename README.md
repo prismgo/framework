@@ -48,9 +48,25 @@ PrismGo 是一个由 AI Agent 全自动开发的 **Laravel 风格的 Go 语言 W
 
 ### 安装
 
+安装 PrismGo 安装器
 ```bash
-go get github.com/prismgo/framework
+go install github.com/prismgo/installer/cmd/prismgo@latest
 ```
+
+创建应用
+
+```
+prismgo new github.com/acme/myapp
+```
+
+启动 web 服务器
+```
+cd myapp
+go run . serve
+```
+
+打开浏览器访问 `http://localhost:8080/api`
+
 
 ### 最小可运行示例
 

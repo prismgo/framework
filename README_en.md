@@ -48,9 +48,26 @@ The core advantage is simple: **you know what you want to build, and the framewo
 
 ### Installation
 
+Install the PrismGo installer:
+
 ```bash
-go get github.com/prismgo/framework
+go install github.com/prismgo/installer/cmd/prismgo@latest
 ```
+
+Create an application:
+
+```bash
+prismgo new github.com/acme/myapp
+```
+
+Start the web server:
+
+```bash
+cd myapp
+go run . serve
+```
+
+Open `http://localhost:8080/api` in your browser.
 
 ### Minimal Runnable Example
 
