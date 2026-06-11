@@ -434,13 +434,23 @@ func TestFileStoreLockAndExpirationBranches(t *testing.T) {
 		t.Fatalf("file missing delete: %v", err)
 	}
 
-	ok, err := store.Acquire(ctx, "stale-lock", "old", 40*time.Millisecond)
+	// 使用长 TTL 单独验证有效锁会阻塞第二个 owner，避免 CI 调度延迟越过短 TTL。
+	ok, err := store.Acquire(ctx, "valid-lock", "owner", time.Minute)
 	if err != nil || !ok {
-		t.Fatalf("file stale lock acquire: ok=%v err=%v", ok, err)
+		t.Fatalf("file valid lock acquire: ok=%v err=%v", ok, err)
 	}
-	ok, err = store.Acquire(ctx, "stale-lock", "blocked", time.Second)
+	ok, err = store.Acquire(ctx, "valid-lock", "blocked", time.Second)
 	if err != nil || ok {
 		t.Fatalf("file valid lock second acquire: ok=%v err=%v", ok, err)
+	}
+	if err := store.ForceRelease(ctx, "valid-lock"); err != nil {
+		t.Fatalf("file valid lock cleanup: %v", err)
+	}
+
+	// 短 TTL 锁只用于覆盖过期后可重新获取的分支，不再承担“仍有效”的断言。
+	ok, err = store.Acquire(ctx, "stale-lock", "old", 40*time.Millisecond)
+	if err != nil || !ok {
+		t.Fatalf("file stale lock acquire: ok=%v err=%v", ok, err)
 	}
 	time.Sleep(70 * time.Millisecond)
 	ok, err = store.Acquire(ctx, "stale-lock", "new", time.Second)
