@@ -61,6 +61,26 @@ func TestCollectorBoundedBuffer(t *testing.T) {
 	}
 }
 
+func TestCollectorDefaultBufferAndNilPressure(t *testing.T) {
+	cfg := observabilityPresetConfigOrFull()
+	cfg.BufferSize = 0
+	coll := newCollector(cfg)
+
+	// BufferSize=0 使用规范化后的默认容量，保持 collector 入口始终有界。
+	if cap(coll.buffer) != 10000 || coll.memState.BufferSize != 10000 {
+		t.Fatalf("default buffer size mismatch: cap=%d mem=%d", cap(coll.buffer), coll.memState.BufferSize)
+	}
+
+	// nil collector 暴露空压力，方便调用方在未启用 Horizon 时保持只读路径安全。
+	var nilCollector *collector
+	if pressure := nilCollector.SamplingPressure(); pressure != (SamplingPressure{}) {
+		t.Fatalf("nil collector pressure = %#v", pressure)
+	}
+	if idx := eventRateSlotIndex(-1); idx != 59 {
+		t.Fatalf("negative event rate slot index = %d", idx)
+	}
+}
+
 func TestCollectorMemoryEstimateReportsAvailableBytes(t *testing.T) {
 	cfg := observabilityPresetConfigOrFull()
 	cfg.BufferSize = 5
@@ -412,21 +432,30 @@ func TestCollectorDropOnFullBuffer(t *testing.T) {
 	cfg.BufferSize = 2
 	cfg.DropPolicy = ObservabilityDropNewest
 	coll := newCollector(cfg)
-	coll.Start(context.Background())
-	defer coll.Stop()
 
 	ctx := context.Background()
 
-	// 填满 buffer
-	for i := 0; i < 5; i++ {
-		_ = coll.Collect(ctx, CollectorInput{
+	// 不启动后台 loop，直接用真实有界 channel 稳定覆盖满 buffer 分支。
+	for i := 0; i < cap(coll.buffer); i++ {
+		if err := coll.Collect(ctx, CollectorInput{
 			Event:      "queue.job_processed",
 			Connection: "redis",
 			Queue:      "default",
-		})
+		}); err != nil {
+			t.Fatalf("Collect returned error while filling buffer: %v", err)
+		}
+	}
+	if got := len(coll.buffer); got != cap(coll.buffer) {
+		t.Fatalf("expected full buffer before drop, got len=%d cap=%d", got, cap(coll.buffer))
+	}
+	if err := coll.Collect(ctx, CollectorInput{
+		Event:      "queue.job_processed",
+		Connection: "redis",
+		Queue:      "default",
+	}); err != nil {
+		t.Fatalf("Collect returned error on full buffer: %v", err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
 	snapshot := coll.FlushSnapshot(time.Now())
 
 	if snapshot.drops[MemoryDropBufferFull] == 0 {
@@ -442,20 +471,29 @@ func TestCollectorDropOldestPolicy(t *testing.T) {
 	cfg.BufferSize = 2
 	cfg.DropPolicy = ObservabilityDropOldest
 	coll := newCollector(cfg)
-	coll.Start(context.Background())
-	defer coll.Stop()
 
 	ctx := context.Background()
 
-	for i := 0; i < 5; i++ {
-		_ = coll.Collect(ctx, CollectorInput{
+	// 不启动后台 loop，避免消费者调度影响 drop_oldest 满缓冲断言。
+	for i := 0; i < cap(coll.buffer); i++ {
+		if err := coll.Collect(ctx, CollectorInput{
 			Event:      "queue.job_processed",
 			Connection: "redis",
 			Queue:      "default",
-		})
+		}); err != nil {
+			t.Fatalf("Collect returned error while filling buffer: %v", err)
+		}
 	}
-
-	time.Sleep(100 * time.Millisecond)
+	if got := len(coll.buffer); got != cap(coll.buffer) {
+		t.Fatalf("expected full buffer before drop_oldest, got len=%d cap=%d", got, cap(coll.buffer))
+	}
+	if err := coll.Collect(ctx, CollectorInput{
+		Event:      "queue.job_processed",
+		Connection: "redis",
+		Queue:      "default",
+	}); err != nil {
+		t.Fatalf("Collect returned error on drop_oldest full buffer: %v", err)
+	}
 
 	// drop_oldest 下 buffer 满后丢弃最旧，放入最新
 	// 应记录 buffer_full drop
