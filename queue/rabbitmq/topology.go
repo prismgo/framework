@@ -3,6 +3,7 @@ package rabbitmq
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -413,7 +414,7 @@ func (c *Connection) markTopologyVerified(key rabbitMQTopologyVerificationKey) {
 // 第一版只允许在 topology 层开启 priority queue 能力，对外不增加 Job 级优先级 API。
 // 因此这里仅在配置了正数 QueueMaxPriority 时写入 x-max-priority，默认保持普通队列。
 func (c *Connection) queueDeclareArgs() amqp.Table {
-	if c.options.QueueMaxPriority <= 0 {
+	if c.options.QueueMaxPriority <= 0 || c.options.QueueMaxPriority > math.MaxInt32 {
 		return nil
 	}
 	return amqp.Table{"x-max-priority": int32(c.options.QueueMaxPriority)}
