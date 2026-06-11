@@ -6,7 +6,7 @@
 
 **PrismGo —— 像写 Laravel 一样写 Go**
 
-[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![Module](https://img.shields.io/badge/module-github.com%2Fprismgo%2Fframework-blue)](https://github.com/prismgo/framework)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
