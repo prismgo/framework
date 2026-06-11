@@ -37,6 +37,7 @@ func TestMain(m *testing.M) {
 		return
 	}
 	if os.Getenv("PRISMGO_TEST_RELOAD_CHILD") == "1" {
+		captureReloadChildPID()
 		runReloadChild()
 		return
 	}
@@ -53,6 +54,18 @@ func captureReloadEnv(marker string) {
 		os.Exit(1)
 	}
 	os.Exit(0)
+}
+
+// captureReloadChildPID 将 reload 子进程 PID 写入测试专用文件，便于父测试确定性清理。
+func captureReloadChildPID() {
+	pidFile := os.Getenv("PRISMGO_TEST_RELOAD_CHILD_PID_FILE")
+	if pidFile == "" {
+		return
+	}
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		fmtx.Fprintf(os.Stderr, "reload child pid capture failed: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 // runReloadChild 执行 reload 子进程的核心逻辑：
@@ -422,6 +435,7 @@ func TestWatchReloadSignalReloadSignalSpawnsChild(t *testing.T) {
 func TestSpawnReloadChildIntegration(t *testing.T) {
 	// 设置子进程标识环境变量，spawnReloadChild 通过 os.Environ() 传递给子进程
 	t.Setenv("PRISMGO_TEST_RELOAD_CHILD", "1")
+	registerReloadChildCleanup(t)
 	// 1. 父进程创建监听器
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -536,6 +550,7 @@ func TestSpawnReloadChildIntegration(t *testing.T) {
 //     验证 serve --reload 命令背后的核心基础设施在真实跨进程场景下的正确性。
 func TestReloadCrossProcessEndToEnd(t *testing.T) {
 	t.Setenv("PRISMGO_TEST_RELOAD_CHILD", "1")
+	registerReloadChildCleanup(t)
 	// 1. 创建 TCP 监听器
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -650,6 +665,7 @@ func TestReloadCrossProcessEndToEnd(t *testing.T) {
 // 同 EndToEnd 测试，使用 context 取消替代 SIGTERM 以避免杀死测试进程。
 func TestReloadCrossProcessRequestContinuity(t *testing.T) {
 	t.Setenv("PRISMGO_TEST_RELOAD_CHILD", "1")
+	registerReloadChildCleanup(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen failed: %v", err)
@@ -747,6 +763,41 @@ loop:
 // ---------------------------------------------------------------------------
 // 辅助函数
 // ---------------------------------------------------------------------------
+
+func registerReloadChildCleanup(t *testing.T) {
+	t.Helper()
+	pidFile := filepath.Join(t.TempDir(), "reload-child.pid")
+	t.Setenv("PRISMGO_TEST_RELOAD_CHILD_PID_FILE", pidFile)
+	t.Cleanup(func() {
+		killProcessFromPIDFile(t, pidFile)
+	})
+}
+
+// killProcessFromPIDFile 读取测试子进程 PID 并发送 SIGTERM，降低跨测试残留概率。
+func killProcessFromPIDFile(t *testing.T, pidFile string) {
+	t.Helper()
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Logf("parse reload child pid file %s failed: %v", pidFile, err)
+		return
+	}
+	if pid <= 0 {
+		t.Logf("reload child pid file %s contains invalid pid %d", pidFile, pid)
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		t.Logf("find reload child process %d failed: %v", pid, err)
+		return
+	}
+	if err := process.Signal(syscall.SIGTERM); err != nil {
+		t.Logf("signal reload child process %d failed: %v", pid, err)
+	}
+}
 
 // killProcessOnPort 尝试杀死占用指定地址的残留进程，用于测试清理。
 //
