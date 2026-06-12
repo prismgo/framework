@@ -44,6 +44,12 @@ For multi-step work, state a brief plan:
 
 These rules work when diffs shrink, rewrites decrease, and clarifying questions come before implementation mistakes.
 
+## Response Rules
+
+- Reply in the same language as the user's question.
+- When clarifying requirements or boundaries, ask one question at a time and offer 3-5 concrete options with enough detail to choose, including example code when useful.
+- Keep responses concise and avoid filler.
+
 ## Project Structure
 
 Framework packages live at the repository root, one directory per component, such as `foundation`, `route`, `cache`, `queue`, `database`, `filesystem`, `session`, and `console`. Shared helpers live in `internal/`, CLI commands in `cmd/`, Horizon dashboard assets in `horizon/dashboard/resources/`, automation in `.github/`, and colocated tests in `*_test.go`.
@@ -142,7 +148,7 @@ After completing a feature:
 2. Check for compatibility or fallback code. Report findings first and confirm before deleting.
 3. Run static analysis only for changed packages, for example `golangci-lint run --verbose ./cache/...`.
 4. Run `gofmt`.
-5. Create `docs/changes/v{next}-{function-description}.md` unless `docs/changes` is ignored. The document must be in Chinese, increment `{next}` numerically, and include:
+5. Create `docs/changes/v{next}-{function-description}.md` unless `docs/changes` is ignored. Match the document language to the prompt language, increment `{next}` numerically, and include:
    - Feature overview and implementation goals.
    - Requirements / business background.
    - Impact scope.
