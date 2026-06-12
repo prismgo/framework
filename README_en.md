@@ -8,6 +8,8 @@
 
 [![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![Module](https://img.shields.io/badge/module-github.com%2Fprismgo%2Fframework-blue)](https://github.com/prismgo/framework)
+[![Coverage](https://codecov.io/gh/prismgo/framework/branch/main/graph/badge.svg)](https://codecov.io/gh/prismgo/framework)
+[![Latest Version](https://img.shields.io/github/v/release/prismgo/framework?label=version&sort=semver)](https://github.com/prismgo/framework/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
 [简体中文](README.md) | English

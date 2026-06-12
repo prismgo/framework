@@ -86,3 +86,6 @@ jobs:
         with:
           files: .coverage/coverage.out
           flags: ${{ matrix.os }},go-${{ matrix.go }},${{ matrix.test-mode }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+          verbose: true
