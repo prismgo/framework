@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/prismgo/framework/console"
+	"github.com/prismgo/framework/version"
 )
 
 func TestKernelRunContextPassesContextToCommand(t *testing.T) {
@@ -45,8 +46,9 @@ func TestKernelRootRendersLaravelStyleCommandList(t *testing.T) {
 	}
 	output := stdout.String()
 	firstLine, _, _ := strings.Cut(output, "\n")
-	if firstLine != "PrismGo Framework 0.1.0" {
-		t.Fatalf("root output first line = %q, want PrismGo Framework 0.1.0\n%s", firstLine, output)
+	// Root output should reflect the shared version banner instead of duplicating a release number.
+	if firstLine != version.Banner() {
+		t.Fatalf("root output first line = %q, want %s\n%s", firstLine, version.Banner(), output)
 	}
 	for _, want := range []string{"Usage:", "Options:", "Available Commands:", "sample"} {
 		if !strings.Contains(output, want) {

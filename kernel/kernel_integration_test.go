@@ -10,6 +10,7 @@ import (
 
 	"github.com/prismgo/framework/console"
 	"github.com/prismgo/framework/event"
+	"github.com/prismgo/framework/version"
 	"github.com/spf13/cobra"
 )
 
@@ -47,7 +48,8 @@ func TestKernelVersionFlagIsGlobalAndDoesNotRunCommand(t *testing.T) {
 	if err := k.RunContext(context.Background()); err != nil {
 		t.Fatalf("RunContext -V returned error: %v", err)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != "PrismGo Framework 0.1.0" {
+	// The version flag should render the package banner so version bumps do not require test rewrites.
+	if got := strings.TrimSpace(stdout.String()); got != version.Banner() {
 		t.Fatalf("-V output = %q", got)
 	}
 	if cmd.ran {
@@ -59,7 +61,7 @@ func TestKernelVersionFlagIsGlobalAndDoesNotRunCommand(t *testing.T) {
 	if err := k.RunContext(context.Background()); err != nil {
 		t.Fatalf("RunContext subcommand --version returned error: %v", err)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != "PrismGo Framework 0.1.0" {
+	if got := strings.TrimSpace(stdout.String()); got != version.Banner() {
 		t.Fatalf("subcommand --version output = %q", got)
 	}
 	if cmd.ran {
@@ -85,7 +87,8 @@ func TestKernelVersionLongFlagAndOutputSuppression(t *testing.T) {
 		}
 
 		got := strings.TrimSpace(stdout.String())
-		if len(args) == 1 && got != "PrismGo Framework 0.1.0" {
+		// Non-suppressed version output must stay tied to the package banner.
+		if len(args) == 1 && got != version.Banner() {
 			t.Fatalf("%v output = %q", args, got)
 		}
 		if len(args) > 1 && got != "" {
