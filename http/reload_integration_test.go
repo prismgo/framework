@@ -154,13 +154,20 @@ func TestInheritedListenerNegativeFD(t *testing.T) {
 	}
 }
 
-// TestInheritedListener_UnusableFD 验证指向无效资源的 FD 返回继承失败错误。
-//
-// 设计说明：FD 999 在测试进程中大概率未被占用，os.NewFile 会成功但 net.FileListener 会失败，
-// 覆盖 "inherit listener failed" 错误分支。
+// TestInheritedListener_UnusableFD 验证指向非监听 socket 的 FD 返回继承失败错误。
 func TestInheritedListenerUnusableFD(t *testing.T) {
-	t.Setenv(listenerFDEnv, "999")
-	_, err := InheritedListener()
+	path := filepath.Join(t.TempDir(), "not-a-listener")
+	if err := os.WriteFile(path, []byte("plain file"), 0o644); err != nil {
+		t.Fatalf("write plain file failed: %v", err)
+	}
+	// 使用测试自己打开的普通文件 fd 覆盖失败分支，避免关闭进程中可能已被占用的随机 fd。
+	fd, err := syscall.Open(path, syscall.O_RDONLY, 0)
+	if err != nil {
+		t.Fatalf("open plain file fd failed: %v", err)
+	}
+
+	t.Setenv(listenerFDEnv, strconv.Itoa(fd))
+	_, err = InheritedListener()
 	if err == nil || !strings.Contains(err.Error(), "inherit listener failed") {
 		t.Fatalf("InheritedListener error = %v, want inherit listener failed", err)
 	}
@@ -181,8 +188,18 @@ func TestInheritedListenerReturnsListenerFromEnvFD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listener file failed: %v", err)
 	}
+	// InheritedListener 会接管传入 fd，并在 net.FileListener 后关闭它。
+	// 这里传入原始 fd 副本，让本地 *os.File 可独立关闭，避免重复关闭同一个 fd。
+	fd, err := syscall.Dup(int(file.Fd()))
+	if err != nil {
+		_ = file.Close()
+		t.Fatalf("dup listener fd failed: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close listener file duplicate failed: %v", err)
+	}
 
-	t.Setenv(listenerFDEnv, strconv.Itoa(int(file.Fd())))
+	t.Setenv(listenerFDEnv, strconv.Itoa(fd))
 	inherited, err := InheritedListener()
 	if err != nil {
 		t.Fatalf("InheritedListener returned error: %v", err)
