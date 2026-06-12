@@ -284,6 +284,7 @@ func buildConfig() (Config, error) {
 		Default: configpkg.GetString("filesystem.default", "local"),
 		Cloud:   configpkg.GetString("filesystem.cloud", "oss"),
 		Disks:   disks,
+		Links:   buildLinksConfig(configpkg.GetStringMap("filesystem.links")),
 		TemporaryURL: TemporaryURLConfig{
 			SigningKey: tempKey,
 		},
@@ -293,6 +294,37 @@ func buildConfig() (Config, error) {
 		return Config{}, fmt.Errorf("filesystem public disk url is empty")
 	}
 	return cfg, nil
+}
+
+func buildLinksConfig(rawLinks map[string]any) map[string]string {
+	if len(rawLinks) == 0 {
+		return nil
+	}
+	links := make(map[string]string, len(rawLinks))
+	for rawLink, rawTarget := range rawLinks {
+		link := strings.TrimSpace(rawLink)
+		target, ok := rawTarget.(string)
+		if !ok {
+			continue
+		}
+		target = strings.TrimSpace(target)
+		if link == "" || target == "" {
+			continue
+		}
+		links[resolveLinkPath(link)] = resolveLinkPath(target)
+	}
+	if len(links) == 0 {
+		return nil
+	}
+	return links
+}
+
+func resolveLinkPath(path string) string {
+	path = strings.TrimSpace(path)
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(support.BasePath(path))
 }
 
 func castString(v any) string {

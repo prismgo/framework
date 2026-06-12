@@ -239,6 +239,73 @@ func TestBuildConfigResolvesLocalRootsFromApplicationStorage(t *testing.T) {
 	}
 }
 
+func TestBuildConfigParsesFilesystemLinks(t *testing.T) {
+	// The application config should expose only valid link-to-target string pairs,
+	// with relative paths resolved from the application base path.
+	base := t.TempDir()
+	c := useFilesystemTestContainer(t)
+	if err := c.Instance("path.base", base); err != nil {
+		t.Fatalf("bind base path: %v", err)
+	}
+	if err := c.Instance("path.storage", filepath.Join(base, "storage")); err != nil {
+		t.Fatalf("bind storage path: %v", err)
+	}
+	absoluteLink := filepath.Join(t.TempDir(), "absolute-link")
+	absoluteTarget := filepath.Join(t.TempDir(), "absolute-target")
+
+	configpkg.Add("app", func() map[string]any {
+		return map[string]any{
+			"key": "filesystem-signing-key",
+			"url": "http://app.test",
+		}
+	})
+	configpkg.Add("filesystem", func() map[string]any {
+		return map[string]any{
+			"default": "local",
+			"links": map[string]any{
+				"public/storage": "storage/app/public",
+				absoluteLink:     absoluteTarget,
+				"ignored":        42,
+				"":               "storage/app/empty-link",
+				"blank-target":   " ",
+			},
+			"disks": map[string]any{
+				"local": map[string]any{
+					"driver": "local",
+					"root":   "storage/app/private",
+				},
+			},
+		}
+	})
+	cfg := configpkg.New()
+	if err := cfg.ReloadFromFile(filepath.Join(t.TempDir(), ".env")); err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if err := c.Instance("config.default", cfg); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+
+	built, err := buildConfig()
+	if err != nil {
+		t.Fatalf("buildConfig error = %v", err)
+	}
+	if got, want := built.Links[filepath.Join(base, "public", "storage")], filepath.Join(base, "storage", "app", "public"); got != want {
+		t.Fatalf("relative filesystem link target = %q, want %q", got, want)
+	}
+	if got := built.Links[absoluteLink]; got != absoluteTarget {
+		t.Fatalf("absolute filesystem link target = %q, want %q", got, absoluteTarget)
+	}
+	if _, ok := built.Links[filepath.Join(base, "ignored")]; ok {
+		t.Fatalf("non-string filesystem link target should be ignored: %#v", built.Links)
+	}
+	if _, ok := built.Links[filepath.Join(base, "blank-target")]; ok {
+		t.Fatalf("blank filesystem link target should be ignored: %#v", built.Links)
+	}
+	if len(built.Links) != 2 {
+		t.Fatalf("filesystem links should contain only valid pairs: %#v", built.Links)
+	}
+}
+
 type filesystemProviderApp struct{ registry containercontract.Container }
 
 func (a filesystemProviderApp) Container() containercontract.Container { return a.registry }

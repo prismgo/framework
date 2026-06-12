@@ -21,6 +21,8 @@ type Config struct {
 	Cloud string
 	// Disks 存放所有已注册磁盘配置。
 	Disks map[string]DiskConfig
+	// Links 存放由公开链接路径到存储目标路径的符号链接配置。
+	Links map[string]string
 	// TemporaryURL 控制本地临时签名地址的签名行为。
 	TemporaryURL TemporaryURLConfig
 }
