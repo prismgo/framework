@@ -47,6 +47,17 @@ func TestBuiltinCommandFactoriesIncludesStorageLinkCommands(t *testing.T) {
 	}
 }
 
+func TestRegisterBuiltinsRequiresKernel(t *testing.T) {
+	defer func() {
+		if recovered := recover(); recovered == nil {
+			t.Fatal("expected RegisterBuiltins to panic for a nil kernel")
+		}
+	}()
+
+	// A nil kernel cannot receive lazy command factories, so registration fails fast.
+	RegisterBuiltins(nil, BuiltinDependencies{})
+}
+
 func assertBuiltinCommandsRegistered(t *testing.T, k *Kernel) {
 	t.Helper()
 
@@ -68,6 +79,8 @@ func assertBuiltinCommandsRegistered(t *testing.T, k *Kernel) {
 		"migrate:fresh",
 		"db:seed",
 		"key:generate",
+		"storage:link",
+		"storage:unlink",
 		"queue",
 		"cron",
 		"stub:publish",
