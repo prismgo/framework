@@ -61,6 +61,8 @@ func BuiltinCommandFactories(k *Kernel, deps BuiltinDependencies) []console.Comm
 		func() console.Command { return cmd.NewMigrateFreshCommand(migrationDeps) },
 		func() console.Command { return cmd.NewDBSeedCommand(migrationDeps) },
 		func() console.Command { return cmd.NewKeyGenerateCommand() },
+		func() console.Command { return cmd.NewStorageLinkCommand() },
+		func() console.Command { return cmd.NewStorageUnlinkCommand() },
 		func() console.Command { return queuecommand.NewWorkCommand() },
 		func() console.Command { return queuecommand.NewFailedCommand() },
 		func() console.Command { return queuecommand.NewRetryCommand() },

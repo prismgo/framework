@@ -31,6 +31,22 @@ func TestNewApplicationKernelAcceptsOptionalBuiltinDependencies(t *testing.T) {
 	}
 }
 
+func TestBuiltinCommandFactoriesIncludesStorageLinkCommands(t *testing.T) {
+	k := New("test")
+	names := map[string]bool{}
+
+	// Built-in factories are the source list used by WithBuiltins and application kernels.
+	for _, factory := range BuiltinCommandFactories(k, BuiltinDependencies{}) {
+		names[factory().Definition().Name] = true
+	}
+
+	for _, name := range []string{"storage:link", "storage:unlink"} {
+		if !names[name] {
+			t.Fatalf("expected builtin command factory %q to be registered", name)
+		}
+	}
+}
+
 func assertBuiltinCommandsRegistered(t *testing.T, k *Kernel) {
 	t.Helper()
 
