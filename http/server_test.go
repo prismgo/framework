@@ -19,10 +19,12 @@ func TestListenAndServeGracefulLifecycleEvents(t *testing.T) {
 		mu     sync.Mutex
 		events []string
 	)
+	eventNames := make(chan string, 4)
 	bus.Listen("server.*", event.ListenerFunc(func(_ context.Context, ev event.Event) error {
 		mu.Lock()
 		defer mu.Unlock()
 		events = append(events, ev.Name())
+		eventNames <- ev.Name()
 		return nil
 	}))
 
@@ -37,8 +39,9 @@ func TestListenAndServeGracefulLifecycleEvents(t *testing.T) {
 		close(done)
 	}()
 
-	// 给监听协程一点时间真正进入 ListenAndServe。
-	time.Sleep(100 * time.Millisecond)
+	// 等待服务完成启动事件，确保信号监听器已经注册后再向当前进程发送 SIGTERM。
+	waitForEvent(t, eventNames, event.EventServerStarting)
+	waitForEvent(t, eventNames, event.EventServerStarted)
 	// 直接给当前进程发信号触发优雅关闭。
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
 		// Windows 不支持 SIGTERM；测试环境跳过即可。
