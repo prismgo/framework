@@ -62,7 +62,17 @@ func (c *StorageUnlinkCommand) Definition() *console.Definition {
 // Handle removes configured link paths and tolerates links that are already absent.
 func (c *StorageUnlinkCommand) Handle(console.CommandContext) error {
 	for link := range storageLinks() {
-		if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
+		info, err := os.Lstat(link)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+		if err := os.Remove(link); err != nil {
 			return err
 		}
 	}
@@ -70,11 +80,12 @@ func (c *StorageUnlinkCommand) Handle(console.CommandContext) error {
 }
 
 func createStorageLink(link string, target string, force bool) error {
-	if _, err := os.Lstat(link); err == nil {
-		if !force {
+	if info, err := os.Lstat(link); err == nil {
+		// Force is intentionally limited to symlinks so user files and directories are preserved.
+		if !force || info.Mode()&os.ModeSymlink == 0 {
 			return fmt.Errorf("storage link %q already exists", link)
 		}
-		if err := os.RemoveAll(link); err != nil {
+		if err := os.Remove(link); err != nil {
 			return err
 		}
 	} else if !os.IsNotExist(err) {

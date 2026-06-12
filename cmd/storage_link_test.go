@@ -75,11 +75,15 @@ func TestStorageLinkCommandErrorsWhenLinkExistsWithoutForce(t *testing.T) {
 	}
 }
 
-func TestStorageLinkCommandForceReplacesExistingPath(t *testing.T) {
+func TestStorageLinkCommandForceReplacesExistingSymlink(t *testing.T) {
 	root := setupStorageLinkApp(t, nil)
 	link := filepath.Join(root, "public", "storage")
-	if err := os.MkdirAll(filepath.Join(link, "nested"), 0o755); err != nil {
-		t.Fatalf("mkdir existing link directory: %v", err)
+	oldTarget := filepath.Join(root, "storage", "app", "old")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatalf("mkdir public: %v", err)
+	}
+	if err := os.Symlink(oldTarget, link); err != nil {
+		t.Fatalf("create existing symlink: %v", err)
 	}
 
 	cmd := NewStorageLinkCommand()
@@ -88,6 +92,62 @@ func TestStorageLinkCommandForceReplacesExistingPath(t *testing.T) {
 	}
 
 	assertSymlinkTarget(t, link, filepath.Join(root, "storage", "app", "public"))
+}
+
+func TestStorageLinkCommandForceLeavesNormalPathsUntouched(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		create func(t *testing.T, path string)
+		assert func(t *testing.T, path string)
+	}{
+		{
+			name: "file",
+			create: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte("existing"), 0o644); err != nil {
+					t.Fatalf("write existing file: %v", err)
+				}
+			},
+			assert: func(t *testing.T, path string) {
+				t.Helper()
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != "existing" {
+					t.Fatalf("file should remain untouched, data = %q, err = %v", string(data), err)
+				}
+			},
+		},
+		{
+			name: "directory",
+			create: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Join(path, "nested"), 0o755); err != nil {
+					t.Fatalf("mkdir existing directory: %v", err)
+				}
+			},
+			assert: func(t *testing.T, path string) {
+				t.Helper()
+				if _, err := os.Stat(filepath.Join(path, "nested")); err != nil {
+					t.Fatalf("directory should remain untouched: %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root := setupStorageLinkApp(t, nil)
+			link := filepath.Join(root, "public", "storage")
+			if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+				t.Fatalf("mkdir public: %v", err)
+			}
+			tt.create(t, link)
+
+			cmd := NewStorageLinkCommand()
+			err := cmd.Handle(storageLinkCommandContext(cmd, fakeInput{bools: map[string]bool{"force": true}}))
+			if err == nil || !strings.Contains(err.Error(), "already exists") {
+				t.Fatalf("Handle() error = %v, want already exists", err)
+			}
+			tt.assert(t, link)
+		})
+	}
 }
 
 func TestStorageUnlinkCommandRemovesDefaultLink(t *testing.T) {
@@ -128,6 +188,61 @@ func TestStorageUnlinkCommandRemovesConfiguredLinksAndIgnoresMissing(t *testing.
 
 	assertPathMissing(t, link)
 	assertPathMissing(t, filepath.Join(root, "public", "missing"))
+}
+
+func TestStorageUnlinkCommandLeavesNormalPathsUntouched(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		create func(t *testing.T, path string)
+		assert func(t *testing.T, path string)
+	}{
+		{
+			name: "file",
+			create: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte("existing"), 0o644); err != nil {
+					t.Fatalf("write existing file: %v", err)
+				}
+			},
+			assert: func(t *testing.T, path string) {
+				t.Helper()
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != "existing" {
+					t.Fatalf("file should remain untouched, data = %q, err = %v", string(data), err)
+				}
+			},
+		},
+		{
+			name: "directory",
+			create: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Join(path, "nested"), 0o755); err != nil {
+					t.Fatalf("mkdir existing directory: %v", err)
+				}
+			},
+			assert: func(t *testing.T, path string) {
+				t.Helper()
+				if _, err := os.Stat(filepath.Join(path, "nested")); err != nil {
+					t.Fatalf("directory should remain untouched: %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root := setupStorageLinkApp(t, nil)
+			link := filepath.Join(root, "public", "storage")
+			if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+				t.Fatalf("mkdir public: %v", err)
+			}
+			tt.create(t, link)
+
+			cmd := NewStorageUnlinkCommand()
+			if err := cmd.Handle(storageLinkCommandContext(cmd, fakeInput{})); err != nil {
+				t.Fatalf("Handle() error = %v", err)
+			}
+			tt.assert(t, link)
+		})
+	}
 }
 
 func setupStorageLinkApp(t *testing.T, links map[string]any) string {
