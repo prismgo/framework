@@ -22,6 +22,37 @@ jobs:
         with:
           go-version: "^1"
 
+      - name: Validate release version
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+
+          delete_tag() {
+            git push origin --delete "$tag"
+          }
+
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag '${tag}' must match v{x}.{x}.{x}."
+            delete_tag
+            exit 1
+          fi
+
+          tag_version="${tag#v}"
+          framework_version="$(tr -d '\r' < version/version.go | sed -nE 's/^[[:space:]]*const[[:space:]]+Framework[[:space:]]*=[[:space:]]*"([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p')"
+
+          if [ -z "$framework_version" ]; then
+            echo "::error::Unable to read const Framework from version/version.go."
+            delete_tag
+            exit 1
+          fi
+
+          if [ "$tag_version" != "$framework_version" ]; then
+            echo "::error::Release tag version '${tag_version}' does not match version.Framework '${framework_version}'."
+            delete_tag
+            exit 1
+          fi
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
