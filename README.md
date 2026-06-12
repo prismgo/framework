@@ -104,35 +104,37 @@ go run . serve --port=8000
 
 ---
 
+## 文档
+
+- [github.com/prismgo/docs](https://github.com/prismgo/docs)
+
+---
+
 ## 组件全景图
 
 | 组件 | 做什么 | 怎么用 |
 |---|---|---|
-| `foundation` | 应用启动、Provider 注册、生命周期、资源关闭 | `foundation.NewApplication()` |
-| `horizon` | 队列监控面板，worker 管理、任务指标、Dashboard | `go run . horizon` |
-| `route` | Gin 之上的 Laravel 风格路由声明 | `route.Get("/", handler).Name("home")` |
-| `kernel` | CLI Kernel，命令注册、调度、互调 | `kernel.RegisterLazy("xxx", factory)` |
-| `console` | Artisan 风格命令模型、IO、表格输出 | `console.NewDefinition("cmd:name")` |
+| `cache` | 缓存管理器：memory/redis/file/failover | `cache.Remember(ctx, key, ttl, fn)` |
 | `config` | `.env` 加载、点路径配置读取 | `config.GetString("app.name")` |
-| `logger` | 多通道日志：stack/single/daily/stderr/null | `logger.Channel("daily").Info("msg")` |
+| `console` | Artisan 风格命令模型、IO、表格输出 | `console.NewDefinition("cmd:name")` |
+| `container` | 服务容器：绑定、解析、单例、实例管理 | `app.Container().Bind("key", factory)` |
+| `cookie` | Cookie 值对象、队列写入 | `cookie.New("name", "val").HttpOnly()` |
 | `database` | GORM 连接管理、连接池 | `database.Resolve()` |
 | `database/schema` | Blueprint 风格迁移 DSL | `schema.Bind(db).Create("table", fn)` |
-| `cache` | 缓存管理器：memory/redis/file/failover | `cache.Remember(ctx, key, ttl, fn)` |
+| `encryption` | 加密与解密：密钥配置、字符串加密器 | `encryption.EncryptString("value")` |
 | `event` | 事件总线：同步/异步/队列 | `event.Dispatch(ctx, ev)` |
 | `exception` | 统一异常处理器，Report + Render + 日志级别映射 | `exception.Report(ctx, err, fields)` |
-| `queue` | 任务队列：Redis/RabbitMQ/Sync | `queue.Dispatch(ctx, job)` |
 | `filesystem` | 文件系统抽象：local/public/OSS | `filesystem.Disk("public").Put(...)` |
-| `timer` | 定时调度器 | `schedule.Command("x").Daily()` |
+| `foundation` | 应用启动、Provider 注册、生命周期、资源关闭 | `foundation.NewApplication()` |
+| `horizon` | 队列监控面板，worker 管理、任务指标、Dashboard | `go run . horizon` |
+| `kernel` | CLI Kernel，命令注册、调度、互调 | `kernel.RegisterLazy("xxx", factory)` |
+| `logger` | 多通道日志：stack/single/daily/stderr/null | `logger.Channel("daily").Info("msg")` |
+| `queue` | 任务队列：Redis/RabbitMQ/Sync | `queue.Dispatch(ctx, job)` |
 | `ratelimit` | 固定窗口限流 | `ratelimit.For("api").PerMinute(60)` |
-| `cookie` | Cookie 值对象、队列写入 | `cookie.New("name", "val").HttpOnly()` |
+| `route` | Gin 之上的 Laravel 风格路由声明 | `route.Get("/", handler).Name("home")` |
 | `session` | 服务端 session，file 驱动 | `session.Put(ctx, "key", value)` |
 | `support` | 通用辅助函数：路径解析、值判断、类型转换、环境判断 | `support.StoragePath(...)` / `support.IsProduction()` |
-
----
-
-## 文档
-
-- [github.com/prismgo/docs](https://github.com/prismgo/docs)
+| `timer` | 定时调度器 | `schedule.Command("x").Daily()` |
 
 ---
 

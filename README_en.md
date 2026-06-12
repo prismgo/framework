@@ -105,35 +105,37 @@ Open `http://localhost:8000` and you will see `{"message": "Hello PrismGo!"}`.
 
 ---
 
+## Documentation
+
+- [github.com/prismgo/docs](https://github.com/prismgo/docs)
+
+---
+
 ## Component Overview
 
 | Component | What It Does | How to Use |
 |---|---|---|
-| `foundation` | Application startup, Provider registration, lifecycle, resource closing | `foundation.NewApplication()` |
-| `horizon` | Queue monitoring panel, worker management, job metrics, Dashboard | `go run . horizon` |
-| `route` | Laravel-style route declarations on top of Gin | `route.Get("/", handler).Name("home")` |
-| `kernel` | CLI Kernel, command registration, scheduling, command-to-command calls | `kernel.RegisterLazy("xxx", factory)` |
-| `console` | Artisan-style command model, IO, table output | `console.NewDefinition("cmd:name")` |
+| `cache` | Cache manager: memory/redis/file/failover | `cache.Remember(ctx, key, ttl, fn)` |
 | `config` | `.env` loading and dot-path configuration access | `config.GetString("app.name")` |
-| `logger` | Multi-channel logging: stack/single/daily/stderr/null | `logger.Channel("daily").Info("msg")` |
+| `console` | Artisan-style command model, IO, table output | `console.NewDefinition("cmd:name")` |
+| `container` | Service container: binding, resolution, singletons, instance management | `app.Container().Bind("key", factory)` |
+| `cookie` | Cookie value object and queued writes | `cookie.New("name", "val").HttpOnly()` |
 | `database` | GORM connection management and connection pools | `database.Resolve()` |
 | `database/schema` | Blueprint-style migration DSL | `schema.Bind(db).Create("table", fn)` |
-| `cache` | Cache manager: memory/redis/file/failover | `cache.Remember(ctx, key, ttl, fn)` |
+| `encryption` | Encryption and decryption: key configuration, string encrypter | `encryption.EncryptString("value")` |
 | `event` | Event bus: sync/async/queue | `event.Dispatch(ctx, ev)` |
 | `exception` | Unified exception handler: Report + Render + log level mapping | `exception.Report(ctx, err, fields)` |
-| `queue` | Job queue: Redis/RabbitMQ/Sync | `queue.Dispatch(ctx, job)` |
 | `filesystem` | Filesystem abstraction: local/public/OSS | `filesystem.Disk("public").Put(...)` |
-| `timer` | Scheduled task runner | `schedule.Command("x").Daily()` |
+| `foundation` | Application startup, Provider registration, lifecycle, resource closing | `foundation.NewApplication()` |
+| `horizon` | Queue monitoring panel, worker management, job metrics, Dashboard | `go run . horizon` |
+| `kernel` | CLI Kernel, command registration, scheduling, command-to-command calls | `kernel.RegisterLazy("xxx", factory)` |
+| `logger` | Multi-channel logging: stack/single/daily/stderr/null | `logger.Channel("daily").Info("msg")` |
+| `queue` | Job queue: Redis/RabbitMQ/Sync | `queue.Dispatch(ctx, job)` |
 | `ratelimit` | Fixed-window rate limiting | `ratelimit.For("api").PerMinute(60)` |
-| `cookie` | Cookie value object and queued writes | `cookie.New("name", "val").HttpOnly()` |
+| `route` | Laravel-style route declarations on top of Gin | `route.Get("/", handler).Name("home")` |
 | `session` | Server-side sessions with the file driver | `session.Put(ctx, "key", value)` |
 | `support` | General helpers: path resolution, value checks, type conversion, environment checks | `support.StoragePath(...)` / `support.IsProduction()` |
-
----
-
-## Documentation
-
-- [github.com/prismgo/docs](https://github.com/prismgo/docs)
+| `timer` | Scheduled task runner | `schedule.Command("x").Daily()` |
 
 ---
 
