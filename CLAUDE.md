@@ -148,7 +148,7 @@ After completing a feature:
 2. Check for compatibility or fallback code. Report findings first and confirm before deleting.
 3. Run static analysis only for changed packages, for example `golangci-lint run --verbose ./cache/...`.
 4. Run `gofmt`.
-5. Create `docs/changes/v{next}-{function-description}.md` unless `docs/changes` is ignored. Match the document language to the prompt language, increment `{next}` numerically, and include:
+5. Create `docs/changes/v{next}-{function-description}.md` unless `docs/changes` is ignored. Match the document language to the agent response language, increment `{next}` numerically, and include:
    - Feature overview and implementation goals.
    - Requirements / business background.
    - Impact scope.
