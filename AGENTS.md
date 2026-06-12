@@ -2,210 +2,161 @@
 
 ## Karpathy Guidelines
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+These behavioral rules reduce common LLM coding mistakes. They favor caution over speed; use judgment for trivial tasks.
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+### 1. Think Before Coding
 
-## 1. Think Before Coding
+Do not assume or hide uncertainty. Before implementing:
+- State assumptions; ask when uncertain.
+- Surface multiple interpretations instead of silently choosing.
+- Mention simpler approaches and push back when appropriate.
+- If unclear, stop, name the confusion, and ask.
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+### 2. Simplicity First
 
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+Write the minimum code that solves the request:
+- No unrequested features, abstractions, flexibility, configurability, or impossible-scenario error handling.
+- If a solution is much longer than necessary, simplify it.
 
-## 2. Simplicity First
+### 3. Surgical Changes
 
-**Minimum code that solves the problem. Nothing speculative.**
+Touch only what the request requires:
+- Do not improve, refactor, reformat, or delete adjacent code unless needed.
+- Match existing style.
+- Remove unused imports, variables, or functions created by your change.
+- Report unrelated dead code; do not delete it unless asked.
 
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
+Every changed line must trace directly to the request.
 
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+### 4. Goal-Driven Execution
 
-## 3. Surgical Changes
+Turn tasks into verifiable goals and loop until verified:
+- Validation change: test invalid inputs, then pass.
+- Bug fix: reproduce with a test, then pass.
+- Refactor: ensure tests pass before and after.
 
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-## 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
+For multi-step work, state a brief plan:
+```text
+1. [Step] -> verify: [check]
+2. [Step] -> verify: [check]
+3. [Step] -> verify: [check]
 ```
 
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+These rules work when diffs shrink, rewrites decrease, and clarifying questions come before implementation mistakes.
 
----
+## Project Structure
 
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
-
-## Project Structure & Module Organization
-
-Framework packages live at the repository root, with one directory per component, such as `foundation`, `route`, `cache`, `queue`, `database`, `filesystem`, `session`, and `console`. Shared helpers under `internal/`, CLI commands under `cmd/`, and Horizon dashboard assets under `horizon/dashboard/resources/`. Tests are colocated as `*_test.go`.  automation lives in `.github/`.
+Framework packages live at the repository root, one directory per component, such as `foundation`, `route`, `cache`, `queue`, `database`, `filesystem`, `session`, and `console`. Shared helpers live in `internal/`, CLI commands in `cmd/`, Horizon dashboard assets in `horizon/dashboard/resources/`, automation in `.github/`, and colocated tests in `*_test.go`.
 
 ### Contracts
 
-Contracts are public interfaces that define the behavior of a component. They are used to communicate between components, and to validate user input.The `contracts` directory must not contain concrete implementations.
+`contracts` defines public component interfaces for inter-component communication and user input validation. It must not contain concrete implementations.
 
 ### Facades
-Facades are public interfaces that wrap a component to provide a simpler, more convenient API.
 
-- The `facade.go` in the component package must be implemented based on the `facade` package.
-- APIs exposed by `facade` should preferentially return interface types from the `contracts` package.
+Facades expose simpler component APIs:
+- Component `facade.go` files must be implemented through the `facade` package.
+- Facade APIs should prefer returning interface types from `contracts`.
 
 ### Service Providers
 
-Service providers are responsible for registering components and their lifecycle hooks.Services provided by a component package must be registered via a `service provider`.
+Service providers register components and lifecycle hooks. Component services must be registered through a service provider.
 
-## Non-Negotiable Rules
+## Hard Rules
 
-1. Never modify production code solely for testing.
-  - No test-only logic, APIs, helpers, fallbacks, or workarounds.
-  - Production code may only change to fix genuine production bugs.
+1. Never modify production code solely for tests.
+   - No test-only logic, APIs, helpers, fallbacks, or workarounds.
+   - Production code may change only to fix genuine production bugs.
 2. Never keep compatibility code after feature changes without approval.
 3. Never ignore errors.
-  - Return errors whenever possible.
-  - Otherwise report them via `exception.Report(...)`.
+   - Return errors whenever possible.
+   - Otherwise report them with `exception.Report(...)`.
 4. Never change public APIs unless explicitly requested.
 
-## Build, Test, and Development Commands
+## Commands
 
 - `go test ./...`: run the full Go test suite.
 - `make test`: run verbose tests with count coverage and write `coverage.out`.
-- `make covdata`: run `./.github/scripts/coverage.sh` with `PACKAGES` support and write coverage artifacts under `.coverage/`.
+- `make covdata`: run `./.github/scripts/coverage.sh` with `PACKAGES` support and write `.coverage/` artifacts.
 - `make test-race`: run all tests with the race detector.
 - `make vet`: run `go vet ./...`.
-- `make fmt`: format all Go files with `gofmt`, excluding `./tmp`.
+- `make fmt`: run `gofmt` on Go files, excluding `./tmp`.
 - `make fmt-check`: verify formatting without modifying files.
 - `make lint`: run `golangci-lint run`.
 - `make ci`: run the local CI gate.
 
-## Coding Style & Coding Standards
+## Coding Style
 
-Follow standard Go conventions: `gofmt` formatting, tabs for indentation, short package names, exported identifiers in `PascalCase`, and unexported identifiers in `camelCase`. Keep package APIs idiomatic and consistent with nearby components. Prefer package-level tests and helpers that mirror existing naming patterns, such as `facade_registry_test.go`, `service_provider_test.go`, or focused behavior names like `redis_lifecycle_test.go`.
+Follow standard Go conventions: `gofmt`, tabs, short package names, exported `PascalCase`, unexported `camelCase`, idiomatic APIs, and naming consistent with nearby components. Prefer package-level tests and local naming patterns such as `facade_registry_test.go`, `service_provider_test.go`, and focused behavior names like `redis_lifecycle_test.go`.
 
-### General Principles
+### Principles
 
-- Prefer code reuse over reimplementation
-  - If existing code doesn't fit or has unclear boundaries, refactor properly
-- Follow single responsibility principle
-  - For functions, structs, interfaces, files, packages, etc.
-  - Keep boundaries clear and reasonable
-- Prefer Go standard library; minimize third-party dependencies
-  - Adding a new library requires user approval
-- Favor explicit logic over implicit behavior
-- Use consistent and clear naming (classes, functions, variables, tables, fields)
+- Prefer reuse over reimplementation; refactor only when boundaries are unclear or existing code does not fit.
+- Keep functions, structs, interfaces, files, and packages single-purpose with clear boundaries.
+- Prefer the Go standard library; adding a third-party dependency requires user approval.
+- Favor explicit logic over implicit behavior.
+- Use clear, consistent names for classes, functions, variables, tables, and fields.
 
-### Code Comments
+### Comments
 
-- Modified and newly added code must include comments
-  - Explanation of the logic
-  - Design rationale
-  - Additional explanation for complex logic within functions
-  - Description of function parameter purposes
-  - Including unit test code
+Modified and newly added code, including tests, must include useful comments that explain logic, design rationale, complex function internals, and parameter purposes.
 
-## Testing Guidelines
+## Testing
 
-Add or update colocated `*_test.go` files for behavior changes. Use focused unit tests for package-level contracts and integration-style tests where external behavior crosses components, such as queue, Redis, RabbitMQ, Horizon, or filesystem flows. Run `make test` before submitting; run `make test-race` for concurrency, worker, lifecycle, or connection-management changes. Coverage is uploaded from `coverage.out` in CI, so avoid bypassing `make test` for final verification.
+Add or update colocated `*_test.go` files for behavior changes. Use focused unit tests for package contracts and integration-style tests for cross-component behavior such as queue, Redis, RabbitMQ, Horizon, or filesystem flows. Run `make test` before submitting; run `make test-race` for concurrency, worker, lifecycle, or connection-management changes. Final verification should not bypass `make test`, because CI uploads `coverage.out`.
 
 ## Test Failure Boundary
 
-When fixing failing tests, first identify whether the failure is caused by bad test setup or a real production bug.
+When fixing tests, first decide whether the failure is bad test setup or a real production bug.
 
-Do not change production code to tolerate incomplete tests.
+Do not change production code to tolerate incomplete tests. Forbidden without explicit approval:
+- Adding fallback config or service behavior.
+- Making required services optional.
+- Replacing required resolution with silent defaults.
+- Adding nil checks only to avoid test panics.
+- Adding test-only branches, helpers, or alternate runtime paths.
+- Weakening validation, lifecycle, or provider requirements.
 
-Forbidden unless explicitly approved:
-- adding fallback config/service behavior
-- making required services optional
-- replacing required resolution with silent defaults
-- adding nil checks only to avoid test panics
-- adding test-only branches, helpers, or alternate runtime paths
-- weakening validation, lifecycle, or provider requirements
+Production code may change only when a failure proves a real production bug under valid runtime setup. If unsure, stop and ask. A panic from missing required test setup is a test bug, not a production bug.
 
-Production code may be changed only when the failure proves a real production bug under valid runtime setup.
+### Coverage
 
-If unsure, stop and ask before editing production code.
+- Any change to Go code, `go.mod`, `go.sum`, tests, or code generation must run tests and compute coverage.
+- Collect coverage through the project script:
+  - Linux/macOS/Git Bash: `make covdata`.
+  - Narrow scope: `make covdata PACKAGES=./cache` or `./.github/scripts/coverage.sh ./cache`.
+- Coverage output goes to `.coverage/`; the script uses `tmp/gocache` instead of the user's global Go cache.
+- Before final delivery, run the appropriate OS script for the changed scope.
+- Required coverage for the changed scope is over `90%`; add tests if it is lower.
+- If full `covdata` is blocked by existing flaky tests, rerun failing packages in isolation and explain which tests failed and whether they relate to the change. A failed full coverage run cannot be treated as passing.
 
-A panic caused by missing required test setup is a test bug, not a production bug.
+## Security
 
-### Testing and Coverage
-- Any changes to Go code, go.mod, go.sum, test files, or code generation logic must run tests and compute coverage.
-- Coverage must be collected via the project script, selecting the script based on the OS:
-  - Linux/macOS/Git Bash: `make covdata`
-  - For narrow-scope validation, pass `PACKAGES`, e.g., `make covdata PACKAGES=./cache`, or pass a package path to the script, e.g., `./.github/scripts/coverage.sh ./cache`
-- Coverage output is placed in `.coverage/`; Go build cache is fixed to `tmp/gocache` by the script to avoid writing to the user's global cache.
-- Before final delivery, run the appropriate OS script based on the scope of changes, e.g., `make covdata PACKAGES=./cache`
-- Required coverage for the changed scope is > `90%`. If not met, additional test code must be added.
-- If full covdata is blocked by existing flaky tests (e.g., timer-sensitive tests), you must rerun the failing package(s) in isolation and explain in the results which tests failed and whether they are related to the current changes. You cannot treat a failed full coverage run as passing.
+Do not commit secrets, local credentials, coverage files, or temporary runtime data.
 
-## Security & Configuration Tips
+## Completion Checklist
 
-Do not commit secrets, local credentials, coverage files, or temporary runtime data. 
+After completing a feature:
 
-## Checklist
-After completing a feature, the following must be performed:
-
-1. Check for orphaned (dead) code
-   - Report any findings first, then confirm whether to delete.
-
-2. Check for compatibility/fallback code
-   - Report any findings first, then confirm whether to delete.
-
-3. Run static analysis only for packages containing changed code, e.g. `golangci-lint run --verbose ./cache/...`
-
-4. Run formatting: `gofmt`
-
-5. Output a summary document: `docs/changes/v{next}-{function-description}.md`, with the following requirements:
-- Written in Chinese
-- `{next}` increments numerically
-- Contains the following sections:
-  - Feature overview and implementation goals
-  - Requirements / business background
-  - Impact scope
-  - Which files were modified
-  - What behavioral changes were made
-  - Which checks were executed and a summary of the results
-  - What logic is covered by unit tests (complex logic requires detailed explanation)
-  - Risks and optimization suggestions
-  - Orphaned/dead code
-  - Compatibility/fallback code
-  - Outstanding/incomplete items
-  - If `docs/changes` is ignored, do not commit the related documents.
-
-6. Final response requirements
-
-For every Go code change task, the final response must report:
-
-- The actual coverage command executed.
-- Whether the collected coverage is from unit tests, integration tests, or both.
-- Total statement coverage.
-- Packages or functions with significantly low coverage.
-- If coverage is skipped or only partially run, the exact reason must be stated.
+1. Check for orphaned or dead code. Report findings first and confirm before deleting.
+2. Check for compatibility or fallback code. Report findings first and confirm before deleting.
+3. Run static analysis only for changed packages, for example `golangci-lint run --verbose ./cache/...`.
+4. Run `gofmt`.
+5. Create `docs/changes/v{next}-{function-description}.md` unless `docs/changes` is ignored. The document must be in Chinese, increment `{next}` numerically, and include:
+   - Feature overview and implementation goals.
+   - Requirements / business background.
+   - Impact scope.
+   - Modified files.
+   - Behavioral changes.
+   - Checks executed and result summary.
+   - Unit-test coverage details, with complex logic explained.
+   - Risks and optimization suggestions.
+   - Orphaned/dead code.
+   - Compatibility/fallback code.
+   - Outstanding/incomplete items.
+6. For every Go code change, the final response must report:
+   - Actual coverage command executed.
+   - Whether coverage came from unit tests, integration tests, or both.
+   - Total statement coverage.
+   - Packages or functions with significantly low coverage.
+   - If coverage was skipped or partial, the exact reason.
