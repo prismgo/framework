@@ -66,7 +66,7 @@ These rules work when diffs shrink, rewrites decrease, and clarifying questions 
 2. Never keep compatibility code after feature changes without approval.
 3. Never ignore errors.
    - Return errors whenever possible.
-   - Otherwise report them with `exception.Report(...)`.
+   - Otherwise report them with `exception.Report(...)`; if no `Report` API exists, log the error.
 4. Never change public APIs unless explicitly requested.
 
 ### Security
