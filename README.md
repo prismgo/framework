@@ -67,41 +67,6 @@ go run . serve
 
 打开浏览器访问 `http://localhost:8080/api`
 
-
-### 最小可运行示例
-
-```go
-package main
-
-import (
-    "context"
-    "os"
-
-    "github.com/prismgo/framework/foundation"
-    "github.com/prismgo/framework/route"
-)
-
-func main() {
-    app := foundation.Configure().
-        WithRouting(func(r route.Registrar) {
-            r.Get("/", func(c *gin.Context) {
-                c.JSON(200, gin.H{"message": "Hello PrismGo!"})
-            })
-        }).
-        Create()
-
-    if err := app.HandleCommand(context.Background(), os.Args); err != nil {
-        console.Exit(err.Error())
-    }
-}
-```
-
-```bash
-go run . serve --port=8000
-```
-
-打开 `http://localhost:8000`，看到 `{"message": "Hello PrismGo!"}`。
-
 ---
 
 ## 文档

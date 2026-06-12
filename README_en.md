@@ -69,40 +69,6 @@ go run . serve
 
 Open `http://localhost:8080/api` in your browser.
 
-### Minimal Runnable Example
-
-```go
-package main
-
-import (
-    "context"
-    "os"
-
-    "github.com/prismgo/framework/foundation"
-    "github.com/prismgo/framework/route"
-)
-
-func main() {
-    app := foundation.Configure().
-        WithRouting(func(r route.Registrar) {
-            r.Get("/", func(c *gin.Context) {
-                c.JSON(200, gin.H{"message": "Hello PrismGo!"})
-            })
-        }).
-        Create()
-
-    if err := app.HandleCommand(context.Background(), os.Args); err != nil {
-        console.Exit(err.Error())
-    }
-}
-```
-
-```bash
-go run . serve --port=8000
-```
-
-Open `http://localhost:8000` and you will see `{"message": "Hello PrismGo!"}`.
-
 ---
 
 ## Documentation
