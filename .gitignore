@@ -15,3 +15,4 @@ coverage.out
 docs/changes/
 skills-lock.json
 storage/
+.serena/
