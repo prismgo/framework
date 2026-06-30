@@ -216,3 +216,68 @@ func TestQueuedListenerMissingDispatcherIsReported(t *testing.T) {
 		t.Fatalf("reported error = %v, want dispatcher configuration error", reported)
 	}
 }
+
+// TestQueuedListenerJobPanicsAndRecovers 验证 queued listener 执行时 panic 会被恢复并返回错误
+func TestQueuedListenerJobPanicsAndRecovers(t *testing.T) {
+	registry := useIsolatedFacadeRegistry(t)
+
+	var reported error
+	var fields map[string]any
+	if err := registry.Instance("exception.handler", exception.New(
+		exception.WithPanicStack(false),
+		exception.WithReporter(func(_ any, err error, got map[string]any) {
+			reported = err
+			fields = got
+		}),
+	)); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
+	logManager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", logManager, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
+
+	// 注册一个会 panic 的监听器
+	id := nextQueuedListenerID()
+	panicListener := ListenerFunc(func(ctx context.Context, ev Event) error {
+		panic("queued listener panic test")
+	})
+	rememberQueuedListener(id, panicListener)
+
+	// 创建 job 并执行
+	job := &queuedListenerJob{
+		ListenerID: id,
+		EventName:  "test.panic",
+		Payload:    []byte(`{}`),
+	}
+
+	// 应该返回错误而不是 panic
+	err = job.Handle(context.Background())
+	if err == nil {
+		t.Fatal("expected error from panicked listener, got nil")
+	}
+	if !strings.Contains(err.Error(), "queued listener panic") {
+		t.Fatalf("expected panic error message, got: %v", err)
+	}
+
+	// 验证异常被报告
+	if reported == nil || !strings.Contains(reported.Error(), "queued listener panic") {
+		t.Fatalf("expected reported error, got: %v", reported)
+	}
+	if fields["component"] != "event" ||
+		fields["subsystem"] != "queued_listener" ||
+		fields["event"] != "test.panic" ||
+		fields["listener_id"] != id ||
+		fields["operation"] != "handle" {
+		t.Fatalf("reported fields = %#v", fields)
+	}
+	if fields["stack"] == "" {
+		t.Fatal("expected stack trace in reported fields")
+	}
+}

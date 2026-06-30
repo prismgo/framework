@@ -13,6 +13,7 @@ import (
 	eventcontract "github.com/prismgo/framework/contracts/event"
 	queuecontract "github.com/prismgo/framework/contracts/queue"
 	"github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/internal/stackx"
 )
 
 // ShouldQueue 标记监听器应通过 queue worker 异步执行。
@@ -235,7 +236,21 @@ func (o queueListenerOptions) QueueDebounceFor() time.Duration { return 0 }
 func (o queueListenerOptions) QueueTags() []string             { return nil }
 func (o queueListenerOptions) QueueSilenced() bool             { return false }
 
-func (j *queuedListenerJob) Handle(ctx context.Context) error {
+func (j *queuedListenerJob) Handle(ctx context.Context) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("event queued listener panic: %v", r)
+			exception.Report(ctx, err, map[string]any{
+				"component":   "event",
+				"subsystem":   "queued_listener",
+				"event":       j.EventName,
+				"listener_id": j.ListenerID,
+				"operation":   "handle",
+				"stack":       string(stackx.Capture()),
+			})
+		}
+	}()
+
 	listener := queuedListener(j.ListenerID)
 	if listener == nil {
 		return fmt.Errorf("event queued listener %s is not registered", j.ListenerID)
