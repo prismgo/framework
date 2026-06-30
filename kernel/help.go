@@ -146,7 +146,9 @@ func groupedHelpCommands(cmd *cobra.Command) []helpGroup {
 		namespace, namespaced := commandNamespace(entry.name)
 		if !namespaced {
 			group := ensureHelpGroup(groupByName, entry.name)
-			group.parent = &entry
+			// 显式创建局部变量副本，避免循环变量地址问题（Go 1.22 之前版本）
+			parentEntry := entry
+			group.parent = &parentEntry
 			continue
 		}
 		group := ensureHelpGroup(groupByName, namespaceGroupKey(namespace))
@@ -215,14 +217,9 @@ func outputOptionsFromCobra(cmd *cobra.Command) console.OutputOptions {
 		return console.OutputOptions{}
 	}
 	ansiSet, noANSISet := explicitANSIOverride(cmd)
+	// 简化 flag 查询：cmd.Flags() 已包含本地和继承的 flags，无需分别查询
 	quietValue, _ := cmd.Flags().GetBool("quiet")
 	silentValue, _ := cmd.Flags().GetBool("silent")
-	if !quietValue {
-		quietValue, _ = cmd.InheritedFlags().GetBool("quiet")
-	}
-	if !silentValue {
-		silentValue, _ = cmd.InheritedFlags().GetBool("silent")
-	}
 	return console.ResolveOutputOptions(cmd.OutOrStdout(), ansiSet, noANSISet, quietValue, silentValue)
 }
 
@@ -260,11 +257,8 @@ func versionRequested(cmd *cobra.Command) bool {
 	if cmd == nil {
 		return false
 	}
+	// 简化 flag 查询：cmd.Flags() 已包含本地和继承的 flags，无需分别查询
 	value, _ := cmd.Flags().GetBool("version")
-	if value {
-		return true
-	}
-	value, _ = cmd.InheritedFlags().GetBool("version")
 	return value
 }
 
@@ -272,7 +266,8 @@ func renderVersion(cmd *cobra.Command) error {
 	if cmd == nil {
 		return nil
 	}
-	if outputOptionsFromCobra(cmd).Quiet || outputOptionsFromCobra(cmd).Silent {
+	opts := outputOptionsFromCobra(cmd)
+	if opts.Quiet || opts.Silent {
 		return nil
 	}
 	_, err := fmt.Fprintln(cmd.OutOrStdout(), version.Banner())

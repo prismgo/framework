@@ -17,7 +17,7 @@ func encodeCallInput(definition console.Definition, input console.CallInput) ([]
 		if !ok || value == nil {
 			continue
 		}
-		values, err := callValues(value)
+		values, err := callValues(value, 0)
 		if err != nil {
 			return nil, fmt.Errorf("kernel call input argument %q: %w", argument.Name, err)
 		}
@@ -39,7 +39,7 @@ func encodeCallInput(definition console.Definition, input console.CallInput) ([]
 			continue
 		}
 		option, known := optionNames[key]
-		values, err := callValues(value)
+		values, err := callValues(value, 0)
 		if err != nil {
 			return nil, fmt.Errorf("kernel call input option %q: %w", key, err)
 		}
@@ -69,7 +69,15 @@ func encodeCallInput(definition console.Definition, input console.CallInput) ([]
 	return args, nil
 }
 
-func callValues(value any) ([]string, error) {
+// callValues 将任意类型的值转换为字符串切片，用于命令行参数和选项。
+// 支持基本类型、切片、数组以及实现了 fmt.Stringer 的类型。
+// depth 参数用于限制递归深度，防止无限递归导致栈溢出。
+func callValues(value any, depth int) ([]string, error) {
+	// 限制递归深度为 10 层，防止循环引用或过深嵌套
+	if depth > 10 {
+		return nil, fmt.Errorf("callValues: maximum recursion depth exceeded")
+	}
+
 	switch typed := value.(type) {
 	case string:
 		if strings.TrimSpace(typed) == "" {
@@ -103,7 +111,7 @@ func callValues(value any) ([]string, error) {
 	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
 		result := make([]string, 0, rv.Len())
 		for i := 0; i < rv.Len(); i++ {
-			values, err := callValues(rv.Index(i).Interface())
+			values, err := callValues(rv.Index(i).Interface(), depth+1)
 			if err != nil {
 				return nil, err
 			}

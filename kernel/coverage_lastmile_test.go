@@ -126,15 +126,15 @@ func TestKernelHelpGroupingAndOutputHelpers(t *testing.T) {
 
 func TestKernelCallValuesAdditionalTypes(t *testing.T) {
 	// 测试意图：补齐 programmatic call input 对 Stringer、整数和混合 slice 的转换路径。
-	values, err := callValues(fmt.Stringer(lastmileStringer("named")))
+	values, err := callValues(fmt.Stringer(lastmileStringer("named")), 0)
 	if err != nil || len(values) != 1 || values[0] != "named" {
 		t.Fatalf("Stringer callValues = %v / %v", values, err)
 	}
-	values, err = callValues([]int{1, 2})
+	values, err = callValues([]int{1, 2}, 0)
 	if err != nil || strings.Join(values, ",") != "1,2" {
 		t.Fatalf("[]int callValues = %v / %v", values, err)
 	}
-	values, err = callValues([]any{uint(3), uint64(4), float64(5.5), ""})
+	values, err = callValues([]any{uint(3), uint64(4), float64(5.5), ""}, 0)
 	if err != nil || strings.Join(values, ",") != "3,4,5.5" {
 		t.Fatalf("mixed slice callValues = %v / %v", values, err)
 	}

@@ -14,10 +14,34 @@ import (
 // Kernel 时不会重复挂载命令，避免重复名称和 alias 冲突。
 // 错误语义：任一回调失败时立即返回，目标 CLI 命令不会执行；Application 生命周期入口仍会继续
 // 关闭资源，并由 Application.RunContext 合并 close 错误。
-func (k *Kernel) runStartingCallbacks() error {
+// 超时保护：当其他 goroutine 正在执行 callbacks 时，当前调用方会等待；ctx 用于为这个等待
+// 提供超时保护，避免无限阻塞。
+func (k *Kernel) runStartingCallbacks(ctx context.Context) (err error) {
 	if k == nil {
 		return fmt.Errorf("kernel starting: kernel is nil")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// 跟踪当前调用方是否为执行者，以便在 panic 时清理状态
+	isExecutor := false
+	defer func() {
+		if isExecutor {
+			if rec := recover(); rec != nil {
+				// panic 时清除 callbacks 防止重复 panic，然后重新抛出
+				k.startingMu.Lock()
+				k.startingState = startingStatePending
+				k.starting = nil
+				if k.startingWait != nil {
+					close(k.startingWait)
+					k.startingWait = nil
+				}
+				k.startingMu.Unlock()
+				panic(rec) // 重新抛出 panic，让调用方处理
+			}
+		}
+	}()
 
 	for {
 		callbacks, wait, done := k.prepareStartingCallbacks()
@@ -25,9 +49,15 @@ func (k *Kernel) runStartingCallbacks() error {
 			return nil
 		}
 		if wait != nil {
-			<-wait
-			continue
+			// 等待当前批次完成，同时尊重 context 超时保护。
+			select {
+			case <-wait:
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
+		isExecutor = true
 		if err := k.dispatchStartingEvent(); err != nil {
 			k.finishStartingCallbacks(err)
 			return err
@@ -63,10 +93,14 @@ func (k *Kernel) prepareStartingCallbacks() ([]StartingCallback, <-chan struct{}
 	if k.startingState == startingStateRunning {
 		return nil, k.startingWait, false
 	}
-	callbacks := append([]StartingCallback(nil), k.starting...)
+	// 显式分配独立切片，避免依赖 append 的容量行为导致底层数组共享
+	appCallbacks := []StartingCallback{}
 	if k.application != nil {
-		callbacks = append(callbacks, k.application.StartingCallbacks()...)
+		appCallbacks = k.application.StartingCallbacks()
 	}
+	callbacks := make([]StartingCallback, 0, len(k.starting)+len(appCallbacks))
+	callbacks = append(callbacks, k.starting...)
+	callbacks = append(callbacks, appCallbacks...)
 	k.startingState = startingStateRunning
 	k.startingWait = make(chan struct{})
 	return callbacks, nil, false

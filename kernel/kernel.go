@@ -35,12 +35,18 @@ type ClosureHandler func(console.CommandContext) error
 // Cobra 绑定、help/list 展示增强、命令互调与运行时上下文注入。
 // 设计原因：所有命令都使用同一套 Definition + Run 模型后，内置命令注册流程会更简洁，
 // 新增能力时也不需要再散落修改业务装配代码。
+//
+// 线程安全说明：Kernel 的注册方法（Register、RegisterLazy、RegisterClosure、ResolveCommand）
+// 和读取方法（Commands、All）使用 RWMutex 保护，支持并发访问。RunContext、Call、CallSilently
+// 等执行方法使用 execMu 保护，确保同一时刻只有一个 goroutine 执行命令。
 type Kernel struct {
 	rootCmd                 *cobra.Command
 	schedule                *timer.Schedule
 	application             ApplicationRegistrySource
+	mu                      sync.RWMutex // 保护 commands 和 commandList
 	commands                map[string]registeredCommand
 	commandList             []registeredCommand
+	execMu                  sync.RWMutex // 保护命令执行：RunContext 用 Lock，Call/CallSilently 用 RLock
 	startingMu              sync.Mutex
 	starting                []StartingCallback
 	startingState           startingState
@@ -156,11 +162,18 @@ func rootDefinition(name string) console.Definition {
 }
 
 // Register 批量注册命令实现，并统一完成 Definition 编译与 Cobra 绑定。
+//
+// 错误处理：遇到重复命令名、无效定义等错误时会 panic。这是有意为之的设计：
+// Register 通常在应用启动阶段调用，此时错误代表编程错误（如命令名冲突），
+// 应该立即失败以便开发者修复，而不是在运行时静默忽略。
+// 如果需要在运行时动态注册命令并处理错误，请使用 ResolveCommand。
 func (k *Kernel) Register(cmds ...console.Command) {
 	k.registerCommands(cmds...)
 }
 
 // RegisterLazy 追加一组命令构造函数，供业务装配层把内置命令定义与注册逻辑保持整洁。
+//
+// 错误处理：与 Register 相同，遇到错误时会 panic。参见 Register 的设计说明。
 func (k *Kernel) RegisterLazy(factories ...console.CommandFactory) {
 	for _, factory := range factories {
 		if factory == nil {
@@ -250,26 +263,39 @@ func (k *Kernel) Run() error {
 }
 
 // RunContext 使用指定 context 解析命令行参数并执行匹配的子命令。
+//
+// 线程安全：使用 execMu 保护，确保同一时刻只有一个 goroutine 执行命令。
 func (k *Kernel) RunContext(ctx context.Context) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := k.runStartingCallbacks(); err != nil {
-		return err
-	}
-	resetCommandFlags(k.rootCmd)
-	return k.rootCmd.ExecuteContext(ctx)
+	return k.executeWithContext(ctx, nil)
 }
 
 // RunContextArgv 使用完整 argv（包含程序名）解析并执行命令。
 //
 // 参数说明：argv 应保持与 os.Args 相同的结构，首项是程序名，后续项才是命令名和参数。
+// 线程安全：使用 execMu 保护，确保同一时刻只有一个 goroutine 执行命令。
 func (k *Kernel) RunContextArgv(ctx context.Context, argv []string) error {
 	if k == nil || k.rootCmd == nil {
 		return fmt.Errorf("kernel run: kernel is not initialized")
 	}
-	k.rootCmd.SetArgs(normalizeCommandArgs(argv, true))
-	return k.RunContext(ctx)
+	return k.executeWithContext(ctx, argv)
+}
+
+// executeWithContext 是 RunContext 和 RunContextArgv 的公共实现。
+// 如果 argv 为 nil，使用 rootCmd 当前的 args；否则设置新的 args。
+func (k *Kernel) executeWithContext(ctx context.Context, argv []string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := k.runStartingCallbacks(ctx); err != nil {
+		return err
+	}
+	k.execMu.Lock()
+	defer k.execMu.Unlock()
+	if argv != nil {
+		k.rootCmd.SetArgs(normalizeCommandArgs(argv, true))
+	}
+	resetCommandFlags(k.rootCmd)
+	return k.rootCmd.ExecuteContext(ctx)
 }
 
 // Call 执行一个已注册命令，并将输出透传到当前 stdout/stderr。
@@ -284,6 +310,8 @@ func (k *Kernel) CallSilently(ctx context.Context, signature string, input ...co
 
 // Commands 返回已注册命令的定义快照，便于 list/help/测试复用。
 func (k *Kernel) Commands() []console.Definition {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
 	definitions := make([]console.Definition, 0, len(k.commandList))
 	for _, registered := range k.commandList {
 		definitions = append(definitions, console.CloneDefinition(registered.definition))
@@ -297,7 +325,7 @@ func (k *Kernel) Commands() []console.Definition {
 // starting callbacks，让延迟注册的命令也出现在结果中。返回值包含 hidden commands，
 // 调用方需要展示过滤时应自行按 Definition.Hidden 处理。
 func (k *Kernel) All() ([]console.Definition, error) {
-	if err := k.runStartingCallbacks(); err != nil {
+	if err := k.runStartingCallbacks(context.Background()); err != nil {
 		return nil, err
 	}
 	return k.Commands(), nil
@@ -321,6 +349,10 @@ func (k *Kernel) mustRegister(cmd console.Command) {
 	if err != nil {
 		panic(err)
 	}
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
 	if _, exists := k.commands[definition.Name]; exists {
 		panic(fmt.Sprintf("kernel register: command %q already registered", definition.Name))
 	}
@@ -340,6 +372,10 @@ func (k *Kernel) mustRegister(cmd console.Command) {
 	sort.SliceStable(k.commandList, func(i, j int) bool {
 		return k.commandList[i].definition.Name < k.commandList[j].definition.Name
 	})
+	// 线程安全说明：rootCmd.AddCommand 不需要额外锁保护。
+	// Kernel 是单例模式，注册阶段（Register/RegisterLazy/RegisterClosure）在应用启动时串行执行，
+	// 此时不会有命令在并发执行。命令执行阶段（RunContext/Call）通过 execMu 保护，
+	// 但注册阶段已完成，rootCmd 的命令树已固定。
 	k.rootCmd.AddCommand(cobraCmd)
 }
 
@@ -432,6 +468,31 @@ func (k *Kernel) executeRegisteredCommand(ctx context.Context, registered regist
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	commandCtx, cmdIO, rawInput, start := k.prepareCommandExecution(ctx, registered, cobraCmd, args)
+	defer console.ReleaseTraps(commandCtx)
+
+	event.Dispatch(commandCtx.Context(), event.CommandStarting{Command: registered.definition.Name, Input: rawInput})
+	defer k.dispatchFinishedEvent(commandCtx, registered, rawInput, start, &err)
+
+	if isolatable, ok := registered.command.(console.Isolatable); ok && isolatedOptionRequested(cobraCmd) {
+		var release func()
+		release, err = acquireIsolationLock(isolatable, commandCtx)
+		if err != nil {
+			cmdIO.Error(err.Error())
+			return err
+		}
+		defer release()
+	}
+
+	err = registered.command.Handle(commandCtx)
+	if err != nil {
+		k.handleCommandError(commandCtx, cobraCmd, cmdIO, registered, rawInput, start, err)
+	}
+	return err
+}
+
+func (k *Kernel) prepareCommandExecution(ctx context.Context, registered registeredCommand, cobraCmd *cobra.Command, args []string) (console.CommandContext, console.IO, []string, time.Time) {
 	input := console.NewInput(registered.definition, cobraCmd, args)
 	out := cobraCmd.OutOrStdout()
 	errOut := cobraCmd.ErrOrStderr()
@@ -440,61 +501,65 @@ func (k *Kernel) executeRegisteredCommand(ctx context.Context, registered regist
 		out = io.Discard
 		errOut = io.Discard
 	}
-	io := console.NewIOWithOutputOptions(cobraCmd.InOrStdin(), out, errOut, outputOptions)
-	commandCtx := console.NewCommandContext(ctx, registered.command, registered.definition, input, io, k, cobraCmd)
-	defer console.ReleaseTraps(commandCtx)
+	cmdIO := console.NewIOWithOutputOptions(cobraCmd.InOrStdin(), out, errOut, outputOptions)
+	commandCtx := console.NewCommandContext(ctx, registered.command, registered.definition, input, cmdIO, k, cobraCmd)
 	cobraCmd.SetContext(commandCtx.Context())
 	rawInput := commandInputSnapshot(cobraCmd, registered.definition.Name, args)
 	start := time.Now()
-	event.Dispatch(commandCtx.Context(), event.CommandStarting{Command: registered.definition.Name, Input: rawInput})
-	defer func() {
-		if rec := recover(); rec != nil {
-			err = fmt.Errorf("panic recovered: %v", rec)
-			goexception.Report(commandCtx.Context(), err, map[string]any{
-				"command":     registered.definition.Name,
-				"input":       strings.Join(rawInput, " "),
-				"duration_ms": time.Since(start).Milliseconds(),
-				"status":      500,
-				"message":     "command panic",
-				"component":   "cli",
-			})
-		}
-		event.Dispatch(commandCtx.Context(), event.CommandFinished{
-			Command:   registered.definition.Name,
-			Succeeded: err == nil,
-			Error:     errorSummary(err),
-			Duration:  time.Since(start),
-		})
-	}()
-	if isolatable, ok := registered.command.(console.Isolatable); ok && isolatedOptionRequested(cobraCmd) {
-		var release func()
-		release, err = acquireIsolationLock(isolatable, commandCtx)
-		if err != nil {
-			io.Error(err.Error())
-			return err
-		}
-		defer release()
-	}
-	err = registered.command.Handle(commandCtx)
-	if err != nil {
-		if failed, ok := console.IsManualFailure(err); ok {
-			io.Error(failed.Error())
-			return err
-		}
-		if errors.Is(err, context.Canceled) {
-			cobraCmd.SilenceUsage = true
-			cobraCmd.SilenceErrors = true
-			return err
-		}
-		goexception.Report(commandCtx.Context(), err, map[string]any{
+	return commandCtx, cmdIO, rawInput, start
+}
+
+func (k *Kernel) dispatchFinishedEvent(commandCtx console.CommandContext, registered registeredCommand, rawInput []string, start time.Time, err *error) {
+	if rec := recover(); rec != nil {
+		*err = fmt.Errorf("panic recovered: %v", rec)
+		goexception.Report(commandCtx.Context(), *err, map[string]any{
 			"command":     registered.definition.Name,
 			"input":       strings.Join(rawInput, " "),
 			"duration_ms": time.Since(start).Milliseconds(),
 			"status":      500,
+			"message":     "command panic",
 			"component":   "cli",
 		})
 	}
-	return err
+
+	// 保护事件派发，防止 panic 覆盖原始错误
+	func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				// 记录事件派发的 panic，但不影响主流程
+				goexception.Report(commandCtx.Context(), fmt.Errorf("event dispatch panic: %v", rec), map[string]any{
+					"command":   registered.definition.Name,
+					"component": "cli",
+					"event":     "CommandFinished",
+				})
+			}
+		}()
+		event.Dispatch(commandCtx.Context(), event.CommandFinished{
+			Command:   registered.definition.Name,
+			Succeeded: *err == nil,
+			Error:     errorSummary(*err),
+			Duration:  time.Since(start),
+		})
+	}()
+}
+
+func (k *Kernel) handleCommandError(commandCtx console.CommandContext, cobraCmd *cobra.Command, cmdIO console.IO, registered registeredCommand, rawInput []string, start time.Time, err error) {
+	if failed, ok := console.IsManualFailure(err); ok {
+		cmdIO.Error(failed.Error())
+		return
+	}
+	if errors.Is(err, context.Canceled) {
+		cobraCmd.SilenceUsage = true
+		cobraCmd.SilenceErrors = true
+		return
+	}
+	goexception.Report(commandCtx.Context(), err, map[string]any{
+		"command":     registered.definition.Name,
+		"input":       strings.Join(rawInput, " "),
+		"duration_ms": time.Since(start).Milliseconds(),
+		"status":      500,
+		"component":   "cli",
+	})
 }
 
 // resolveScheduledCommand 为定时任务注册阶段提供命令解析语义。
@@ -512,7 +577,7 @@ func (k *Kernel) resolveScheduledCommand(name string, args []string) (timer.Reso
 	return timer.ResolvedCommand{
 		Description: name,
 		Fn: func(ctx context.Context) error {
-			if startErr := k.runStartingCallbacks(); startErr != nil {
+			if startErr := k.runStartingCallbacks(ctx); startErr != nil {
 				return startErr
 			}
 			resolvedCommand, resolveErr := k.resolveRegisteredCommand(name, args)
@@ -529,7 +594,9 @@ func (k *Kernel) resolveScheduledCommand(name string, args []string) (timer.Reso
 // 用途：把“是否允许触发 starting”与“如何执行已知命令”两个职责拆开，避免不同调用路径混用同一套
 // 生命周期判断逻辑。
 func (k *Kernel) resolveRegisteredCommand(name string, args []string) (timer.ResolvedCommand, error) {
+	k.mu.RLock()
 	registered, ok := k.commands[name]
+	k.mu.RUnlock()
 	if !ok {
 		return timer.ResolvedCommand{}, fmt.Errorf("command %q not registered", name)
 	}
@@ -564,11 +631,11 @@ func optionalCallInput(input []console.CallInput) (console.CallInput, bool, erro
 }
 
 func (k *Kernel) executeSignature(ctx context.Context, signature string, silent bool) error {
-	if err := k.runStartingCallbacks(); err != nil {
-		return err
-	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := k.runStartingCallbacks(ctx); err != nil {
+		return err
 	}
 	parts, err := splitSignature(signature)
 	if err != nil {
@@ -577,10 +644,14 @@ func (k *Kernel) executeSignature(ctx context.Context, signature string, silent 
 	if len(parts) == 0 {
 		return fmt.Errorf("kernel call: empty signature")
 	}
+	k.mu.RLock()
 	registered, ok := k.commands[parts[0]]
+	k.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("command %q not registered", parts[0])
 	}
+	// 不需要 execMu：buildCobraCommand 创建新对象，configureProgrammaticIO 只读取 rootCmd 的 IO 方法，
+	// 这些方法在命令执行期间不会改变，mustRegister 在注册阶段调用，此时不会有命令在执行
 	cobraCmd := k.buildCobraCommand(registered)
 	cobraCmd.Annotations = map[string]string{rawInputAnnotation: strings.Join(parts, "\x00")}
 	cobraCmd.SetArgs(parts[1:])
@@ -589,17 +660,19 @@ func (k *Kernel) executeSignature(ctx context.Context, signature string, silent 
 }
 
 func (k *Kernel) executeCallInput(ctx context.Context, name string, input console.CallInput, silent bool) error {
-	if err := k.runStartingCallbacks(); err != nil {
-		return err
-	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := k.runStartingCallbacks(ctx); err != nil {
+		return err
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("kernel call: empty command name")
 	}
+	k.mu.RLock()
 	registered, ok := k.commands[name]
+	k.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("command %q not registered", name)
 	}
@@ -607,6 +680,8 @@ func (k *Kernel) executeCallInput(ctx context.Context, name string, input consol
 	if err != nil {
 		return err
 	}
+	// 不需要 execMu：buildCobraCommand 创建新对象，configureProgrammaticIO 只读取 rootCmd 的 IO 方法，
+	// 这些方法在命令执行期间不会改变，mustRegister 在注册阶段调用，此时不会有命令在执行
 	cobraCmd := k.buildCobraCommand(registered)
 	raw := append([]string{name}, args...)
 	cobraCmd.Annotations = map[string]string{rawInputAnnotation: strings.Join(raw, "\x00")}
@@ -644,7 +719,10 @@ func commandInputSnapshot(cmd *cobra.Command, commandName string, args []string)
 	if cmd != nil && cmd.Annotations != nil && cmd.Annotations[rawInputAnnotation] != "" {
 		return strings.Split(cmd.Annotations[rawInputAnnotation], "\x00")
 	}
-	input := []string{commandName}
+	// 预分配容量：commandName + args + 预估 flags 数量（常见 flags 约 5~10 个）
+	const estimatedFlagCount = 8
+	input := make([]string, 0, 1+len(args)+estimatedFlagCount)
+	input = append(input, commandName)
 	input = append(input, args...)
 	if cmd == nil {
 		return input
@@ -666,6 +744,12 @@ func errorSummary(err error) string {
 	return err.Error()
 }
 
+// splitSignature 解析命令签名字符串，支持引号和转义字符。
+//
+// 转义规则说明：
+// - 反斜杠 (\) 用于转义下一个字符，使其失去特殊含义（如引号、空格等）
+// - 如果反斜杠出现在字符串末尾（孤立反斜杠），会将其作为普通字符保留
+// - 这种宽松处理是为了兼容用户输入的不完整转义序列，避免解析失败
 func splitSignature(signature string) ([]string, error) {
 	var parts []string
 	var current strings.Builder
@@ -703,6 +787,7 @@ func splitSignature(signature string) ([]string, error) {
 		}
 		current.WriteRune(r)
 	}
+	// 孤立反斜杠处理：如果字符串以反斜杠结尾，将其作为普通字符保留
 	if escaped {
 		current.WriteRune('\\')
 	}
@@ -735,6 +820,7 @@ func normalizeCommandArgs(args []string, includeProgramName bool) []string {
 // resetCommandFlags 在每次执行前重置命令树上的 flag 状态。
 // 需求背景：测试与程序化调用会复用同一个 Kernel/Command 实例；
 // 如果不在执行前清空 Changed 与当前值，上一次运行的 --ansi/--no-ansi 等显式状态会泄漏到下一次执行结果。
+// 递归重置：需要重置所有子命令的 flag，因为 persistent flags 的 Changed 状态不会被 Cobra 自动重置。
 func resetCommandFlags(cmd *cobra.Command) {
 	if cmd == nil {
 		return
