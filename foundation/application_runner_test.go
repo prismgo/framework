@@ -388,7 +388,7 @@ func TestIsRunContextCancellationSwallowsOnlyExactCanceled(t *testing.T) {
 	}
 
 	// nil context 不应该被识别
-	if isRunContextCancellation(nil, context.Canceled) {
+	if isRunContextCancellation(context.TODO(), context.Canceled) {
 		t.Fatal("isRunContextCancellation should return false for nil context")
 	}
 

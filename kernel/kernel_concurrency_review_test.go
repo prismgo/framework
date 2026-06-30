@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-
-	"github.com/prismgo/framework/console"
 )
 
 // TestResolveRegisteredCommandConcurrentWithRegister 验证 resolveRegisteredCommand 与 mustRegister
@@ -161,20 +159,4 @@ func TestCallValuesRecursionDepthLimit(t *testing.T) {
 	if err == nil {
 		t.Error("11 levels should fail with recursion limit error")
 	}
-}
-
-// panickingCallbackCommand 用于测试 callback panic
-type panickingCallbackCommand struct {
-	name string
-}
-
-func (c *panickingCallbackCommand) Definition() *console.Definition {
-	return &console.Definition{
-		Name:        c.name,
-		Description: "panicking callback command",
-	}
-}
-
-func (c *panickingCallbackCommand) Handle(ctx console.CommandContext) error {
-	return nil
 }

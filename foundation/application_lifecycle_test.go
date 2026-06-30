@@ -9,11 +9,15 @@ import (
 
 func TestRegisterShutdownSignalsIdempotency(t *testing.T) {
 	app := NewApplication()
-	defer app.Close()
+	defer func() {
+		if err := app.Close(); err != nil {
+			t.Fatalf("app.Close() error = %v", err)
+		}
+	}()
 
 	// 第一次调用应该注册信号监听
 	app.RegisterShutdownSignals()
-	
+
 	// 检查 signalsRegistered 标志
 	if !app.signalsRegistered {
 		t.Error("signalsRegistered should be true after first call")
@@ -21,7 +25,7 @@ func TestRegisterShutdownSignalsIdempotency(t *testing.T) {
 
 	// 第二次调用应该是幂等的，不会重复注册
 	app.RegisterShutdownSignals()
-	
+
 	// 再次检查标志，应该仍然是 true
 	if !app.signalsRegistered {
 		t.Error("signalsRegistered should still be true after second call")
@@ -36,7 +40,11 @@ func TestRegisterShutdownSignalsNilApplication(t *testing.T) {
 
 func TestRegisterShutdownSignalsTriggersShutdown(t *testing.T) {
 	app := NewApplication()
-	defer app.Close()
+	defer func() {
+		if err := app.Close(); err != nil {
+			t.Fatalf("app.Close() error = %v", err)
+		}
+	}()
 
 	app.RegisterShutdownSignals()
 
