@@ -245,6 +245,11 @@ func (d *fakeDriver) GetVisibility(ctx context.Context, key string) (string, err
 	return file.visibility, nil
 }
 
+// ProvidesTemporaryURLs 判断 fake 驱动是否支持临时 URL。
+func (d *fakeDriver) ProvidesTemporaryURLs() bool {
+	return strings.TrimSpace(d.tempBase) != ""
+}
+
 // osErrNotExist 返回一个可被 errors.Is 识别的不存在错误。
 func osErrNotExist() error {
 	return errors.New("file does not exist")
@@ -366,10 +371,10 @@ func TestUtilityHelpers(t *testing.T) {
 	if got := ensureVisibility("bad", VisibilityPrivate); got != VisibilityPrivate {
 		t.Fatalf("unexpected fallback visibility: %s", got)
 	}
-	if got := urlPathEscape("a/b"); got != "a%2Fb" {
+	if got := url.PathEscape("a/b"); got != "a%2Fb" {
 		t.Fatalf("unexpected path escape: %s", got)
 	}
-	if got := urlQueryEscape("a b"); got != "a+b" {
+	if got := url.QueryEscape("a b"); got != "a+b" {
 		t.Fatalf("unexpected query escape: %s", got)
 	}
 

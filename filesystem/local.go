@@ -114,12 +114,16 @@ func (d *localDriver) Copy(ctx context.Context, src, dst string) error {
 	return d.bucket.Copy(ctx, normalizeKey(dst), normalizeKey(src), nil)
 }
 
-// Move 通过“先复制后删除”实现移动。
+// Move 使用 os.Rename 实现原子移动。
 func (d *localDriver) Move(ctx context.Context, src, dst string) error {
-	if err := d.bucket.Copy(ctx, normalizeKey(dst), normalizeKey(src), nil); err != nil {
+	_ = ctx
+	srcPath := d.absolutePath(normalizeKey(src))
+	dstPath := d.absolutePath(normalizeKey(dst))
+	// 确保目标目录存在
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
 		return err
 	}
-	return d.bucket.Delete(ctx, normalizeKey(src))
+	return os.Rename(srcPath, dstPath)
 }
 
 // Stat 读取文件基础属性。

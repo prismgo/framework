@@ -429,8 +429,7 @@ func (r *Repository) ProvidesTemporaryURLs() bool {
 	if checker, ok := r.driver.(temporaryURLProvider); ok {
 		return checker.ProvidesTemporaryURLs()
 	}
-	_, err := r.driver.TemporaryURL(context.Background(), "__prismgo_probe__", time.Now().Add(time.Second))
-	return err == nil
+	return false
 }
 
 // ProvidesTemporaryUploadURLs 判断当前磁盘是否能生成临时上传链接。

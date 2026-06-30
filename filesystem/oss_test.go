@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -28,20 +29,34 @@ type fakeOSSObject struct {
 
 // fakeOSSServer 用内存结构模拟一个最小可用的 OSS HTTP 服务。
 type fakeOSSServer struct {
-	mu      sync.Mutex
-	objects map[string]fakeOSSObject
-	delay   time.Duration
+	mu               sync.Mutex
+	objects          map[string]fakeOSSObject
+	delay            time.Duration
+	requestCount     map[string]int // 记录每种 HTTP 方法的请求次数
+	failDeleteMarker bool           // 当为 true 时，删除目录标记对象（以 / 结尾）会返回错误
 }
 
 // newFakeOSSServer 创建测试专用的 fake OSS 服务。
 func newFakeOSSServer() *fakeOSSServer {
 	return &fakeOSSServer{
-		objects: make(map[string]fakeOSSObject),
+		objects:      make(map[string]fakeOSSObject),
+		requestCount: make(map[string]int),
 	}
+}
+
+// getRequestCount 获取指定 HTTP 方法的请求次数。
+func (s *fakeOSSServer) getRequestCount(method string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.requestCount[method]
 }
 
 // ServeHTTP 响应 ossDriver 依赖的最小 REST 语义。
 func (s *fakeOSSServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.requestCount[r.Method]++
+	s.mu.Unlock()
+
 	if s.delay > 0 {
 		// 测试 context/client timeout 时故意延迟响应，让底层 HTTP 请求走取消路径。
 		time.Sleep(s.delay)
@@ -153,6 +168,18 @@ func (s *fakeOSSServer) handleDeleteObject(w http.ResponseWriter, key string) {
 	if key == "tenant-a/errdir/error-delete.txt" {
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
+	}
+	// 当 failDeleteMarker 为 true 时，删除目录标记会失败
+	// 目录标记是不带斜杠的 key，且对应的对象大小为 0
+	if s.failDeleteMarker {
+		s.mu.Lock()
+		obj, exists := s.objects[key]
+		s.mu.Unlock()
+		// 检查是否是目录标记：对象存在、大小为 0、且没有子对象
+		if exists && obj.data == nil {
+			http.Error(w, "marker delete forbidden", http.StatusForbidden)
+			return
+		}
 	}
 	s.mu.Lock()
 	delete(s.objects, key)
@@ -347,6 +374,11 @@ func TestOSSDriverEndToEnd(t *testing.T) {
 		t.Fatalf("ReadAll failed: %v / %s", err, string(content))
 	}
 
+	// 重置请求计数器，验证 Open 只发送一次 GET 请求
+	serverState.mu.Lock()
+	serverState.requestCount = make(map[string]int)
+	serverState.mu.Unlock()
+
 	stream, info, err := driver.Open(context.Background(), "docs/readme.txt")
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
@@ -359,6 +391,14 @@ func TestOSSDriverEndToEnd(t *testing.T) {
 	data, _ := io.ReadAll(stream)
 	if string(data) != "hello oss" || info.ContentType != "text/plain" {
 		t.Fatalf("unexpected Open payload/info: %s / %+v", string(data), info)
+	}
+
+	// 验证 Open 只发送了一次 GET 请求，没有 HEAD 请求
+	if got := serverState.getRequestCount(http.MethodHead); got != 0 {
+		t.Errorf("Open should not send HEAD request, got %d HEAD requests", got)
+	}
+	if got := serverState.getRequestCount(http.MethodGet); got != 1 {
+		t.Errorf("Open should send exactly 1 GET request, got %d", got)
 	}
 
 	stat, err := driver.Stat(context.Background(), "docs/readme.txt")
@@ -497,6 +537,79 @@ func TestOSSDriverEndToEnd(t *testing.T) {
 	}
 	if acl := driver.objectACL(VisibilityPrivate); acl != oss.ACLPrivate {
 		t.Fatalf("unexpected private ACL: %s", acl)
+	}
+}
+
+// TestOSSListPagination tests that List correctly handles 3+ pages of results.
+// This test exposes the bug where ContinuationToken accumulates instead of being replaced.
+func TestOSSListPagination(t *testing.T) {
+	serverState := newFakeOSSServer()
+	server := httptest.NewServer(serverState)
+	defer server.Close()
+
+	driver, err := newOSSDriver(OSSConfig{
+		Bucket:     "demo-bucket",
+		Endpoint:   server.URL,
+		AccessKey:  "test-key",
+		SecretKey:  "test-secret",
+		Prefix:     "tenant-a",
+		Visibility: VisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("newOSSDriver failed: %v", err)
+	}
+
+	// Create 3 objects to trigger 3 pages (fake server has pageSize=1)
+	for i := 0; i < 3; i++ {
+		key := fmt.Sprintf("paginated/file%d.txt", i)
+		if err := driver.Write(context.Background(), key, strings.NewReader("content"), PutOptions{Visibility: VisibilityPublic}); err != nil {
+			t.Fatalf("Write %s failed: %v", key, err)
+		}
+	}
+
+	// List should return all 3 objects across 3 pages
+	items, err := driver.List(context.Background(), "paginated", true)
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+
+	if len(items) != 3 {
+		t.Fatalf("List returned %d items, want 3. Items: %+v", len(items), items)
+	}
+
+	// Verify all files are present
+	expectedFiles := map[string]bool{
+		"paginated/file0.txt": false,
+		"paginated/file1.txt": false,
+		"paginated/file2.txt": false,
+	}
+	for _, item := range items {
+		if _, ok := expectedFiles[item.Path]; ok {
+			expectedFiles[item.Path] = true
+		}
+	}
+	for path, found := range expectedFiles {
+		if !found {
+			t.Errorf("List missing file: %s", path)
+		}
+	}
+}
+
+func TestOSSFileInfoFromHeaders(t *testing.T) {
+	serverState := newFakeOSSServer()
+	server := httptest.NewServer(serverState)
+	defer server.Close()
+
+	driver, err := newOSSDriver(OSSConfig{
+		Bucket:     "demo-bucket",
+		Endpoint:   server.URL,
+		AccessKey:  "test-key",
+		SecretKey:  "test-secret",
+		Prefix:     "tenant-a",
+		Visibility: VisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("newOSSDriver failed: %v", err)
 	}
 
 	headers := http.Header{}

@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -200,16 +201,16 @@ func buildCustomDriver(name, driverName string, cfg DiskConfig, factory DriverFa
 func (m *Manager) signedLocalURL(disk, key string, expires time.Time) string {
 	base := strings.TrimRight(m.diskRepository(disk).config.URL, "/")
 	if base == "" {
-		base = "/storage-temp/" + urlPathEscape(disk)
+		base = "/storage-temp/" + url.PathEscape(disk)
 	} else if strings.HasSuffix(base, "/storage") {
 		// 公开文件统一走 /storage/*path，签名文件改走 /storage-temp，避免 Gin 通配符路由冲突。
-		base = strings.TrimSuffix(base, "/storage") + "/storage-temp/" + urlPathEscape(disk)
+		base = strings.TrimSuffix(base, "/storage") + "/storage-temp/" + url.PathEscape(disk)
 	} else {
-		base = base + "/temp/" + urlPathEscape(disk)
+		base = base + "/temp/" + url.PathEscape(disk)
 	}
 	key = normalizeKey(key)
 	signature := signToken(m.tempURL.SigningKey, disk, key, expires)
-	return joinURL(base, key) + "?expires=" + urlQueryEscape(expires.UTC().Format(time.RFC3339)) + "&signature=" + urlQueryEscape(signature)
+	return joinURL(base, key) + "?expires=" + url.QueryEscape(expires.UTC().Format(time.RFC3339)) + "&signature=" + url.QueryEscape(signature)
 }
 
 func NewManagerFromConfig(...any) (func() error, *Manager, error) {
@@ -293,6 +294,16 @@ func buildConfig() (Config, error) {
 	if publicDisk, ok := disks["public"]; ok && publicDisk.Driver == "local" && strings.TrimSpace(publicDisk.URL) == "" {
 		return Config{}, fmt.Errorf("filesystem public disk url is empty")
 	}
+
+	// 验证签名密钥：如果有任何磁盘启用了 Serve，则必须配置签名密钥
+	if tempKey == "" {
+		for _, disk := range disks {
+			if disk.Serve {
+				return Config{}, fmt.Errorf("filesystem: temporary URL signing key is required when serve is enabled")
+			}
+		}
+	}
+
 	return cfg, nil
 }
 

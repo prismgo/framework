@@ -3,6 +3,7 @@ package filesystem
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	configpkg "github.com/prismgo/framework/config"
@@ -303,6 +304,97 @@ func TestBuildConfigParsesFilesystemLinks(t *testing.T) {
 	}
 	if len(built.Links) != 2 {
 		t.Fatalf("filesystem links should contain only valid pairs: %#v", built.Links)
+	}
+}
+
+func TestBuildConfigRejectsEmptySigningKeyWhenServeEnabled(t *testing.T) {
+	registry := useFilesystemTestContainer(t)
+	base := t.TempDir()
+	if err := registry.Instance("path.storage", filepath.Join(base, "storage")); err != nil {
+		t.Fatalf("bind storage path: %v", err)
+	}
+
+	configpkg.Add("app", func() map[string]any {
+		return map[string]any{
+			"key": "", // 空的 app.key
+			"url": "http://app.test",
+		}
+	})
+	configpkg.Add("filesystem", func() map[string]any {
+		return map[string]any{
+			"default": "public",
+			"temporary_url": map[string]any{
+				"signing_key": "", // 空的 signing_key
+			},
+			"disks": map[string]any{
+				"public": map[string]any{
+					"driver":     "local",
+					"root":       "storage/app/public",
+					"url":        "http://app.test/storage",
+					"visibility": "public",
+					"serve":      true, // 启用了 serve
+				},
+			},
+		}
+	})
+
+	cfg := configpkg.New()
+	if err := cfg.ReloadFromFile(filepath.Join(t.TempDir(), ".env")); err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if err := registry.Instance("config.default", cfg); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+
+	_, err := buildConfig()
+	if err == nil {
+		t.Fatal("expected error when signing key is empty and serve is enabled")
+	}
+	if !strings.Contains(err.Error(), "signing key") {
+		t.Fatalf("expected signing key error, got: %v", err)
+	}
+}
+
+func TestBuildConfigAllowsEmptySigningKeyWhenServeDisabled(t *testing.T) {
+	registry := useFilesystemTestContainer(t)
+	base := t.TempDir()
+	if err := registry.Instance("path.storage", filepath.Join(base, "storage")); err != nil {
+		t.Fatalf("bind storage path: %v", err)
+	}
+
+	configpkg.Add("app", func() map[string]any {
+		return map[string]any{
+			"key": "", // 空的 app.key
+			"url": "http://app.test",
+		}
+	})
+	configpkg.Add("filesystem", func() map[string]any {
+		return map[string]any{
+			"default": "local",
+			"disks": map[string]any{
+				"local": map[string]any{
+					"driver": "local",
+					"root":   "storage/app/private",
+					"serve":  false, // 未启用 serve
+				},
+			},
+		}
+	})
+
+	cfg := configpkg.New()
+	if err := cfg.ReloadFromFile(filepath.Join(t.TempDir(), ".env")); err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if err := registry.Instance("config.default", cfg); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+
+	built, err := buildConfig()
+	if err != nil {
+		t.Fatalf("buildConfig should succeed when serve is disabled: %v", err)
+	}
+	if built.TemporaryURL.SigningKey != "" {
+		t.Fatalf("signing key should be empty when not configured: %q", built.TemporaryURL.SigningKey)
 	}
 }
 

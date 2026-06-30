@@ -91,16 +91,12 @@ func (d *ossDriver) ReadAll(ctx context.Context, key string) ([]byte, error) {
 // Open 打开对象读取流并附带元信息。
 func (d *ossDriver) Open(ctx context.Context, key string) (io.ReadCloser, FileInfo, error) {
 	key = d.objectKey(key)
-	headers, err := d.bucket.GetObjectDetailedMeta(key, ossRequestOptions(ctx)...)
+	result, err := d.bucket.DoGetObject(&oss.GetObjectRequest{ObjectKey: key}, ossRequestOptions(ctx))
 	if err != nil {
 		return nil, FileInfo{}, err
 	}
-	reader, err := d.bucket.GetObject(key, ossRequestOptions(ctx)...)
-	if err != nil {
-		return nil, FileInfo{}, err
-	}
-	info := d.fileInfoFromHeaders(key, headers)
-	return reader, info, nil
+	info := d.fileInfoFromResponse(key, result.Response)
+	return result.Response.Body, info, nil
 }
 
 // Exists 判断对象是否存在。
@@ -158,17 +154,26 @@ func (d *ossDriver) List(ctx context.Context, prefix string, recursive bool) ([]
 	if objectPrefix != "" && !strings.HasSuffix(objectPrefix, "/") {
 		objectPrefix += "/"
 	}
-	options := ossRequestOptions(ctx, oss.Prefix(objectPrefix), oss.MaxKeys(1000), oss.ListType(2))
+	baseOptions := ossRequestOptions(ctx, oss.Prefix(objectPrefix), oss.MaxKeys(1000), oss.ListType(2))
 	if !recursive {
-		options = append(options, oss.Delimiter("/"))
+		baseOptions = append(baseOptions, oss.Delimiter("/"))
 	}
 	items := make([]FileInfo, 0)
+	continuationToken := ""
 	for {
+		options := baseOptions
+		if continuationToken != "" {
+			options = append(options, oss.ContinuationToken(continuationToken))
+		}
 		res, err := d.bucket.ListObjectsV2(options...)
 		if err != nil {
 			return nil, err
 		}
 		for _, current := range res.Objects {
+			// 在递归模式下，跳过目录标记对象（以 "/" 结尾的对象），这些对象会在 DeleteDirectory 最后单独删除
+			if recursive && strings.HasSuffix(current.Key, "/") {
+				continue
+			}
 			items = append(items, FileInfo{
 				Path:         d.stripPrefix(current.Key),
 				Size:         current.Size,
@@ -187,7 +192,7 @@ func (d *ossDriver) List(ctx context.Context, prefix string, recursive bool) ([]
 		if !res.IsTruncated {
 			break
 		}
-		options = appendOrReplace(options, oss.ContinuationToken(res.NextContinuationToken))
+		continuationToken = res.NextContinuationToken
 	}
 	return items, nil
 }
@@ -212,7 +217,9 @@ func (d *ossDriver) DeleteDirectory(ctx context.Context, dir string) error {
 		}
 	}
 	if dir = strings.TrimSpace(dir); dir != "" {
-		_ = d.Delete(ctx, normalizeDir(dir))
+		if err := d.Delete(ctx, normalizeDir(dir)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -348,6 +355,14 @@ func (d *ossDriver) fileInfoFromHeaders(key string, headers http.Header) FileInf
 		LastModified: lastModified,
 		ContentType:  headers.Get("Content-Type"),
 	}
+}
+
+// fileInfoFromResponse 从 OSS GetObject 响应中提取统一文件元信息。
+func (d *ossDriver) fileInfoFromResponse(key string, response *oss.Response) FileInfo {
+	if response == nil {
+		return FileInfo{Path: normalizeKey(key)}
+	}
+	return d.fileInfoFromHeaders(key, response.Headers)
 }
 
 // appendOrReplace 用于在分页列举中追加 continuation token 选项。
