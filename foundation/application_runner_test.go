@@ -3,6 +3,7 @@ package foundation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -358,6 +359,43 @@ func TestApplicationRunContextReleasesMergedContextBeforeClose(t *testing.T) {
 	}
 	if cause := context.Cause(merged); cause != nil {
 		t.Fatalf("merged context cause = %v, want nil after runner returns", cause)
+	}
+}
+
+func TestIsRunContextCancellationSwallowsOnlyExactCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// 精确 context.Canceled 应该被识别
+	if !isRunContextCancellation(ctx, context.Canceled) {
+		t.Fatal("isRunContextCancellation should return true for exact context.Canceled")
+	}
+
+	// 包装的 context.Canceled 不应该被识别（避免误吞业务错误）
+	wrapped := fmt.Errorf("operation failed: %w", context.Canceled)
+	if isRunContextCancellation(ctx, wrapped) {
+		t.Fatal("isRunContextCancellation should return false for wrapped context.Canceled")
+	}
+
+	// 其他错误不应该被识别
+	if isRunContextCancellation(ctx, errors.New("other error")) {
+		t.Fatal("isRunContextCancellation should return false for other errors")
+	}
+
+	// nil 错误不应该被识别
+	if isRunContextCancellation(ctx, nil) {
+		t.Fatal("isRunContextCancellation should return false for nil error")
+	}
+
+	// nil context 不应该被识别
+	if isRunContextCancellation(nil, context.Canceled) {
+		t.Fatal("isRunContextCancellation should return false for nil context")
+	}
+
+	// 未取消的 context 不应该被识别
+	activeCtx := context.Background()
+	if isRunContextCancellation(activeCtx, context.Canceled) {
+		t.Fatal("isRunContextCancellation should return false for active context")
 	}
 }
 

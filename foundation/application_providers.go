@@ -66,13 +66,13 @@ func (a *Application) RegisterProvider(provider providerpkg.ServiceProvider) err
 		return fmt.Errorf("register provider %s: application is closing", identity)
 	}
 	if existing, ok := a.providerByIdentityLocked(identity); ok {
-		provider = existing
+		provider = existing.provider
 	} else {
 		if err := a.registerDeferredProviderLocked(provider, identity); err != nil {
 			a.mu.Unlock()
 			return err
 		}
-		a.providers = append(a.providers, provider)
+		a.providers = append(a.providers, providerEntry{identity: identity, provider: provider})
 		a.providerIDs[identity] = struct{}{}
 	}
 	booted := a.booted
@@ -196,7 +196,7 @@ func (a *Application) registerBaseProviders(providers ...providerpkg.ServiceProv
 			a.mu.Unlock()
 			continue
 		}
-		a.providers = append(a.providers, provider)
+		a.providers = append(a.providers, providerEntry{identity: identity, provider: provider})
 		a.providerIDs[identity] = struct{}{}
 		a.mu.Unlock()
 
@@ -216,12 +216,11 @@ func (a *Application) providerSnapshot() []providerEntry {
 	a.initProviderRepositoryLocked()
 
 	out := make([]providerEntry, 0, len(a.providers))
-	for _, provider := range a.providers {
-		identity := providerIdentity(provider)
-		if identity == "" {
+	for _, entry := range a.providers {
+		if entry.identity == "" {
 			continue
 		}
-		out = append(out, providerEntry{identity: identity, provider: provider})
+		out = append(out, entry)
 	}
 	return out
 }
@@ -230,13 +229,13 @@ func (a *Application) providerSnapshot() []providerEntry {
 //
 // 调用约束：调用方必须持有 a.mu；重复 provider 复用首次进入 repository 的实例，
 // 避免后续重复注册者改变启动顺序或替换已记录的生命周期状态。
-func (a *Application) providerByIdentityLocked(identity string) (providerpkg.ServiceProvider, bool) {
-	for _, provider := range a.providers {
-		if providerIdentity(provider) == identity {
-			return provider, true
+func (a *Application) providerByIdentityLocked(identity string) (providerEntry, bool) {
+	for _, entry := range a.providers {
+		if entry.identity == identity {
+			return entry, true
 		}
 	}
-	return nil, false
+	return providerEntry{}, false
 }
 
 // registerProviderPhase 执行单个 provider 的 Register 阶段。
@@ -323,18 +322,18 @@ func (a *Application) loadDeferredProviderForService(key string) error {
 		a.mu.Unlock()
 		return fmt.Errorf("load deferred service %q: application is closing", key)
 	}
-	provider, ok := a.providerByIdentityLocked(identity)
+	entry, ok := a.providerByIdentityLocked(identity)
 	booted := a.booted
 	a.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("load deferred service %q: provider %s is not registered", key, identity)
 	}
 
-	if err := a.registerProviderPhase(provider, identity); err != nil {
+	if err := a.registerProviderPhase(entry.provider, identity); err != nil {
 		return err
 	}
 	if booted {
-		if err := a.bootProviderPhase(provider, identity); err != nil {
+		if err := a.bootProviderPhase(entry.provider, identity); err != nil {
 			return err
 		}
 	}

@@ -128,7 +128,9 @@ func (b *Builder) registerExceptionHandler(app *Application) {
 		b.exceptions.handlerFactory,
 	)
 	if app != nil && handler != nil {
-		_ = app.Instance("exception.handler", handler, container.WithCloseGroup(container.CloseGroupReporting))
+		if err := app.Instance("exception.handler", handler, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+			panic(fmt.Errorf("register exception handler: %w", err))
+		}
 	}
 }
 
@@ -211,6 +213,7 @@ func (e *Exceptions) Context(extract goexception.ContextExtractor) {
 //
 // 参数可传 prismgo/exception.Renderer（返回 Problem 的 JSON 渲染器），
 // 也可传 prismgo/exception.ResponseRenderer（完整响应控制的渲染器）。
+// 未匹配的类型会 panic，避免配置错误被静默忽略。
 func (e *Exceptions) Render(renderer any) {
 	switch r := renderer.(type) {
 	case nil:
@@ -223,6 +226,8 @@ func (e *Exceptions) Render(renderer any) {
 		e.options = append(e.options, goexception.WithResponseRenderer(r))
 	case func(*gin.Context, error) bool:
 		e.options = append(e.options, goexception.WithResponseRenderer(r))
+	default:
+		panic(fmt.Sprintf("foundation: unsupported renderer type %T", renderer))
 	}
 }
 

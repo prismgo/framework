@@ -60,6 +60,17 @@ func TestExceptionsRenderAcceptsProblemAndResponseRenderers(t *testing.T) {
 	}
 }
 
+func TestExceptionsRenderPanicsOnUnsupportedType(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("Render should panic on unsupported renderer type")
+		}
+	}()
+
+	e := &Exceptions{}
+	e.Render("invalid renderer") // 不支持的类型，应该 panic
+}
+
 func TestBuilderFluentConfigurationBranches(t *testing.T) {
 	provider := &testProvider{}
 	builder := Configure().

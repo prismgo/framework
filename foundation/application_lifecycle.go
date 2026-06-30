@@ -55,10 +55,19 @@ func (a *Application) Shutdown(reason error) {
 // 定时任务和后台任务共享同一条生命周期链路。
 // 设计原因：系统信号属于通用进程生命周期能力，应由 foundation 统一承接，避免 main.go
 // 或各命令入口重复维护各自的 signal 监听逻辑。
+// 幂等性：多次调用只会注册一次信号监听，避免重复创建 goroutine 和信号通道。
 func (a *Application) RegisterShutdownSignals() {
 	if a == nil {
 		return
 	}
+
+	a.mu.Lock()
+	if a.signalsRegistered {
+		a.mu.Unlock()
+		return
+	}
+	a.signalsRegistered = true
+	a.mu.Unlock()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

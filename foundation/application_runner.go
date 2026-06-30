@@ -101,7 +101,12 @@ func (a *Application) RunContext(run func(context.Context) error, contexts ...co
 }
 
 func isRunContextCancellation(ctx context.Context, err error) bool {
-	return err != nil && ctx != nil && ctx.Err() != nil && errors.Is(err, context.Canceled)
+	if err == nil || ctx == nil || ctx.Err() == nil {
+		return false
+	}
+	// 仅当错误就是 context.Canceled 本身时才吞掉，
+	// 避免误吞业务代码中 fmt.Errorf("...: %w", context.Canceled) 的错误
+	return err == context.Canceled
 }
 
 // mergeRunContext 合并应用生命周期 context 与外部运行 context。

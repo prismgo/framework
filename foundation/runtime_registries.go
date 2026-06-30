@@ -112,6 +112,10 @@ func (r *runtimeRegistries) StartingCallbacks() []kernel.StartingCallback {
 	return append([]kernel.StartingCallback(nil), r.starting...)
 }
 
+// RegisterStarting 注册 Console 启动回调。
+//
+// 并发约束：当前实现未加锁，依赖调用方（如 registerConsoleStarting）持有 Application.mu。
+// 若未来新增其他调用路径，需在此处加锁或明确文档说明并发要求。
 func (r *runtimeRegistries) RegisterStarting(callbacks ...kernel.StartingCallback) {
 	if r == nil {
 		return

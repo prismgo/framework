@@ -7,7 +7,6 @@ import (
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
 	eventcontract "github.com/prismgo/framework/contracts/event"
-	contractprovider "github.com/prismgo/framework/contracts/provider"
 	pathutil "github.com/prismgo/framework/internal/path"
 	"github.com/prismgo/framework/kernel"
 )
@@ -25,7 +24,8 @@ type Application struct {
 	basePath string
 
 	// providers 保存 base/default/application providers 的统一 repository 顺序。
-	providers []contractprovider.ServiceProvider
+	// 使用 providerEntry 缓存 identity，避免每次访问都反射计算。
+	providers []providerEntry
 	// providerIDs 以 provider identity 去重，避免同一 provider 重复进入生命周期。
 	providerIDs map[string]struct{}
 	// registeredProviders 记录 Register 阶段是否完成，用于 Boot 失败后的幂等重试。
@@ -60,6 +60,8 @@ type Application struct {
 	closeResult error
 	// closeBus 保存首次关闭时解析到的事件总线，避免重试时重新解析已经处于关闭中的资源。
 	closeBus eventcontract.Dispatcher
+	// signalsRegistered 标记是否已注册信号监听，避免重复注册
+	signalsRegistered bool
 }
 
 // NewApplication 创建应用实例，并注册默认通用资源工厂。
@@ -104,6 +106,8 @@ func (a *Application) SetBasePath(basePath string) *Application {
 	a.basePath = pathutil.Clean(basePath)
 	c := a.container
 	if c != nil {
+		// SetBasePath 在 NewApplication 构造阶段调用，此时容器刚创建，Instance 绑定
+		// 不可能失败（仅写入内存 map）。忽略返回值避免无意义的错误处理。
 		_ = c.Instance("path.base", a.BasePath())
 		_ = c.Instance("path.app", a.AppPath())
 		_ = c.Instance("path.config", a.ConfigPath())

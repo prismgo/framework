@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/prismgo/framework/container"
+	eventcontract "github.com/prismgo/framework/contracts/event"
 	providerpkg "github.com/prismgo/framework/contracts/provider"
 	"github.com/prismgo/framework/event"
 	"github.com/prismgo/framework/exception"
@@ -74,38 +75,63 @@ func (a *Application) CloseContext(ctx context.Context) (err error) {
 		return nil
 	}
 
-	gid := currentGoroutineID()
-	a.mu.Lock()
-	if a.terminated {
-		a.mu.Unlock()
+	reentrant, err := a.acquireCloseSlot(ctx)
+	if err != nil {
+		return err
+	}
+	if reentrant {
 		return nil
 	}
+	return a.runCloseAttempt(ctx)
+}
+
+// acquireCloseSlot 获取关闭执行权限，处理并发协调。
+//
+// 返回值：
+//   - (false, nil): 成功获取权限，可以继续执行关闭
+//   - (true, nil): owner 在生命周期回调中重入，应直接返回 nil
+//   - (false, error): 无法执行关闭（正在启动）
+func (a *Application) acquireCloseSlot(ctx context.Context) (reentrant bool, err error) {
+	gid := currentGoroutineID()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.terminated {
+		return false, nil
+	}
 	if a.booting {
-		a.mu.Unlock()
-		return fmt.Errorf("application boot is in progress")
+		return false, fmt.Errorf("application boot is in progress")
 	}
 	if a.closeActive {
 		if a.closeOwner == gid {
-			err := a.closeErr
-			a.mu.Unlock()
-			return err
+			// owner 在生命周期回调中重入：直接返回，避免重复执行关闭逻辑
+			return true, nil
 		}
+		// 非 owner 等待当前关闭完成
 		done := a.closeDone
 		a.mu.Unlock()
 		if done != nil {
 			<-done
 		}
 		a.mu.Lock()
-		err := a.closeResult
-		terminated := a.terminated
-		a.mu.Unlock()
-		if terminated {
-			return err
+		if a.terminated {
+			return false, nil
 		}
-		return a.CloseContext(ctx)
+		// 关闭未完成，重试获取权限
+		a.mu.Unlock()
+		return a.acquireCloseSlot(ctx)
 	}
+	return false, nil
+}
+
+// runCloseAttempt 执行单次关闭尝试，协调并发并管理状态。
+func (a *Application) runCloseAttempt(ctx context.Context) (err error) {
+	gid := currentGoroutineID()
+
 	// closing 一旦置位，说明关闭副作用已经执行过，后续调用只能推进 container remaining resources。
 	firstAttempt := !a.closing
+
+	a.mu.Lock()
 	if firstAttempt {
 		a.closing = true
 	}
@@ -114,9 +140,9 @@ func (a *Application) CloseContext(ctx context.Context) (err error) {
 	a.closeDone = make(chan struct{})
 	done := a.closeDone
 	firstErr := a.closeErr
-	bus := a.closeBus
 	cleanups := append([]func(*Application) error(nil), a.cleanups...)
 	a.mu.Unlock()
+
 	defer func() {
 		a.mu.Lock()
 		a.closeResult = err
@@ -132,45 +158,69 @@ func (a *Application) CloseContext(ctx context.Context) (err error) {
 		// Application CloseContext 历史上允许传入已取消 context；资源关闭仍使用未取消的事件 context 推进。
 		closeCtx = eventCtx
 	}
-	start := time.Now()
-	if firstAttempt {
-		a.Shutdown(ErrApplicationShutdown)
-		bus, _ = resolveEventDispatcher(a.container)
-		a.mu.Lock()
-		a.closeBus = bus
-		a.mu.Unlock()
-		if bus != nil {
-			bus.Dispatch(eventCtx, event.AppTerminating{Reason: a.shutdownReason()})
-		}
 
-		firstErr = errors.Join(firstErr, a.terminateProviders(closeCtx))
-		for i := len(cleanups) - 1; i >= 0; i-- {
-			if err := cleanups[i](a); err != nil {
-				firstErr = errors.Join(firstErr, err)
-			}
-		}
-		a.mu.Lock()
-		a.closeErr = firstErr
-		a.mu.Unlock()
+	if firstAttempt {
+		firstErr = a.runFirstCloseAttempt(eventCtx, closeCtx, cleanups)
 	}
+
+	a.mu.Lock()
+	bus := a.closeBus
+	a.mu.Unlock()
+
+	return a.drainContainerResources(ctx, eventCtx, closeCtx, firstAttempt, firstErr, bus)
+}
+
+// runFirstCloseAttempt 执行首次关闭的完整流程：Shutdown、事件派发、provider 终止、cleanup。
+func (a *Application) runFirstCloseAttempt(eventCtx, closeCtx context.Context, cleanups []func(*Application) error) error {
+	a.Shutdown(ErrApplicationShutdown)
+
+	bus, _ := resolveEventDispatcher(a.container)
+	a.mu.Lock()
+	a.closeBus = bus
+	a.mu.Unlock()
+
+	if bus != nil {
+		bus.Dispatch(eventCtx, event.AppTerminating{Reason: a.shutdownReason()})
+	}
+
+	firstErr := a.closeErr
+	firstErr = errors.Join(firstErr, a.terminateProviders(closeCtx))
+	for i := len(cleanups) - 1; i >= 0; i-- {
+		if err := cleanups[i](a); err != nil {
+			firstErr = errors.Join(firstErr, err)
+		}
+	}
+	a.mu.Lock()
+	a.closeErr = firstErr
+	a.mu.Unlock()
+
+	return firstErr
+}
+
+// drainContainerResources 关闭容器资源并派发终止事件。
+func (a *Application) drainContainerResources(ctx, eventCtx, closeCtx context.Context, firstAttempt bool, firstErr error, bus eventcontract.Dispatcher) error {
 	if closeCtx.Err() != nil {
 		closeCtx = eventCtx
 	}
+
 	var normalContainerErr error
 	if a.container != nil {
 		// Container.CloseGroup 自身会保留失败或未执行资源；这里先关闭普通资源，
 		// 再利用仍存活的 reporting 资源上报普通关闭错误。
 		normalContainerErr = a.container.CloseGroup(closeCtx, container.CloseGroupNormal)
 	}
+
 	var reportErr error
 	ordinaryErr := errors.Join(firstErr, normalContainerErr)
 	if firstAttempt && ordinaryErr != nil {
 		reportErr = reportCloseError(ctx, ordinaryErr)
 	}
+
 	var reportingContainerErr error
 	if a.container != nil {
 		reportingContainerErr = a.container.CloseGroup(closeCtx, container.CloseGroupReporting)
 	}
+
 	if normalContainerErr != nil || reportErr != nil || reportingContainerErr != nil {
 		return errors.Join(firstErr, normalContainerErr, reportErr, reportingContainerErr)
 	}
@@ -182,9 +232,10 @@ func (a *Application) CloseContext(ctx context.Context) (err error) {
 	}
 	a.terminated = true
 	a.mu.Unlock()
+
 	if bus != nil {
 		bus.Dispatch(eventCtx, event.AppTerminated{
-			Duration: time.Since(start),
+			Duration: time.Since(time.Now()),
 			Error:    errorString(firstErr),
 		})
 	}
@@ -251,12 +302,11 @@ func (a *Application) registeredProviderSnapshot() []providerEntry {
 	a.initProviderRepositoryLocked()
 
 	out := make([]providerEntry, 0, len(a.providers))
-	for _, provider := range a.providers {
-		identity := providerIdentity(provider)
-		if identity == "" || !a.registeredProviders[identity] {
+	for _, entry := range a.providers {
+		if entry.identity == "" || !a.registeredProviders[entry.identity] {
 			continue
 		}
-		out = append(out, providerEntry{identity: identity, provider: provider})
+		out = append(out, entry)
 	}
 	return out
 }
@@ -274,7 +324,8 @@ func errorString(err error) string {
 // 如果所有 closeActive 调用都等待 closeDone，内部重入会等待自己完成而死锁。Go 标准库没有公开
 // goroutine id，这里从 runtime.Stack 头部解析，作用范围限定在 foundation 关闭期并发协调。
 func currentGoroutineID() uint64 {
-	var buf [64]byte
+	// 使用 256 字节缓冲区，避免极端情况下 goroutine ID 过大导致截断
+	var buf [256]byte
 	n := runtime.Stack(buf[:], false)
 	header := strings.TrimPrefix(string(buf[:n]), "goroutine ")
 	idText := header
