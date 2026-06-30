@@ -93,7 +93,9 @@ func (l *DistributedLock) Owner() string {
 // BetweenBlockedAttemptsSleepFor 设置 Block 等待锁时两次尝试之间的等待时间。
 func (l *DistributedLock) BetweenBlockedAttemptsSleepFor(d time.Duration) cachecontract.Lock {
 	if d > 0 {
+		l.mu.Lock()
 		l.retrySleep = d
+		l.mu.Unlock()
 	}
 	return l
 }
@@ -112,10 +114,13 @@ func (l *DistributedLock) Block(ctx context.Context, wait time.Duration, fn func
 			}
 			return ok, err
 		}
-		if wait <= 0 || !time.Now().Add(l.retrySleep).Before(deadline) {
+		l.mu.Lock()
+		retrySleep := l.retrySleep
+		l.mu.Unlock()
+		if wait <= 0 || !time.Now().Add(retrySleep).Before(deadline) {
 			return false, ErrLockTimeout
 		}
-		timer := time.NewTimer(l.retrySleep)
+		timer := time.NewTimer(retrySleep)
 		select {
 		case <-ctx.Done():
 			timer.Stop()

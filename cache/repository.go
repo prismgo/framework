@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -834,6 +835,7 @@ func rawBytes(value any) ([]byte, error) {
 }
 
 // encodeMany 把任意 map[string]T 编码成批量写入需要的 payload bytes。
+// 优化：对 keys 进行排序，保证顺序稳定，便于日志和调试。
 func (r *Repository) encodeMany(values any) (map[string][]byte, []string, error) {
 	if values == nil {
 		return map[string][]byte{}, nil, nil
@@ -854,6 +856,8 @@ func (r *Repository) encodeMany(values any) (map[string][]byte, []string, error)
 		out[key] = data
 		keys = append(keys, key)
 	}
+	// 对 keys 排序以保证顺序稳定
+	sort.Strings(keys)
 	return out, keys, nil
 }
 

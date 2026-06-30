@@ -84,19 +84,32 @@ func (s *memoryStore) Get(ctx context.Context, key any) (any, error) {
 }
 
 // GetWithTTL 返回缓存值及剩余 TTL；不过期 key 的 TTL 返回 -1。
+// 优化：在单次锁持有期间完成所有读取，避免 TOCTOU 竞态。
 func (s *memoryStore) GetWithTTL(ctx context.Context, key any) (any, time.Duration, error) {
-	value, err := s.Get(ctx, key)
-	if err != nil {
-		return nil, 0, err
+	_ = ctx
+	k, ok := key.(string)
+	if !ok {
+		return nil, 0, errors.New("cache: memory key must be string")
 	}
-	k := key.(string)
-	s.mu.RLock()
-	item := s.items[k]
-	s.mu.RUnlock()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	item, exists := s.items[k]
+	if !exists {
+		return nil, 0, libstore.NotFoundWithCause(ErrCacheMiss)
+	}
+
+	now := time.Now()
+	if expired(item, now) {
+		delete(s.items, k)
+		return nil, 0, libstore.NotFoundWithCause(ErrCacheMiss)
+	}
+
 	if item.expiresAt.IsZero() {
-		return value, -1, nil
+		return item.value, -1, nil
 	}
-	return value, time.Until(item.expiresAt), nil
+	return item.value, time.Until(item.expiresAt), nil
 }
 
 // Set 写入内存缓存，并按调用参数或默认配置计算过期时间。
@@ -186,22 +199,37 @@ func (s *memoryStore) Pull(ctx context.Context, key string) ([]byte, error) {
 }
 
 // GetMany 批量读取内存缓存，未命中的 key 不会出现在返回值中。
+// 优化：在一次锁操作内完成所有 key 的读取，避免 N+1 锁竞争问题。
 func (s *memoryStore) GetMany(ctx context.Context, keys []string) (map[string][]byte, error) {
+	_ = ctx
+	if len(keys) == 0 {
+		return make(map[string][]byte), nil
+	}
+
+	now := time.Now()
 	out := make(map[string][]byte, len(keys))
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for _, key := range keys {
-		value, err := s.Get(ctx, key)
-		if err == nil {
-			data, err := rawBytes(value)
-			if err != nil {
-				return nil, err
-			}
-			out[key] = data
+		item, exists := s.items[key]
+		if !exists {
 			continue
 		}
-		if !isMiss(err) {
+
+		if expired(item, now) {
+			delete(s.items, key)
+			continue
+		}
+
+		data, err := rawBytes(item.value)
+		if err != nil {
 			return nil, err
 		}
+		out[key] = data
 	}
+
 	return out, nil
 }
 

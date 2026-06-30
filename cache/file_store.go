@@ -23,6 +23,7 @@ const (
 	fileMutationLockTTL  = 30 * time.Second
 	fileMutationSleep    = 5 * time.Millisecond
 	fileLockGuardTTL     = 30 * time.Second
+	fileMutationMaxWait  = 5 * time.Minute
 )
 
 // fileStore 使用本地文件保存缓存值，并为 Add、计数器和锁提供原子文件锁。
@@ -90,20 +91,25 @@ func (s *fileStore) Get(ctx context.Context, key any) (any, error) {
 }
 
 // GetWithTTL 返回缓存值和剩余 TTL；永久 key 的 TTL 返回 -1。
+// 优化：单次读取文件，避免重复 I/O 和可能的值不一致。
 func (s *fileStore) GetWithTTL(ctx context.Context, key any) (any, time.Duration, error) {
-	value, err := s.Get(ctx, key)
+	_ = ctx
+	k, err := fileStringKey(key)
 	if err != nil {
 		return nil, 0, err
 	}
-	k, _ := key.(string)
 	entry, err := s.readCacheEntry(k)
 	if err != nil {
 		return nil, 0, err
 	}
-	if entry.ExpiresAt == 0 {
-		return value, -1, nil
+	if entry.expired(time.Now()) {
+		_ = os.Remove(s.cachePath(k))
+		return nil, 0, fileCacheMiss()
 	}
-	return value, time.Until(time.Unix(0, entry.ExpiresAt)), nil
+	if entry.ExpiresAt == 0 {
+		return []byte(entry.Value), -1, nil
+	}
+	return []byte(entry.Value), time.Until(time.Unix(0, entry.ExpiresAt)), nil
 }
 
 // Set 写入缓存文件，并按调用参数或默认配置计算过期时间。
@@ -183,23 +189,37 @@ func (s *fileStore) Pull(ctx context.Context, key string) ([]byte, error) {
 }
 
 // GetMany 批量读取文件缓存，未命中的 key 不会出现在返回值中。
+// 优化：在单次锁操作内完成所有读取，避免 N+1 文件 I/O 问题。
 func (s *fileStore) GetMany(ctx context.Context, keys []string) (map[string][]byte, error) {
-	out := make(map[string][]byte, len(keys))
-	for _, key := range keys {
-		value, err := s.Get(ctx, key)
-		if err == nil {
-			data, err := rawBytes(value)
-			if err != nil {
-				return nil, err
-			}
-			out[key] = data
-			continue
-		}
-		if !isMiss(err) {
-			return nil, err
-		}
+	if len(keys) == 0 {
+		return make(map[string][]byte), nil
 	}
-	return out, nil
+
+	out := make(map[string][]byte, len(keys))
+	now := time.Now()
+
+	// 使用单次锁操作批量读取所有 key
+	err := s.withMutationLock(ctx, "__batch_read__", func() error {
+		for _, key := range keys {
+			entry, err := s.readCacheEntry(key)
+			if err != nil {
+				if isFileMiss(err) {
+					continue
+				}
+				return err
+			}
+
+			if entry.expired(now) {
+				_ = os.Remove(s.cachePath(key))
+				continue
+			}
+
+			out[key] = append([]byte(nil), entry.Value...)
+		}
+		return nil
+	})
+
+	return out, err
 }
 
 // PutMany 批量写入文件缓存。
@@ -399,13 +419,26 @@ func (s *fileStore) currentCacheEntry(key string) (fileCacheEntry, bool, error) 
 }
 
 // withMutationLock 使用内部文件锁串行化同一 key 的复合读写操作。
+// 为防止 goroutine 泄漏，如果调用方未设置 deadline，则使用默认最大等待时间。
 func (s *fileStore) withMutationLock(ctx context.Context, key string, fn func() error) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// 如果调用方未设置 deadline，使用默认最大等待时间防止 goroutine 泄漏
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, fileMutationMaxWait)
+		defer cancel()
+	}
 	lockKey := "__cache_mutation:" + key
 	token := randomToken()
 	for {
+		// 先检查 context 是否已取消
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		ok, err := s.Acquire(ctx, lockKey, token, fileMutationLockTTL)
 		if err != nil {
 			return err
@@ -421,13 +454,26 @@ func (s *fileStore) withMutationLock(ctx context.Context, key string, fn func() 
 }
 
 // withLockGuard 使用独立 guard 文件串行化同一业务锁的 Acquire/Release 临界区。
+// 为防止 goroutine 泄漏，如果调用方未设置 deadline，则使用默认最大等待时间。
 func (s *fileStore) withLockGuard(ctx context.Context, key string, fn func() error) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// 如果调用方未设置 deadline，使用默认最大等待时间防止 goroutine 泄漏
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, fileMutationMaxWait)
+		defer cancel()
+	}
 	path := s.lockGuardPath(key)
 	token := randomToken()
 	for {
+		// 先检查 context 是否已取消
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		ok, err := s.acquireGuardFile(path, token)
 		if err != nil {
 			return err
