@@ -3,7 +3,6 @@ package middleware
 import (
 	"fmt"
 	"net/http"
-	"runtime/debug"
 	"strings"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	eventcontract "github.com/prismgo/framework/contracts/event"
 	"github.com/prismgo/framework/event"
 	"github.com/prismgo/framework/http/internal/requestid"
+	"github.com/prismgo/framework/internal/stackx"
 )
 
 // Event dispatches HTTP request lifecycle events around a Gin request.
@@ -43,7 +43,7 @@ func Event(dispatcher eventcontract.Dispatcher) gin.HandlerFunc {
 				errText := fmt.Sprintf("%v", r)
 				stack := ""
 				if config.GetBool("app.debug", false) {
-					stack = string(debug.Stack())
+					stack = string(stackx.Capture())
 				}
 				bus.Dispatch(c.Request.Context(), event.RequestFailed{
 					Method:    c.Request.Method,

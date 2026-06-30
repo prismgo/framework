@@ -3,10 +3,11 @@ package exception
 import (
 	"fmt"
 	"net/http"
-	"runtime/debug"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/prismgo/framework/internal/stackx"
 )
 
 func exceptionMiddlewareTest(h *Handler) gin.HandlerFunc {
@@ -29,7 +30,7 @@ func exceptionMiddlewareTest(h *Handler) gin.HandlerFunc {
 			_ = c.Error(err)
 			c.Set(panicLoggedKey, true)
 			status := h.renderResponse(c, err)
-			h.reportHTTPTest(c, err, status, start, recovered, debug.Stack())
+			h.reportHTTPTest(c, err, status, start, recovered, stackx.Capture())
 		}()
 
 		c.Next()
@@ -54,7 +55,7 @@ func (h *Handler) stackForStatusTest(status int) []byte {
 	if h == nil || !h.PanicStack || status < http.StatusInternalServerError {
 		return nil
 	}
-	return debug.Stack()
+	return stackx.Capture()
 }
 
 func (h *Handler) stackForStatus(status int) []byte {

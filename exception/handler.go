@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"runtime/debug"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/prismgo/framework/internal/stackx"
 	"github.com/prismgo/framework/logger"
 )
 
@@ -60,6 +60,7 @@ type Handler struct {
 	// PanicStack 控制异常日志是否附带完整调用栈。
 	// HTTP 路径中由 middleware 采集堆栈并通过 fields["stack"] 传入；
 	// 非 HTTP 路径中由 Report 在 LevelError 时自动采集。
+	// 堆栈信息会被截断至 4KB 左右（详见 internal/stackx）。
 	PanicStack bool
 	// DebugResolver 读取应用调试开关；默认读取 app.debug，对齐 Laravel APP_DEBUG 语义。
 	DebugResolver func() bool
@@ -149,7 +150,7 @@ func (h *Handler) Report(ctx context.Context, err error, fields map[string]any) 
 	if h.PanicStack {
 		if _, hasStack := fields["stack"]; !hasStack {
 			if status >= http.StatusInternalServerError {
-				fields["stack"] = string(debug.Stack())
+				fields["stack"] = string(stackx.Capture())
 			}
 		}
 	}

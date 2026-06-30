@@ -3,13 +3,13 @@ package middleware
 import (
 	"fmt"
 	"net/http"
-	"runtime/debug"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/prismgo/framework/exception"
 	"github.com/prismgo/framework/http/internal/requestid"
+	"github.com/prismgo/framework/internal/stackx"
 )
 
 const exceptionReportedKey = "_exception_reported"
@@ -37,7 +37,7 @@ func Exception(handler *exception.Handler) gin.HandlerFunc {
 			_ = c.Error(err)
 			c.Set("_panic_logged", true)
 			status := h.Render(c, err)
-			reportHTTP(h, c, err, status, start, recovered, debug.Stack())
+			reportHTTP(h, c, err, status, start, recovered, stackx.Capture())
 		}()
 
 		c.Next()
@@ -62,7 +62,7 @@ func stackForStatus(h *exception.Handler, status int) []byte {
 	if h == nil || !h.PanicStack || status < http.StatusInternalServerError {
 		return nil
 	}
-	return debug.Stack()
+	return stackx.Capture()
 }
 
 func reportHTTP(h *exception.Handler, c *gin.Context, err error, status int, start time.Time, recovered any, stack []byte) {

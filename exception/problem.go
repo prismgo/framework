@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"runtime/debug"
 	"strings"
+
+	"github.com/prismgo/framework/internal/stackx"
 )
 
 // Problem is the framework-owned public error response shape.
@@ -24,6 +25,7 @@ type Problem struct {
 	Exception string         `json:"exception,omitempty"`
 	File      string         `json:"file,omitempty"`
 	Line      int            `json:"line,omitempty"`
+	// Trace 包含堆栈跟踪信息，会被截断至 4KB 左右（详见 internal/stackx）。
 	Trace     []string       `json:"trace,omitempty"`
 }
 
@@ -86,7 +88,7 @@ func (p Problem) WithDebug(err error) Problem {
 	p.Detail = err.Error()
 	p.Message = err.Error()
 	p.Exception = fmt.Sprintf("%T", err)
-	p.Trace = stackTraceLines(debug.Stack())
+	p.Trace = stackTraceLines(stackx.Capture())
 	if len(p.Trace) > 0 {
 		p.File, p.Line = firstTraceLocation(p.Trace)
 	}
@@ -154,7 +156,10 @@ func stackTraceLines(stack []byte) []string {
 
 func firstTraceLocation(trace []string) (string, int) {
 	for _, line := range trace {
-		if !strings.Contains(line, ".go:") || strings.Contains(line, "runtime/debug.Stack") {
+		if !strings.Contains(line, ".go:") ||
+			strings.Contains(line, "runtime/debug.Stack") ||
+			strings.Contains(line, "runtime/debug/stack.go") ||
+			strings.Contains(line, "internal/stackx") {
 			continue
 		}
 		file, lineNumber := splitFileLine(line)

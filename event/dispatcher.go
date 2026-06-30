@@ -3,11 +3,11 @@ package event
 import (
 	"context"
 	"fmt"
-	"runtime/debug"
 	"strings"
 	"sync"
 
 	"github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/internal/stackx"
 	"github.com/prismgo/framework/routine"
 )
 
@@ -141,7 +141,7 @@ func (d *Dispatcher) invokeListener(ctx context.Context, ev Event, l Listener, a
 	defer func() {
 		if r := recover(); r != nil {
 			fields := syncListenerReportFields(ev, async)
-			fields["stack"] = string(debug.Stack())
+			fields["stack"] = string(stackx.Capture())
 			exception.Report(ctx, fmt.Errorf("event listener panic: %v", r), fields)
 		}
 	}()

@@ -2,10 +2,11 @@ package logger
 
 import (
 	"encoding/json"
-	"runtime/debug"
 	"strings"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/prismgo/framework/internal/stackx"
 )
 
 const simpleLineFormat = "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n"
@@ -141,5 +142,5 @@ func (f *LineFormatter) extractStackTrace(err error) string {
 			return trace
 		}
 	}
-	return strings.TrimSpace(string(debug.Stack()))
+	return strings.TrimSpace(string(stackx.Capture()))
 }
