@@ -43,7 +43,8 @@ func (p *JobRunner) Process(ctx context.Context, env *payload.Envelope) (err err
 	})
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("queue: job panic: %v\n%s", r, string(debug.Stack()))
+			stack := truncateStack(debug.Stack())
+			err = fmt.Errorf("queue: job panic: %v\n%s", r, string(stack))
 		}
 	}()
 	if err := p.ensureBatchActive(ctx, env); err != nil {
@@ -186,4 +187,17 @@ func firstString(value string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// truncateStack 限制堆栈信息大小，防止日志爆炸。
+// 超过 4KB 的堆栈会被截断，并添加截断提示。
+func truncateStack(stack []byte) []byte {
+	const maxStackSize = 4 * 1024 // 4KB
+	if len(stack) <= maxStackSize {
+		return stack
+	}
+	truncated := make([]byte, maxStackSize+50)
+	copy(truncated, stack[:maxStackSize])
+	copy(truncated[maxStackSize:], "\n... stack trace truncated ...")
+	return truncated
 }

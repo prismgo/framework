@@ -73,8 +73,19 @@ func (c *RedisFailedStore) Page(ctx context.Context, page state.PageRequest) (st
 	result := make([]payload.FailedJob, 0, len(ids))
 	invalidIDs := make([]string, 0)
 	if len(ids) > 0 {
+		// 使用 Pipeline 批量获取所有 entry，避免 N+1 查询
+		pipe := c.client.Pipeline()
+		cmds := make(map[string]*redis.StringCmd, len(ids))
 		for _, id := range ids {
-			body, err := c.client.Get(ctx, c.failedEntryKey(id)).Bytes()
+			cmds[id] = pipe.Get(ctx, c.failedEntryKey(id))
+		}
+		if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+			return state.PageEnvelope[payload.FailedJob]{}, err
+		}
+		// 处理 Pipeline 结果
+		for _, id := range ids {
+			cmd := cmds[id]
+			body, err := cmd.Bytes()
 			if errors.Is(err, redis.Nil) {
 				invalidIDs = append(invalidIDs, id)
 				continue

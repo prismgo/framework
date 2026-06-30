@@ -35,7 +35,14 @@ func (s *MemoryFailedStore) Record(_ context.Context, failed payload.FailedJob) 
 		failed.FailedAt = time.Now()
 	}
 	if _, exists := s.items[failed.ID]; !exists {
-		s.order = append(s.order, failed.ID)
+		// 二分查找插入位置，保持 order 按 FailedAt 升序
+		insertPos := sort.Search(len(s.order), func(i int) bool {
+			return s.items[s.order[i]].FailedAt.After(failed.FailedAt)
+		})
+		// 在 insertPos 位置插入
+		s.order = append(s.order, "")
+		copy(s.order[insertPos+1:], s.order[insertPos:])
+		s.order[insertPos] = failed.ID
 	}
 	s.items[failed.ID] = cloneFailed(failed)
 	return nil
@@ -51,9 +58,6 @@ func (s *MemoryFailedStore) Page(_ context.Context, page state.PageRequest) (sta
 			result = append(result, cloneFailed(item))
 		}
 	}
-	sort.SliceStable(result, func(i, j int) bool {
-		return result[i].FailedAt.Before(result[j].FailedAt)
-	})
 	return state.PageEnvelope[payload.FailedJob]{
 		Items:    queuePageSlice(result, page),
 		Total:    len(result),

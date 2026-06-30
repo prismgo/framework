@@ -373,8 +373,12 @@ func (c *Connection) waitBulkConfirms(ctx context.Context, slot *rabbitMQPublish
 // 设计思路：外层 Push/RequestRestart 通常已经带 PublishTimeout；若调用方直接传入无 deadline 的上下文，
 // 这里补齐同一个超时窗口，避免 confirm 或 return 等待无限阻塞。
 func (c *Connection) publishWaitContext(ctx context.Context) (context.Context, func()) {
-	if _, ok := ctx.Deadline(); !ok && c.options.PublishTimeout > 0 {
-		return context.WithTimeout(ctx, c.options.PublishTimeout)
+	if _, ok := ctx.Deadline(); !ok {
+		timeout := c.options.PublishTimeout
+		if timeout <= 0 {
+			timeout = 5 * time.Second // 默认兜底超时
+		}
+		return context.WithTimeout(ctx, timeout)
 	}
 	return ctx, func() {}
 }

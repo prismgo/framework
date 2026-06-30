@@ -178,15 +178,18 @@ func cleanupDeliveryRegistry() {
 			rabbitMQDeliveryRegistry.Delete(key)
 			return true
 		}
+		// state 为 nil 的条目没有实际用途，直接清理
+		if entry.state == nil {
+			rabbitMQDeliveryRegistry.Delete(key)
+			return true
+		}
 		// 已 ack 的条目可以安全清理；未 ack 条目必须保留到显式终结，不能仅因存活时间过长而删除。
-		if entry.state != nil {
-			entry.state.mu.Lock()
-			acked := entry.state.acked
-			entry.state.mu.Unlock()
-			if acked {
-				rabbitMQDeliveryRegistry.Delete(key)
-				return true
-			}
+		entry.state.mu.Lock()
+		acked := entry.state.acked
+		entry.state.mu.Unlock()
+		if acked {
+			rabbitMQDeliveryRegistry.Delete(key)
+			return true
 		}
 		return true
 	})
@@ -195,6 +198,9 @@ func cleanupDeliveryRegistry() {
 // deliveryRegistryCleanupOnce 保证清理 goroutine 全局只启动一次。
 var deliveryRegistryCleanupOnce sync.Once
 
+// deliveryRegistryCleanupCancel 用于停止清理 goroutine。
+var deliveryRegistryCleanupCancel context.CancelFunc
+
 // startDeliveryRegistryCleanup 启动定期清理 goroutine。
 //
 // 设计思路：使用 sync.Once 保证全局只有一个清理 goroutine 运行。
@@ -202,7 +208,10 @@ var deliveryRegistryCleanupOnce sync.Once
 // goroutine 使用 routine.Task 创建，自带 recover 保护。
 func startDeliveryRegistryCleanup() {
 	deliveryRegistryCleanupOnce.Do(func() {
-		routine.Task(context.Background(), func(ctx context.Context) error {
+		ctx, cancel := context.WithCancel(context.Background())
+		deliveryRegistryCleanupCancel = cancel
+
+		routine.Task(ctx, func(ctx context.Context) error {
 			ticker := time.NewTicker(5 * time.Minute)
 			defer ticker.Stop()
 			for {
@@ -218,6 +227,18 @@ func startDeliveryRegistryCleanup() {
 			Name("rabbitmq.delivery_registry_cleanup").
 			Go()
 	})
+}
+
+// stopDeliveryRegistryCleanup 停止清理 goroutine。
+//
+// 用于测试或热重载场景，允许从外部停止清理 goroutine。
+func stopDeliveryRegistryCleanup() {
+	if deliveryRegistryCleanupCancel != nil {
+		deliveryRegistryCleanupCancel()
+		deliveryRegistryCleanupCancel = nil
+	}
+	// 重置 once 以允许重新启动
+	deliveryRegistryCleanupOnce = sync.Once{}
 }
 
 type Options struct {

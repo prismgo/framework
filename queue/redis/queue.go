@@ -116,11 +116,14 @@ func (c *RedisQueue) Bulk(ctx context.Context, queue string, bodies []queuecontr
 	for _, body := range bodies {
 		values = append(values, string(body))
 	}
+	// 使用单个 LPUSH 命令推送多个 token，避免 notify list 快速增长
+	tokens := make([]any, len(bodies))
+	for i := range bodies {
+		tokens[i] = "1"
+	}
 	_, err := c.client.Pipelined(ctx, func(pipe redis.Pipeliner) error {
 		pipe.RPush(ctx, c.readyKey(queue), values...)
-		for range bodies {
-			pipe.LPush(ctx, c.notifyKey(queue), "1")
-		}
+		pipe.LPush(ctx, c.notifyKey(queue), tokens...)
 		return nil
 	})
 	if err != nil {
