@@ -3,6 +3,7 @@ package horizon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1376,9 +1377,16 @@ func TestFlusherRunBackgroundFlushRecoversFromPanic(t *testing.T) {
 
 	store := &panicFlushStore{MemoryStore: *NewMemoryStore(StoreOptions{HeartbeatTTL: time.Minute})}
 	f := newFlusher(cfg, store, coll, nil)
-	// 手动调用 runBackgroundFlush（不走 scheduleBackgroundFlush 的单飞逻辑），
-	// 避免竞态和 WaitGroup 问题
-	f.runBackgroundFlush()
+	// 手动调用 runBackgroundFlushOnce（不走 scheduleBackgroundFlush 的单飞逻辑），
+	// 避免竞态和 WaitGroup 问题；在 defer 中捕获 panic 并记录错误，模拟上层 goroutine 恢复路径。
+	func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				f.recordFlushError(fmt.Errorf("flusher background flush panic: %v", rec))
+			}
+		}()
+		f.runBackgroundFlushOnce()
+	}()
 
 	// 验证 flush 错误被记录（panic 恢复路径写入了错误诊断）
 	f.mu.Lock()
@@ -1441,5 +1449,129 @@ func TestRecordShutdownFlushError(t *testing.T) {
 	if diag.FlushErrorStreak != 1 || diag.LastFlushError != "another error" {
 		t.Fatalf("expected error recorded without store, got streak=%d err=%q",
 			diag.FlushErrorStreak, diag.LastFlushError)
+	}
+}
+
+// failingHighValueStore 是一个辅助 Store，SaveHighValueDetails 总是返回错误。
+type failingHighValueStore struct {
+	Store
+}
+
+func (s *failingHighValueStore) SaveHighValueDetails(_ context.Context, _ []HighValueJobDetail, _ time.Duration) error {
+	return errors.New("auxiliary high-value write failure")
+}
+
+// TestFlusherAuxiliaryWriteAccumulatesErrorStreak 验证辅助写入失败时 flushErrorStreak 持续累积。
+//
+// 需求背景：代码审查发现 flushOnce 在辅助写入（high-value details、diagnostics、batch summaries）
+// 失败后无条件重置 flushErrorStreak 为 0，导致连续 3 次辅助写入失败永远不会触发降级。
+func TestFlusherAuxiliaryWriteAccumulatesErrorStreak(t *testing.T) {
+	cfg := observabilityPresetConfigOrFull()
+	cfg.HighValueDetailRetention = time.Hour
+	base := NewMemoryStore(StoreOptions{Prefix: "test"})
+	store := &failingHighValueStore{Store: base}
+	coll := newCollector(cfg)
+	f := newFlusher(cfg, store, coll, nil)
+
+	batch := FlushBatch{
+		WindowStart: time.Now().Add(-time.Minute),
+		WindowEnd:   time.Now(),
+		Increments: []EventMetricIncrement{{
+			Connection:          "redis",
+			Queue:               "default",
+			WindowStart:         time.Now().Add(-time.Minute),
+			WindowEnd:           time.Now(),
+			Processed:           1,
+			Samples:             1,
+			EffectiveSampleRate: 1,
+		}},
+		HighValueDetails: []HighValueJobDetail{{
+			ID:   "detail-1",
+			Kind: HighValueDetailFailed,
+		}},
+	}
+
+	// 执行 4 次，每次辅助写入都失败
+	for i := 0; i < 4; i++ {
+		if err := f.Flush(context.Background(), batch); err != nil {
+			t.Fatalf("flush %d should not return error (core metrics succeed): %v", i, err)
+		}
+	}
+
+	diag := f.Diagnostics()
+	if diag.FlushErrorStreak < 3 {
+		t.Fatalf("expected error streak >= 3 after 4 auxiliary write failures, got %d", diag.FlushErrorStreak)
+	}
+	if !diag.Degraded || diag.DegradedReason != MemoryDropStoreUnavailable {
+		t.Fatalf("expected degraded=MemoryDropStoreUnavailable after 3+ consecutive auxiliary failures, got degraded=%v reason=%q",
+			diag.Degraded, diag.DegradedReason)
+	}
+}
+
+// TestFlusherCleanFlushResetsAuxiliaryErrorStreak 验证全量成功的 flush 仍然可以重置错误计数。
+//
+// 需求背景：当辅助写入从失败恢复为成功后，error streak 应该被清零，降级状态应恢复。
+func TestFlusherCleanFlushResetsAuxiliaryErrorStreak(t *testing.T) {
+	cfg := observabilityPresetConfigOrFull()
+	cfg.HighValueDetailRetention = time.Hour
+	base := NewMemoryStore(StoreOptions{Prefix: "test"})
+	store := &failingHighValueStore{Store: base}
+	coll := newCollector(cfg)
+	f := newFlusher(cfg, store, coll, nil)
+
+	// 先产生一些辅助写入失败
+	batch := FlushBatch{
+		WindowStart: time.Now().Add(-time.Minute),
+		WindowEnd:   time.Now(),
+		Increments: []EventMetricIncrement{{
+			Connection:          "redis",
+			Queue:               "default",
+			WindowStart:         time.Now().Add(-time.Minute),
+			WindowEnd:           time.Now(),
+			Processed:           1,
+			Samples:             1,
+			EffectiveSampleRate: 1,
+		}},
+		HighValueDetails: []HighValueJobDetail{{
+			ID:   "detail-2",
+			Kind: HighValueDetailFailed,
+		}},
+	}
+	for i := 0; i < 3; i++ {
+		_ = f.Flush(context.Background(), batch)
+	}
+
+	diag := f.Diagnostics()
+	if !diag.Degraded {
+		t.Fatal("expected degraded after 3 auxiliary write failures")
+	}
+
+	// 现在发一个干净的 flush（无 high-value details，所有写入都成功）
+	cleanBatch := FlushBatch{
+		WindowStart: time.Now().Add(-time.Minute),
+		WindowEnd:   time.Now(),
+		Increments: []EventMetricIncrement{{
+			Connection:          "redis",
+			Queue:               "default",
+			WindowStart:         time.Now().Add(-time.Minute),
+			WindowEnd:           time.Now(),
+			Processed:           1,
+			Samples:             1,
+			EffectiveSampleRate: 1,
+		}},
+	}
+	for i := 0; i < 3; i++ {
+		if err := f.Flush(context.Background(), cleanBatch); err != nil {
+			t.Fatalf("clean flush %d: %v", i, err)
+		}
+	}
+
+	diag = f.Diagnostics()
+	if diag.Degraded {
+		t.Fatalf("expected degradation cleared after 3 consecutive clean flushes, got degraded=%v reason=%q streak=%d",
+			diag.Degraded, diag.DegradedReason, diag.FlushErrorStreak)
+	}
+	if diag.FlushErrorStreak != 0 {
+		t.Fatalf("expected zero error streak after 3 clean flushes, got %d", diag.FlushErrorStreak)
 	}
 }

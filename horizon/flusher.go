@@ -3,7 +3,6 @@ package horizon
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -272,16 +271,6 @@ func (f *flusher) scheduleBackgroundFlush() {
 // 设计思路：每轮使用独立 background context 和 flush_timeout，超时只记录诊断，不遗留 goroutine。
 // 容错设计：scheduleBackgroundFlush 通过 startRecoveringGoroutineWithPanicHandler 捕获 panic 并上报。
 // 需求背景：issue 42 要求慢 Store 下连续 tick、写入顺序不倒退和 timeout 诊断可验证。
-func (f *flusher) runBackgroundFlush() {
-	defer func() {
-		if rec := recover(); rec != nil {
-			f.recordFlushError(fmt.Errorf("flusher background flush panic: %v", rec))
-			_ = rec
-		}
-	}()
-	f.runBackgroundFlushOnce()
-}
-
 func (f *flusher) runBackgroundFlushOnce() {
 	bgCtx, cancel := context.WithTimeout(context.Background(), f.cfg.FlushTimeout)
 	defer cancel()
@@ -421,9 +410,6 @@ func (f *flusher) shutdownFlush() {
 // 设计原因：把等待 writer 和 drain collector 的顺序固定在一个 helper 中，避免新增 flush 入口
 // 绕过串行约束。该函数不创建 goroutine，也不在超时后持有任何后台状态。
 func (f *flusher) acquireWriteSlot(ctx context.Context) (func(), error) {
-	if f.writeSlot == nil {
-		f.writeSlot = make(chan struct{}, 1)
-	}
 	select {
 	case f.writeSlot <- struct{}{}:
 		return func() { <-f.writeSlot }, nil
@@ -483,10 +469,12 @@ func (f *flusher) buildFlushBatch(snapshot *flushSnapshot, now time.Time) FlushB
 		Memory:      snapshot.memState,
 	}
 	unknownGap := snapshotHasUnknownGap(snapshot.drops)
+	// 缓存 hostname，避免循环内重复系统调用
+	cachedHost := hostname()
 
 	// 转换 event_metrics 窗口为增量
 	for _, w := range snapshot.windows {
-		increment := f.eventMetricIncrementFromWindow(w, snapshot, now)
+		increment := f.eventMetricIncrementFromWindow(w, snapshot, now, cachedHost)
 		if unknownGap {
 			increment.Unknown = true
 			increment.Degraded = true
@@ -526,8 +514,11 @@ func (f *flusher) buildFlushBatch(snapshot *flushSnapshot, now time.Time) FlushB
 //
 // 逻辑说明：先写 event_metrics 增量，再写 batch summaries、高价值明细和诊断。
 // 聚合指标与明细数据分开 flush，避免低价值明细拖慢核心指标。
+// 辅助写入（batch summaries、高价值明细、诊断）失败时记录错误但不中断；
+// flush error streak 仅在全局成功（含辅助写入）时重置，确保持续辅助写入失败能触发降级。
 func (f *flusher) flushOnce(ctx context.Context, batch *FlushBatch) error {
 	start := time.Now()
+	var auxErr error
 	f.enforceBatchSummaryLimit(batch)
 
 	// 1. 写入 event_metrics 增量（核心指标优先）
@@ -539,24 +530,37 @@ func (f *flusher) flushOnce(ctx context.Context, batch *FlushBatch) error {
 	// 2. 写入 batch summaries（低频独立通道，失败不影响指标）
 	if err := f.writeBatchSummaries(ctx, batch); err != nil {
 		f.recordFlushError(err)
+		auxErr = err
 	}
 
 	// 3. 写入高价值明细（独立通道，失败不影响指标）
 	if err := f.writeHighValueDetails(ctx, batch); err != nil {
 		// 记录失败但不返回错误，核心指标已写入
 		f.recordFlushError(err)
+		if auxErr == nil {
+			auxErr = err
+		}
 	}
 
 	// 4. 写入诊断
 	if err := f.writeDiagnostics(ctx, batch); err != nil {
 		f.recordFlushError(err)
+		if auxErr == nil {
+			auxErr = err
+		}
 	}
 
 	f.mu.Lock()
 	f.lastFlushDuration = time.Since(start)
 	f.lastFlushSuccessAt = start
-	f.flushErrorStreak = 0
-	f.flushSuccessStreak++
+	// 辅助写入失败时不重置 error streak，确保持续失败能触发降级
+	if auxErr == nil {
+		f.flushErrorStreak = 0
+		f.flushSuccessStreak++
+	} else {
+		// 保留 recordFlushError 已递增的 streak，只更新 lastFlushError
+		f.lastFlushError = auxErr.Error()
+	}
 	if f.flushDurationNearTimeout(f.lastFlushDuration) {
 		f.degraded = true
 		f.degradedReason = MemoryDropFlushTimeoutNear
@@ -567,7 +571,9 @@ func (f *flusher) flushOnce(ctx context.Context, batch *FlushBatch) error {
 		f.degraded = false
 		f.degradedReason = ""
 	}
-	f.lastFlushError = ""
+	if auxErr == nil {
+		f.lastFlushError = ""
+	}
 	f.mu.Unlock()
 
 	return nil
@@ -624,7 +630,8 @@ func (f *flusher) writeEventMetricsWindow(ctx context.Context, batch *FlushBatch
 // 逻辑说明：window 边界只来自事件发生时间；flushAt 只用于诊断。采样率小于 1 时保留
 // SampleCount 和 EstimatedTotal，避免 read model 把估算值误展示为 exact。
 // 来源说明：collector 已按来源分片聚合；flusher 只补齐 prefix/host fallback，不合并不同来源。
-func (f *flusher) eventMetricIncrementFromWindow(w *eventMetricsWindow, snapshot *flushSnapshot, flushAt time.Time) EventMetricIncrement {
+// cachedHost 由调用方预缓存并传入，避免循环内重复调用 os.Hostname()。
+func (f *flusher) eventMetricIncrementFromWindow(w *eventMetricsWindow, snapshot *flushSnapshot, flushAt time.Time, cachedHost string) EventMetricIncrement {
 	windowStart := w.windowStart
 	if windowStart.IsZero() {
 		windowStart = snapshot.windowStart
@@ -648,14 +655,13 @@ func (f *flusher) eventMetricIncrementFromWindow(w *eventMetricsWindow, snapshot
 	degraded := w.degraded || snapshot.degraded
 	partial := false
 	quality := eventMetricQualityForWindow(w.estimated, degraded, partial, false)
-	host, _ := os.Hostname()
 	return EventMetricIncrement{
 		WindowStart:         windowStart,
 		WindowEnd:           windowEnd,
 		FlushAt:             flushAt,
 		MetricsWindowMS:     int64(windowEnd.Sub(windowStart) / time.Millisecond),
 		SourcePrefix:        firstNonEmpty(w.sourcePrefix, f.storePrefix()),
-		SourceHost:          firstNonEmpty(w.sourceHost, host),
+		SourceHost:          firstNonEmpty(w.sourceHost, cachedHost),
 		SourceEnvironment:   w.environment,
 		SourceSupervisor:    w.supervisor,
 		Connection:          w.connection,

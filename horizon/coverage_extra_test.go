@@ -1223,7 +1223,7 @@ func TestProcessInspectorAndEventMetricIncrementBranches(t *testing.T) {
 		failed:       1,
 		eventSamples: 2,
 		estimated:    true,
-	}, &flushSnapshot{windowStart: now.Add(-time.Minute), windowEnd: now, degraded: true}, now)
+	}, &flushSnapshot{windowStart: now.Add(-time.Minute), windowEnd: now, degraded: true}, now, hostname())
 	if !inc.WindowStart.Equal(now.Add(-time.Minute)) || !inc.WindowEnd.Equal(now) ||
 		inc.EstimatedTotal != 8 || inc.Quality != EventMetricQualityDegraded {
 		t.Fatalf("increment branch defaults = %#v", inc)

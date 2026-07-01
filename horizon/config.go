@@ -463,7 +463,9 @@ func parseObservabilityConfig(raw map[string]any) (ObservabilityConfig, error) {
 	if err := rejectUnknownObservabilityFields(raw); err != nil {
 		return ObservabilityConfig{}, err
 	}
-	boolFields := map[string]*bool{
+
+	// Parse bool fields
+	if err := parseBoolFields(raw, map[string]*bool{
 		"event_metrics":            &cfg.EventMetrics,
 		"waits":                    &cfg.Waits,
 		"batch_summaries":          &cfg.BatchSummaries,
@@ -473,57 +475,37 @@ func parseObservabilityConfig(raw map[string]any) (ObservabilityConfig, error) {
 		"poison_detail_enabled":    &cfg.PoisonDetailEnabled,
 		"slow_job_detail_enabled":  &cfg.SlowJobDetailEnabled,
 		"dynamic_sampling_enabled": &cfg.DynamicSamplingEnabled,
+	}); err != nil {
+		return ObservabilityConfig{}, err
 	}
-	for field, target := range boolFields {
-		value, ok := raw[field]
-		if !ok {
-			continue
-		}
-		parsed, parseErr := strictBool("horizon: observability."+field, value)
-		if parseErr != nil {
-			return ObservabilityConfig{}, parseErr
-		}
-		*target = parsed
-	}
-	intFields := map[string]*int{
+
+	// Parse int fields (non-negative)
+	if err := parseIntFields(raw, map[string]*int{
 		"queued_waits_max":                    &cfg.QueuedWaitsMax,
 		"processing_spans_max":                &cfg.ProcessingSpansMax,
 		"processing_cleanup_interval_seconds": &cfg.ProcessingCleanupIntervalSeconds,
 		"max_events_per_second":               &cfg.MaxEventsPerSecond,
+	}, strictNonNegativeInt); err != nil {
+		return ObservabilityConfig{}, err
 	}
-	for field, target := range intFields {
-		value, ok := raw[field]
-		if !ok {
-			continue
-		}
-		parsed, parseErr := strictNonNegativeInt("horizon: observability."+field, value)
-		if parseErr != nil {
-			return ObservabilityConfig{}, parseErr
-		}
-		*target = parsed
-	}
-	positiveIntFields := map[string]*int{
+
+	// Parse positive int fields
+	if err := parseIntFields(raw, map[string]*int{
 		"batch_size":            &cfg.BatchSize,
 		"batch_summary_size":    &cfg.BatchSummarySize,
 		"buffer_size":           &cfg.BufferSize,
 		"sample_reservoir_size": &cfg.SampleReservoirSize,
 		"max_aggregate_keys":    &cfg.MaxAggregateKeys,
+	}, strictPositiveInt); err != nil {
+		return ObservabilityConfig{}, err
 	}
-	for field, target := range positiveIntFields {
-		value, ok := raw[field]
-		if !ok {
-			continue
-		}
-		parsed, parseErr := strictPositiveInt("horizon: observability."+field, value)
-		if parseErr != nil {
-			return ObservabilityConfig{}, parseErr
-		}
-		*target = parsed
-	}
+
 	if _, ok := raw["batch_summary_size"]; !ok {
 		cfg.BatchSummarySize = cfg.BatchSize
 	}
-	durationFields := map[string]*time.Duration{
+
+	// Parse duration fields
+	if err := parseDurationFields(raw, map[string]*time.Duration{
 		"metrics_window":              &cfg.MetricsWindow,
 		"flush_interval":              &cfg.FlushInterval,
 		"flush_timeout":               &cfg.FlushTimeout,
@@ -532,56 +514,111 @@ func parseObservabilityConfig(raw map[string]any) (ObservabilityConfig, error) {
 		"high_value_detail_retention": &cfg.HighValueDetailRetention,
 		"batch_summary_retention":     &cfg.BatchSummaryRetention,
 		"diagnostics_retention":       &cfg.DiagnosticsRetention,
+	}); err != nil {
+		return ObservabilityConfig{}, err
 	}
-	for field, target := range durationFields {
+
+	// Parse special fields
+	if err := parseSpecialObservabilityFields(raw, &cfg); err != nil {
+		return ObservabilityConfig{}, err
+	}
+
+	return normalizeObservabilityConfig(cfg), nil
+}
+
+// parseBoolFields parses a map of bool field names to their target pointers.
+func parseBoolFields(raw map[string]any, fields map[string]*bool) error {
+	for field, target := range fields {
 		value, ok := raw[field]
 		if !ok {
 			continue
 		}
-		parsed, parseErr := strictPositiveDuration("horizon: observability."+field, value)
-		if parseErr != nil {
-			return ObservabilityConfig{}, parseErr
+		parsed, err := strictBool("horizon: observability."+field, value)
+		if err != nil {
+			return err
 		}
 		*target = parsed
 	}
+	return nil
+}
+
+// parseIntFields parses a map of int field names to their target pointers using the provided validator.
+func parseIntFields(raw map[string]any, fields map[string]*int, validator func(string, any) (int, error)) error {
+	for field, target := range fields {
+		value, ok := raw[field]
+		if !ok {
+			continue
+		}
+		parsed, err := validator("horizon: observability."+field, value)
+		if err != nil {
+			return err
+		}
+		*target = parsed
+	}
+	return nil
+}
+
+// parseDurationFields parses a map of duration field names to their target pointers.
+func parseDurationFields(raw map[string]any, fields map[string]*time.Duration) error {
+	for field, target := range fields {
+		value, ok := raw[field]
+		if !ok {
+			continue
+		}
+		parsed, err := strictPositiveDuration("horizon: observability."+field, value)
+		if err != nil {
+			return err
+		}
+		*target = parsed
+	}
+	return nil
+}
+
+// parseSpecialObservabilityFields parses fields that require custom validation logic.
+func parseSpecialObservabilityFields(raw map[string]any, cfg *ObservabilityConfig) error {
 	if value, ok := raw["slow_job_threshold"]; ok {
-		parsed, parseErr := strictNonNegativeDuration("horizon: observability.slow_job_threshold", value)
-		if parseErr != nil {
-			return ObservabilityConfig{}, parseErr
+		parsed, err := strictNonNegativeDuration("horizon: observability.slow_job_threshold", value)
+		if err != nil {
+			return err
 		}
 		cfg.SlowJobThreshold = parsed
 	}
+
 	if value, ok := raw["event_metrics_sample_rate"]; ok {
-		parsed, parseErr := strictSampleRate("horizon: observability.event_metrics_sample_rate", value)
-		if parseErr != nil {
-			return ObservabilityConfig{}, parseErr
+		parsed, err := strictSampleRate("horizon: observability.event_metrics_sample_rate", value)
+		if err != nil {
+			return err
 		}
 		cfg.EventMetricsSampleRate = parsed
 	}
+
 	if value, ok := raw["high_value_detail_sample_rate"]; ok {
 		if text, isString := value.(string); !isString || strings.TrimSpace(text) != "" {
-			parsed, parseErr := strictSampleRate("horizon: observability.high_value_detail_sample_rate", value)
-			if parseErr != nil {
-				return ObservabilityConfig{}, parseErr
+			parsed, err := strictSampleRate("horizon: observability.high_value_detail_sample_rate", value)
+			if err != nil {
+				return err
 			}
 			cfg.HighValueDetailSampleRate = &parsed
 		}
 	}
+
 	if value, ok := raw["min_sample_rate"]; ok {
-		parsed, parseErr := strictSampleRate("horizon: observability.min_sample_rate", value)
-		if parseErr != nil {
-			return ObservabilityConfig{}, parseErr
+		parsed, err := strictSampleRate("horizon: observability.min_sample_rate", value)
+		if err != nil {
+			return err
 		}
 		cfg.MinSampleRate = parsed
 	}
+
 	if value, ok := raw["drop_policy"]; ok {
-		parsed, parseErr := strictDropPolicy("horizon: observability.drop_policy", value)
-		if parseErr != nil {
-			return ObservabilityConfig{}, parseErr
+		parsed, err := strictDropPolicy("horizon: observability.drop_policy", value)
+		if err != nil {
+			return err
 		}
 		cfg.DropPolicy = parsed
 	}
-	return normalizeObservabilityConfig(cfg), nil
+
+	return nil
 }
 
 func observabilityPresetConfig(preset string) (ObservabilityConfig, error) {

@@ -196,6 +196,8 @@ type collector struct {
 
 	// batchSummaries 保存 BatchEvent 派生出的低频安全摘要。
 	batchSummaries []BatchSummary
+	// batchIndex 将 batch ID 映射到 batchSummaries 下标，O(1) 查找替代 O(n) 扫描。
+	batchIndex map[string]int
 
 	// runtime 样本池，使用 reservoir sampling 维护
 	rtSamples []int64
@@ -260,13 +262,14 @@ func newCollector(cfg ObservabilityConfig) *collector {
 		bufSize = 10000
 	}
 	return &collector{
-		cfg:     cfg,
-		buffer:  make(chan collectorItem, bufSize),
-		windows: make(map[string]*eventMetricsWindow),
-		aggKeys: make(map[string]*aggregateKeyState),
-		queued:  make(map[string]queuedJobCollectorState),
-		drops:   make(map[string]int64),
-		sampler: newSampleRandomSource(),
+		cfg:        cfg,
+		buffer:     make(chan collectorItem, bufSize),
+		windows:    make(map[string]*eventMetricsWindow),
+		aggKeys:    make(map[string]*aggregateKeyState),
+		queued:     make(map[string]queuedJobCollectorState),
+		drops:      make(map[string]int64),
+		batchIndex: make(map[string]int),
+		sampler:    newSampleRandomSource(),
 		memState: ObservabilityMemoryState{
 			BufferSize: bufSize,
 		},
@@ -458,6 +461,7 @@ func (c *collector) FlushSnapshot(now time.Time) *flushSnapshot {
 	c.windows = make(map[string]*eventMetricsWindow)
 	c.details = nil
 	c.batchSummaries = nil
+	c.batchIndex = make(map[string]int)
 	c.drops = make(map[string]int64)
 	c.diags = nil
 	c.lastFlushAt = now
@@ -634,43 +638,9 @@ func (c *collector) processEventMetricsLocked(input CollectorInput, occurredAt t
 		c.recordSourceSupervisorUnknownLocked(input, occurredAt)
 	}
 	windowStart := occurredAt.Truncate(c.cfg.MetricsWindow)
-	key := eventMetricsWindowKey(windowStart, input.SourcePrefix, input.SourceHost, input.SourceEnvironment, input.SourceSupervisor, input.Connection, input.Queue, input.JobName)
+	baseAggKey := aggKey(input.SourcePrefix, input.SourceHost, input.SourceEnvironment, input.SourceSupervisor, input.Connection, input.Queue, input.JobName)
 
-	w, ok := c.windows[key]
-	if !ok {
-		// 聚合 key 基数控制
-		c.enforceAggregateKeyLimitLocked(input, occurredAt)
-		// 上限触发后新 key 写入 _overflow
-		effectiveJobName := input.JobName
-		if len(c.aggKeys) >= c.cfg.MaxAggregateKeys && c.cfg.MaxAggregateKeys > 0 {
-			if _, exists := c.aggKeys[aggKey(input.SourcePrefix, input.SourceHost, input.SourceEnvironment, input.SourceSupervisor, input.Connection, input.Queue, input.JobName)]; !exists {
-				effectiveJobName = "_overflow"
-				c.recordDropLocked(MemoryDropAggregateOverflow)
-				key = eventMetricsWindowKey(windowStart, input.SourcePrefix, input.SourceHost, input.SourceEnvironment, input.SourceSupervisor, input.Connection, input.Queue, "_overflow")
-				w, ok = c.windows[key]
-			}
-		}
-		if !ok {
-			w = &eventMetricsWindow{
-				windowStart:  windowStart,
-				sourcePrefix: input.SourcePrefix,
-				sourceHost:   input.SourceHost,
-				environment:  input.SourceEnvironment,
-				supervisor:   input.SourceSupervisor,
-				connection:   input.Connection,
-				queue:        input.Queue,
-				jobName:      effectiveJobName,
-				sampleRate:   effectiveEventMetricsSampleRate(input.Sampling.EventMetricsSampleRate, c.cfg.EventMetricsSampleRate),
-				estimated:    input.Sampling.Estimated || c.cfg.EventMetricsSampleRate < 1.0,
-			}
-			c.windows[key] = w
-		}
-		// 更新聚合 key 活跃时间
-		c.aggKeys[aggKey(input.SourcePrefix, input.SourceHost, input.SourceEnvironment, input.SourceSupervisor, input.Connection, input.Queue, input.JobName)] = &aggregateKeyState{
-			key:        aggKey(input.SourcePrefix, input.SourceHost, input.SourceEnvironment, input.SourceSupervisor, input.Connection, input.Queue, input.JobName),
-			lastActive: occurredAt,
-		}
-	}
+	w := c.resolveEventMetricsWindowLocked(input, occurredAt, windowStart, baseAggKey)
 
 	w.eventSamples++
 	if rate := effectiveEventMetricsSampleRate(input.Sampling.EventMetricsSampleRate, c.cfg.EventMetricsSampleRate); rate > 0 {
@@ -704,6 +674,52 @@ func (c *collector) processEventMetricsLocked(input CollectorInput, occurredAt t
 	case "queue.poison_envelope":
 		w.poison++
 	}
+}
+
+// resolveEventMetricsWindowLocked 查找或创建当前窗口对应的 eventMetricsWindow。
+//
+// 逻辑说明：先按完整 key 查找；若不存在，执行聚合 key 基数控制（超限时折叠到 _overflow），
+// 然后创建新窗口并更新聚合 key 活跃时间。
+func (c *collector) resolveEventMetricsWindowLocked(input CollectorInput, occurredAt time.Time, windowStart time.Time, baseAggKey string) *eventMetricsWindow {
+	key := eventMetricsWindowKey(windowStart, input.SourcePrefix, input.SourceHost, input.SourceEnvironment, input.SourceSupervisor, input.Connection, input.Queue, input.JobName)
+
+	w, ok := c.windows[key]
+	if ok {
+		return w
+	}
+	// 聚合 key 基数控制
+	c.enforceAggregateKeyLimitLocked(input, occurredAt)
+	// 上限触发后新 key 写入 _overflow
+	effectiveJobName := input.JobName
+	if len(c.aggKeys) >= c.cfg.MaxAggregateKeys && c.cfg.MaxAggregateKeys > 0 {
+		if _, exists := c.aggKeys[baseAggKey]; !exists {
+			effectiveJobName = "_overflow"
+			c.recordDropLocked(MemoryDropAggregateOverflow)
+			key = eventMetricsWindowKey(windowStart, input.SourcePrefix, input.SourceHost, input.SourceEnvironment, input.SourceSupervisor, input.Connection, input.Queue, "_overflow")
+			w, ok = c.windows[key]
+		}
+	}
+	if !ok {
+		w = &eventMetricsWindow{
+			windowStart:  windowStart,
+			sourcePrefix: input.SourcePrefix,
+			sourceHost:   input.SourceHost,
+			environment:  input.SourceEnvironment,
+			supervisor:   input.SourceSupervisor,
+			connection:   input.Connection,
+			queue:        input.Queue,
+			jobName:      effectiveJobName,
+			sampleRate:   effectiveEventMetricsSampleRate(input.Sampling.EventMetricsSampleRate, c.cfg.EventMetricsSampleRate),
+			estimated:    input.Sampling.Estimated || c.cfg.EventMetricsSampleRate < 1.0,
+		}
+		c.windows[key] = w
+	}
+	// 更新聚合 key 活跃时间
+	c.aggKeys[baseAggKey] = &aggregateKeyState{
+		key:        baseAggKey,
+		lastActive: occurredAt,
+	}
+	return w
 }
 
 // processWaitsLocked 更新 queued 等待状态和 long_wait 判断。
@@ -803,11 +819,10 @@ func (c *collector) processBatchSummaryLocked(input CollectorInput, occurredAt t
 		summary.Quality = EventMetricQualityExact
 	}
 	// 同一个 batch 在一个 flush 窗口内可能多次更新；只保留最后状态，避免低频摘要放大内存。
-	for i := range c.batchSummaries {
-		if c.batchSummaries[i].ID == summary.ID {
-			c.batchSummaries[i] = summary
-			return
-		}
+	// 使用 batchIndex 进行 O(1) 查找，避免 O(n) 线性扫描。
+	if idx, exists := c.batchIndex[summary.ID]; exists {
+		c.batchSummaries[idx] = summary
+		return
 	}
 	limit := c.cfg.BatchSummarySize
 	if limit <= 0 {
@@ -817,6 +832,7 @@ func (c *collector) processBatchSummaryLocked(input CollectorInput, occurredAt t
 		c.recordDropLocked(MemoryDropBatchSummaryLimit)
 		return
 	}
+	c.batchIndex[summary.ID] = len(c.batchSummaries)
 	c.batchSummaries = append(c.batchSummaries, summary)
 }
 
@@ -1105,16 +1121,24 @@ func eventRateSlotIndex(sec int64) int {
 // 设计原因：同名 supervisor 在不同 host/environment 下不是重复 runtime；这里把来源维度纳入 key，
 // 让 flush batch 写出多个 EventMetricWindow，而不是在内存阶段提前相加。
 func eventMetricsWindowKey(windowStart time.Time, prefix, host, environment, supervisor, connection, queue, jobName string) string {
-	return strings.Join([]string{
-		windowStart.Format(time.RFC3339),
-		strings.TrimSpace(prefix),
-		strings.TrimSpace(host),
-		strings.TrimSpace(environment),
-		strings.TrimSpace(supervisor),
-		strings.TrimSpace(connection),
-		strings.TrimSpace(queue),
-		strings.TrimSpace(jobName),
-	}, ":")
+	var b strings.Builder
+	b.Grow(64 + len(prefix) + len(host) + len(environment) + len(supervisor) + len(connection) + len(queue) + len(jobName))
+	b.WriteString(windowStart.Format(time.RFC3339))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(prefix))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(host))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(environment))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(supervisor))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(connection))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(queue))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(jobName))
+	return b.String()
 }
 
 // aggKey 返回聚合基数控制使用的稳定 key。
@@ -1122,15 +1146,22 @@ func eventMetricsWindowKey(windowStart time.Time, prefix, host, environment, sup
 // 逻辑说明：来源维度不属于高基数扩展维度，不能被 _overflow 折叠；jobName 才是当前
 // aggregate overflow 的主要折叠目标。
 func aggKey(prefix, host, environment, supervisor, connection, queue, jobName string) string {
-	return strings.Join([]string{
-		strings.TrimSpace(prefix),
-		strings.TrimSpace(host),
-		strings.TrimSpace(environment),
-		strings.TrimSpace(supervisor),
-		strings.TrimSpace(connection),
-		strings.TrimSpace(queue),
-		strings.TrimSpace(jobName),
-	}, ":")
+	var b strings.Builder
+	b.Grow(len(prefix) + len(host) + len(environment) + len(supervisor) + len(connection) + len(queue) + len(jobName) + 6)
+	b.WriteString(strings.TrimSpace(prefix))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(host))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(environment))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(supervisor))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(connection))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(queue))
+	b.WriteByte(':')
+	b.WriteString(strings.TrimSpace(jobName))
+	return b.String()
 }
 
 func detailID(kind string, at time.Time, seq int64) string {
@@ -1221,6 +1252,14 @@ func collectorInputFromEventWithSampler(ev event.Event, obs ObservabilityConfig,
 		return CollectorInput{}
 	}
 	obs = normalizeObservabilityConfig(obs)
+	input := buildSamplingInput(ev, obs, pressure, sampler)
+	return populateInputFromEvent(input, ev)
+}
+
+// buildSamplingInput 构建采样决策和基础输入字段。
+//
+// 逻辑说明：根据配置和压力计算有效采样率，使用随机源判断是否命中采样。
+func buildSamplingInput(ev event.Event, obs ObservabilityConfig, pressure SamplingPressure, sampler sampleRandomSource) CollectorInput {
 	policy := EvaluateSamplingPolicy(obs, pressure)
 	input := CollectorInput{
 		Sampling: SamplingDecision{
@@ -1235,6 +1274,13 @@ func collectorInputFromEventWithSampler(ev event.Event, obs ObservabilityConfig,
 	input.Sampling.HighValueDetailRate = policy.HighValueDetailRate
 	input.Sampling.HighValueDetailSampled = shouldSampleWithSource(policy.HighValueDetailRate, sampler)
 
+	return input
+}
+
+// populateInputFromEvent 根据事件类型填充具体字段。
+//
+// 逻辑说明：将 queue event 的具体字段映射到 CollectorInput，不同事件类型有不同的字段集合。
+func populateInputFromEvent(input CollectorInput, ev event.Event) CollectorInput {
 	switch typed := ev.(type) {
 	case queue.JobQueued:
 		input.Event = queue.EventJobQueued
