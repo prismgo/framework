@@ -68,6 +68,8 @@ func (s *stackLogger) Errorf(format string, args ...any) {
 
 // Fatal 广播到所有子通道后由最后一个通道触发进程退出。
 // 语义上与 logrus.Fatal 一致（最后写入的 logger 负责 os.Exit(1)）。
+// len(s.children) == 0 的防御性检查保留在构造路径已有保证的场景下；
+// newStackLogger 和 buildLocked 均确保子通道列表非空。
 func (s *stackLogger) Fatal(args ...any) {
 	if len(s.children) == 0 {
 		return

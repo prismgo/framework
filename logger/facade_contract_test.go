@@ -1,10 +1,12 @@
 package logger
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
+	"github.com/sirupsen/logrus"
 )
 
 func useIsolatedFacadeRegistry(t *testing.T) *container.Container {
@@ -21,6 +23,36 @@ func bindLoggerManagerForTest(t *testing.T, registry *container.Container, manag
 		t.Fatalf("bind logger manager: %v", err)
 	}
 	syncLogrusStandard(manager)
+}
+
+// TestWriteLogrusEntryPanicLevelPanics 验证 PanicLevel 日志会触发 panic。
+func TestWriteLogrusEntryPanicLevelPanics(t *testing.T) {
+	lg := logrus.New()
+	lg.SetOutput(bytes.NewBuffer(nil))
+	lg.SetLevel(logrus.TraceLevel)
+	c := &channel{logger: lg}
+
+	entry := &logrus.Entry{
+		Logger:  lg,
+		Level:   logrus.PanicLevel,
+		Message: "panic test",
+	}
+
+	panicked := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+				if r != "panic test" {
+					t.Fatalf("unexpected panic value: %v", r)
+				}
+			}
+		}()
+		writeLogrusEntry(c, entry)
+	}()
+	if !panicked {
+		t.Fatal("expected panic for PanicLevel")
+	}
 }
 
 func TestResolveRequiresCurrentRegistry(t *testing.T) {

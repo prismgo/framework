@@ -13,6 +13,10 @@ import (
 )
 
 var (
+	// fallbackLg 是包级只读的 fallback Logger，初始化后不再写入。
+	// 底层 *logrus.Logger 在包初始化时创建一次，后续只有读取调用
+	// （Debug/Info 等），logrus 内部持锁保护并发写，因此无需额外的
+	// 同步保护。
 	fallbackLg          Logger = newFallbackLogger()
 	standardHook               = &standardLogrusHook{}
 	standardHookInstall sync.Once
@@ -198,6 +202,7 @@ func writeLogrusEntry(target Logger, entry *logrus.Entry) error {
 		target.Fatal(entry.Message)
 	case logrus.PanicLevel:
 		target.Error(entry.Message)
+		panic(entry.Message)
 	}
 	return nil
 }

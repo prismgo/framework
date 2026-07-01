@@ -200,6 +200,17 @@ func TestLineFormatterFallsBackToDebugStack(t *testing.T) {
 	}
 }
 
+// TestDefaultFormatterReturnsLineFormatter 验证 defaultFormatter 始终返回有效的 LineFormatter。
+func TestDefaultFormatterReturnsLineFormatter(t *testing.T) {
+	f := defaultFormatter()
+	if f == nil {
+		t.Fatal("defaultFormatter returned nil")
+	}
+	if _, ok := f.(*LineFormatter); !ok {
+		t.Fatalf("expected *LineFormatter, got %T", f)
+	}
+}
+
 // TestBuildFormatterDefaultsToLine 验证空 formatter 名称时默认切换为 line。
 func TestBuildFormatterDefaultsToLine(t *testing.T) {
 	formatter, err := buildFormatter("", map[string]any{"channel": "local"})

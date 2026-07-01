@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/prismgo/framework/container"
+	containercontract "github.com/prismgo/framework/contracts/container"
 	"github.com/sirupsen/logrus"
 )
 
@@ -619,6 +620,53 @@ func readFirstJSONLogRow(t *testing.T, path string) map[string]any {
 		t.Fatalf("not valid json: %s", line)
 	}
 	return row
+}
+
+// mockConfigReader 模拟 config facade 用于 buildConfig 测试。
+type mockConfigReader struct {
+	getString    func(path string, defaultValue ...any) string
+	getStringMap func(path string) map[string]any
+}
+
+func (m *mockConfigReader) GetString(path string, defaultValue ...any) string {
+	if m.getString != nil {
+		return m.getString(path, defaultValue...)
+	}
+	return ""
+}
+
+func (m *mockConfigReader) GetStringMap(path string) map[string]any {
+	if m.getStringMap != nil {
+		return m.getStringMap(path)
+	}
+	return nil
+}
+
+// TestBuildConfigRejectsNonMapChannel 验证 logging.channels.X 不是 map 时 buildConfig 返回错误。
+func TestBuildConfigRejectsNonMapChannel(t *testing.T) {
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+
+	if err := registry.Singleton("config.default", func(_ containercontract.Resolver) (any, error) {
+		return &mockConfigReader{
+			getString: func(path string, defaultValue ...any) string {
+				return "app"
+			},
+			getStringMap: func(path string) map[string]any {
+				return map[string]any{
+					"app": "not-a-map-string",
+				}
+			},
+		}, nil
+	}); err != nil {
+		t.Fatalf("register mock config: %v", err)
+	}
+
+	_, err := buildConfig()
+	if err == nil {
+		t.Fatal("expected error for non-map channel config, got nil")
+	}
 }
 
 // TestNewManagerRejectsMissingDefault 验证 default 未在 Channels 中声明时会拒绝。

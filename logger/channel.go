@@ -56,8 +56,12 @@ func newChannel(name string, opts ChannelOptions, manager *Manager) (*channel, e
 
 // defaultFormatter 返回全局 fallback 使用的格式（line）。
 // line formatter 通过 params 注入 channel 名；fallback 场景允许缺省为空。
+// 内置 formatter 不会失败；panic 仅用于暴露不可恢复的实现错误。
 func defaultFormatter() logrus.Formatter {
-	f, _ := buildFormatter("line", nil)
+	f, err := buildFormatter("line", nil)
+	if err != nil {
+		panic("logger: built-in line formatter should never fail: " + err.Error())
+	}
 	return f
 }
 

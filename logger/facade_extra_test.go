@@ -96,7 +96,6 @@ func TestApplicationManagerAndServiceProvider(t *testing.T) {
 					"driver":   "stack",
 					"channels": []any{"app", "ops", ""},
 				},
-				"ignored": "not-a-map",
 			},
 		},
 	}); err != nil {
@@ -435,15 +434,20 @@ func TestManagerCloseReturnsFirstDriverError(t *testing.T) {
 }
 
 func TestStandardHookHelperBranches(t *testing.T) {
-	// Panic-level logrus entries are downgraded to Error because the logger facade has no Panic method.
+	// Panic-level logrus entries trigger Error + panic after fix.
 	target := &recordingLogger{}
 	entry := logrus.NewEntry(logrus.New())
 	entry.Level = logrus.PanicLevel
 	entry.Message = "panic payload"
 	entry.Data = logrus.Fields{"scope": "hook"}
-	if err := writeLogrusEntry(target, entry); err != nil {
-		t.Fatalf("write logrus entry: %v", err)
-	}
+	func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Fatal("expected panic for PanicLevel")
+			}
+		}()
+		_ = writeLogrusEntry(target, entry)
+	}()
 	if target.lastLevel != "error" {
 		t.Fatalf("panic entry level = %q, want error", target.lastLevel)
 	}

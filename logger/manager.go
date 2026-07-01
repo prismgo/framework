@@ -188,7 +188,7 @@ func buildConfig() (Config, error) {
 	for name, raw := range rawChannels {
 		spec, ok := raw.(map[string]any)
 		if !ok {
-			continue
+			return Config{}, fmt.Errorf("logging.channels.%s: expected map, got %T", name, raw)
 		}
 		channels[name] = ChannelOptions{
 			Driver:    castString(spec["driver"]),

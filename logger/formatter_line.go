@@ -106,9 +106,7 @@ func (f *LineFormatter) formatContext(data logrus.Fields) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if string(encoded) == "{}" && f.ignoreEmptyContextAndExtra {
-		return "", nil
-	}
+	// len(context) == 0 已在上面提前返回，json.Marshal 不会输出 "{}"。
 	return string(encoded), nil
 }
 
