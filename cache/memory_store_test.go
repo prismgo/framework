@@ -9,7 +9,11 @@ import (
 // TestMemoryStoreGetManyBatchRead 验证批量读取在一次锁内完成
 func TestMemoryStoreGetManyBatchRead(t *testing.T) {
 	store := newMemoryStore(time.Minute, 0)
-	defer store.Close()
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
 	ctx := context.Background()
 
 	// 写入多个 key
@@ -41,21 +45,29 @@ func TestMemoryStoreGetManyBatchRead(t *testing.T) {
 // TestMemoryStoreGetManyCleansExpiredKeys 验证批量读取时清理过期 key
 func TestMemoryStoreGetManyCleansExpiredKeys(t *testing.T) {
 	store := newMemoryStore(time.Minute, 0)
-	defer store.Close()
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
 	ctx := context.Background()
 
 	// 写入 3 个 key，其中 2 个已过期
 	if err := store.Set(ctx, "valid", []byte("data1"), expirationOptions(time.Minute)...); err != nil {
 		t.Fatalf("set valid: %v", err)
 	}
-	if err := store.Set(ctx, "expired1", []byte("data2"), expirationOptions(10*time.Millisecond)...); err != nil {
+	if err := store.Set(ctx, "expired1", []byte("data2"), expirationOptions(50*time.Millisecond)...); err != nil {
 		t.Fatalf("set expired1: %v", err)
 	}
-	if err := store.Set(ctx, "expired2", []byte("data3"), expirationOptions(10*time.Millisecond)...); err != nil {
+	if err := store.Set(ctx, "expired2", []byte("data3"), expirationOptions(50*time.Millisecond)...); err != nil {
 		t.Fatalf("set expired2: %v", err)
 	}
+	// 写入一个不在请求列表中的过期 key，验证 GetMany 不会清理未被请求的 key
+	if err := store.Set(ctx, "unrequested-expired", []byte("data4"), expirationOptions(50*time.Millisecond)...); err != nil {
+		t.Fatalf("set unrequested-expired: %v", err)
+	}
 
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// 批量读取应清理过期 key
 	keys := []string{"valid", "expired1", "expired2", "missing"}
@@ -72,21 +84,30 @@ func TestMemoryStoreGetManyCleansExpiredKeys(t *testing.T) {
 		t.Errorf("values[valid] = %q, want data1", values["valid"])
 	}
 
-	// 验证过期 key 已被清理
+	// 验证被请求的过期 key 已被清理
 	store.mu.RLock()
 	_, hasExpired1 := store.items["expired1"]
 	_, hasExpired2 := store.items["expired2"]
+	_, hasUnrequested := store.items["unrequested-expired"]
 	store.mu.RUnlock()
 
 	if hasExpired1 || hasExpired2 {
-		t.Error("expired keys should be cleaned up during GetMany")
+		t.Error("requested expired keys should be cleaned up during GetMany")
+	}
+	// GetMany 只清理请求列表中命中的过期 key，未被请求的过期 key 不会被清理
+	if !hasUnrequested {
+		t.Error("unrequested expired key should NOT be cleaned up by GetMany")
 	}
 }
 
 // TestMemoryStoreGetManyEmptyKeys 验证空 keys 返回空 map
 func TestMemoryStoreGetManyEmptyKeys(t *testing.T) {
 	store := newMemoryStore(time.Minute, 0)
-	defer store.Close()
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
 	ctx := context.Background()
 
 	values, err := store.GetMany(ctx, []string{})
@@ -101,7 +122,11 @@ func TestMemoryStoreGetManyEmptyKeys(t *testing.T) {
 // TestMemoryStoreGetManyPartialHit 验证部分命中场景
 func TestMemoryStoreGetManyPartialHit(t *testing.T) {
 	store := newMemoryStore(time.Minute, 0)
-	defer store.Close()
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
 	ctx := context.Background()
 
 	// 只写入 2 个 key
@@ -133,7 +158,11 @@ func TestMemoryStoreGetManyPartialHit(t *testing.T) {
 // TestMemoryStoreGetWithTTLBasic 验证 GetWithTTL 基本功能
 func TestMemoryStoreGetWithTTLBasic(t *testing.T) {
 	store := newMemoryStore(time.Minute, 0)
-	defer store.Close()
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
 	ctx := context.Background()
 
 	// 写入带 TTL 的 key
@@ -160,7 +189,11 @@ func TestMemoryStoreGetWithTTLBasic(t *testing.T) {
 // TestMemoryStoreGetWithTTLForever 验证永久 key 的 TTL 返回 -1
 func TestMemoryStoreGetWithTTLForever(t *testing.T) {
 	store := newMemoryStore(0, 0)
-	defer store.Close()
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
 	ctx := context.Background()
 
 	// 写入永久 key（TTL = 0）
@@ -186,15 +219,19 @@ func TestMemoryStoreGetWithTTLForever(t *testing.T) {
 // TestMemoryStoreGetWithTTLExpired 验证过期 key 返回 ErrCacheMiss
 func TestMemoryStoreGetWithTTLExpired(t *testing.T) {
 	store := newMemoryStore(time.Minute, 0)
-	defer store.Close()
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
 	ctx := context.Background()
 
 	// 写入即将过期的 key
-	if err := store.Set(ctx, "expired-key", []byte("data"), expirationOptions(10*time.Millisecond)...); err != nil {
+	if err := store.Set(ctx, "expired-key", []byte("data"), expirationOptions(50*time.Millisecond)...); err != nil {
 		t.Fatalf("set: %v", err)
 	}
 
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// 读取应返回 ErrCacheMiss
 	_, _, err := store.GetWithTTL(ctx, "expired-key")
@@ -206,7 +243,11 @@ func TestMemoryStoreGetWithTTLExpired(t *testing.T) {
 // TestMemoryStoreGetWithTTLMissing 验证不存在的 key 返回 ErrCacheMiss
 func TestMemoryStoreGetWithTTLMissing(t *testing.T) {
 	store := newMemoryStore(time.Minute, 0)
-	defer store.Close()
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
 	ctx := context.Background()
 
 	// 读取不存在的 key
@@ -216,10 +257,382 @@ func TestMemoryStoreGetWithTTLMissing(t *testing.T) {
 	}
 }
 
+// TestMemoryStoreGetWithTTLNonStringKey 验证非 string key 返回错误
+func TestMemoryStoreGetWithTTLNonStringKey(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	_, _, err := store.GetWithTTL(ctx, 123)
+	if err == nil {
+		t.Fatal("expected error for non-string key, got nil")
+	}
+}
+
+// TestMemoryStoreGetBasic 验证 Get 基本功能
+func TestMemoryStoreGetBasic(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	if err := store.Set(ctx, "key", "value", expirationOptions(time.Minute)...); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	val, err := store.Get(ctx, "key")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if val != "value" {
+		t.Errorf("got %v, want value", val)
+	}
+}
+
+// TestMemoryStoreGetMissing 验证 Get 缺失 key 返回 ErrCacheMiss
+func TestMemoryStoreGetMissing(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	_, err := store.Get(ctx, "missing")
+	if err == nil {
+		t.Fatal("expected error for missing key, got nil")
+	}
+}
+
+// TestMemoryStoreGetNonStringKey 验证 Get 非 string key 返回错误
+func TestMemoryStoreGetNonStringKey(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	_, err := store.Get(ctx, 123)
+	if err == nil {
+		t.Fatal("expected error for non-string key, got nil")
+	}
+}
+
+// TestMemoryStoreGetExpired 验证 Get 过期 key 返回 ErrCacheMiss 并清理
+func TestMemoryStoreGetExpired(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	if err := store.Set(ctx, "expired", "value", expirationOptions(50*time.Millisecond)...); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	_, err := store.Get(ctx, "expired")
+	if err == nil {
+		t.Fatal("expected error for expired key, got nil")
+	}
+
+	// 验证过期 key 已被清理
+	store.mu.RLock()
+	_, exists := store.items["expired"]
+	store.mu.RUnlock()
+	if exists {
+		t.Error("expired key should be deleted after Get")
+	}
+}
+
+// TestMemoryStoreTouchBasic 验证 Touch 更新 TTL
+func TestMemoryStoreTouchBasic(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	if err := store.Set(ctx, "key", "value", expirationOptions(time.Minute)...); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	ok, err := store.Touch(ctx, "key", 2*time.Minute)
+	if err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+	if !ok {
+		t.Error("touch should return true for existing key")
+	}
+}
+
+// TestMemoryStoreTouchMissing 验证 Touch 缺失 key 返回 false
+func TestMemoryStoreTouchMissing(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	ok, err := store.Touch(ctx, "missing", time.Minute)
+	if err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+	if ok {
+		t.Error("touch should return false for missing key")
+	}
+}
+
+// TestMemoryStoreTouchExpired 验证 Touch 过期 key 返回 false 并清理
+func TestMemoryStoreTouchExpired(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	if err := store.Set(ctx, "expired", "value", expirationOptions(50*time.Millisecond)...); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	ok, err := store.Touch(ctx, "expired", time.Minute)
+	if err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+	if ok {
+		t.Error("touch should return false for expired key")
+	}
+
+	// 验证过期 key 已被清理
+	store.mu.RLock()
+	_, exists := store.items["expired"]
+	store.mu.RUnlock()
+	if exists {
+		t.Error("expired key should be deleted after Touch")
+	}
+}
+
+// TestMemoryStoreTouchForever 验证 Touch 设置 TTL=0 使 key 永久
+func TestMemoryStoreTouchForever(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	if err := store.Set(ctx, "key", "value", expirationOptions(time.Minute)...); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	if _, err := store.Touch(ctx, "key", 0); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+
+	// 验证 TTL 变为 -1（永久）
+	_, ttl, err := store.GetWithTTL(ctx, "key")
+	if err != nil {
+		t.Fatalf("getWithTTL: %v", err)
+	}
+	if ttl != -1 {
+		t.Errorf("TTL = %v, want -1 (forever)", ttl)
+	}
+}
+
+// TestMemoryStorePutMany 验证批量写入
+func TestMemoryStorePutMany(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	values := map[string][]byte{
+		"key1": []byte("value1"),
+		"key2": []byte("value2"),
+	}
+
+	if err := store.PutMany(ctx, values, time.Minute); err != nil {
+		t.Fatalf("putMany: %v", err)
+	}
+
+	// 验证所有 key 已写入
+	for key, expected := range values {
+		val, err := store.Get(ctx, key)
+		if err != nil {
+			t.Fatalf("get %s: %v", key, err)
+		}
+		if string(val.([]byte)) != string(expected) {
+			t.Errorf("got %v, want %v", val, expected)
+		}
+	}
+}
+
+// TestMemoryStoreForgetMany 验证批量删除
+func TestMemoryStoreForgetMany(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	// 先写入多个 key
+	for i := 0; i < 3; i++ {
+		key := "key" + string(rune('0'+i))
+		if err := store.Set(ctx, key, []byte("value"), expirationOptions(time.Minute)...); err != nil {
+			t.Fatalf("set: %v", err)
+		}
+	}
+
+	// 批量删除
+	keys := []string{"key0", "key1", "key2"}
+	if err := store.ForgetMany(ctx, keys); err != nil {
+		t.Fatalf("forgetMany: %v", err)
+	}
+
+	// 验证所有 key 已删除
+	for _, key := range keys {
+		_, err := store.Get(ctx, key)
+		if err == nil {
+			t.Errorf("key %s should be deleted", key)
+		}
+	}
+}
+
+// TestMemoryStoreIncrementBasic 验证 Increment 基本功能
+func TestMemoryStoreIncrementBasic(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	// 初始化计数器
+	if err := store.Set(ctx, "counter", []byte("10"), expirationOptions(time.Minute)...); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	// 递增
+	val, err := store.Increment(ctx, "counter", 5)
+	if err != nil {
+		t.Fatalf("increment: %v", err)
+	}
+	if val != 15 {
+		t.Errorf("got %d, want 15", val)
+	}
+}
+
+// TestMemoryStoreIncrementExpired 验证 Increment 过期 key 从 0 开始
+func TestMemoryStoreIncrementExpired(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	// 写入即将过期的计数器
+	if err := store.Set(ctx, "counter", []byte("100"), expirationOptions(50*time.Millisecond)...); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// 递增应从 0 开始
+	val, err := store.Increment(ctx, "counter", 5)
+	if err != nil {
+		t.Fatalf("increment: %v", err)
+	}
+	if val != 5 {
+		t.Errorf("got %d, want 5 (expired key should reset to 0)", val)
+	}
+}
+
+// TestMemoryStoreIncrementInvalidValue 验证 Increment 非整数值返回错误
+func TestMemoryStoreIncrementInvalidValue(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	// 写入非整数值
+	if err := store.Set(ctx, "counter", []byte("not-a-number"), expirationOptions(time.Minute)...); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	_, err := store.Increment(ctx, "counter", 5)
+	if err == nil {
+		t.Fatal("expected error for invalid counter value, got nil")
+	}
+}
+
+// TestMemoryStoreForgetTagged 验证删除 tagged cache
+func TestMemoryStoreForgetTagged(t *testing.T) {
+	store := newMemoryStore(time.Minute, 0)
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	})
+	ctx := context.Background()
+
+	// 写入 tagged cache
+	if err := store.PutTagged(ctx, "prefix", []string{"tag1"}, "key", []byte("value"), time.Minute); err != nil {
+		t.Fatalf("putTagged: %v", err)
+	}
+
+	// 删除 tagged cache
+	if err := store.ForgetTagged(ctx, "prefix", []string{"tag1"}, "key"); err != nil {
+		t.Fatalf("forgetTagged: %v", err)
+	}
+
+	// 验证已删除
+	_, err := store.Get(ctx, "prefix:tag1:key")
+	if err == nil {
+		t.Error("tagged key should be deleted")
+	}
+}
+
 // BenchmarkMemoryStoreGetManyPerformance 基准测试证明 N+1 锁竞争问题
 func BenchmarkMemoryStoreGetManyPerformance(b *testing.B) {
 	store := newMemoryStore(time.Minute, 0)
-	defer store.Close()
+	b.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			b.Fatalf("close: %v", err)
+		}
+	})
 	ctx := context.Background()
 
 	// 预填充 1000 个 key
