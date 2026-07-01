@@ -1013,6 +1013,22 @@ func TestBuildAndRegisterWithFactory(t *testing.T) {
 	}
 }
 
+func TestBuildAndRegisterDoesNotDuplicateDefaultDontReport(t *testing.T) {
+	resetExceptionForTest()
+	t.Cleanup(resetExceptionForTest)
+
+	customPredicate := func(err error) bool { return false }
+	h := BuildAndRegister([]Option{WithDontReport(customPredicate)}, nil)
+
+	if len(h.DontReport) != 2 {
+		t.Fatalf("expected 2 predicates (DefaultDontReport + custom), got %d", len(h.DontReport))
+	}
+
+	if h.DontReport[0] == nil || h.DontReport[1] == nil {
+		t.Fatal("predicates should not be nil")
+	}
+}
+
 // =============================================================================
 // Reporter 测试
 // =============================================================================

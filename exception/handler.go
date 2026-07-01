@@ -24,11 +24,6 @@ var DefaultDontReport = Predicate(func(err error) bool {
 	return false
 })
 
-// exceptionReportedKey 在 gin.Context 中标记异常已被上报，防止同一请求重复记录日志。
-// 设计背景：middleware 中 deferred recover 和 c.Next() 之后的错误检查可能
-// 都触发上报，通过 context key 标记确保每个请求只上报一次。
-const exceptionReportedKey = "_exception_reported"
-
 // Handler 是框架统一异常处理器，对齐 Laravel ExceptionHandler。
 //
 // 需求背景：
@@ -257,6 +252,7 @@ func (h *Handler) Debug() bool {
 }
 
 // finishRenderedResponse 在自定义 ResponseRenderer 写入响应后完成 abort。
+// err 仅在 renderer 未写响应时用于回退构建 Problem（获取安全状态码）。
 func finishRenderedResponse(c *gin.Context, err error) int {
 	if c.Writer.Written() {
 		c.Abort()
@@ -343,14 +339,20 @@ func scrubLogValue(key string, value any) any {
 	}
 }
 
+// sensitiveKeyNormalizer 把字段名中的 - 和 . 统一为 _，便于跨命名风格匹配敏感 token。
+var sensitiveKeyNormalizer = strings.NewReplacer("-", "_", ".", "_")
+
+// sensitiveTokens 列出被视为敏感的字段名片段；匹配规则为完全相等或前后带 _ 分隔符。
+// service_key 是框架容器绑定标识，不包含凭据；通过白名单显式排除。
+var sensitiveTokens = []string{"password", "secret", "token", "key", "authorization", "cookie", "payload", "raw_body", "body_base64"}
+
 func isSensitiveLogKey(key string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(key))
-	normalized = strings.NewReplacer("-", "_", ".", "_").Replace(normalized)
-	// service_key 是框架容器绑定标识，不包含凭据；保留它能让 facade fallback 报告定位到具体服务。
+	normalized = sensitiveKeyNormalizer.Replace(normalized)
 	if normalized == "service_key" {
 		return false
 	}
-	for _, token := range []string{"password", "secret", "token", "key", "authorization", "cookie", "payload", "raw_body", "body_base64"} {
+	for _, token := range sensitiveTokens {
 		if normalized == token || strings.Contains(normalized, "_"+token) || strings.Contains(normalized, token+"_") {
 			return true
 		}

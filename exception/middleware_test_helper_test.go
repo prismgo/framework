@@ -10,6 +10,10 @@ import (
 	"github.com/prismgo/framework/internal/stackx"
 )
 
+// exceptionReportedKey 在 gin.Context 中标记异常已被上报，防止同一请求重复记录日志。
+// 仅用于测试 helper，生产实现在 http/middleware/exception.go 中。
+const exceptionReportedKey = "_exception_reported"
+
 func exceptionMiddlewareTest(h *Handler) gin.HandlerFunc {
 	if h == nil {
 		h = New()
