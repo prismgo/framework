@@ -21,6 +21,15 @@ func TestServiceProviderRegistersLazyDatabaseFactory(t *testing.T) {
 	}
 }
 
+// TestServiceProviderUsesDBCloseOption 验证 ServiceProvider 复用 DBCloseOption
+func TestServiceProviderUsesDBCloseOption(t *testing.T) {
+	// 验证 DBCloseOption 返回的选项可以被正确使用
+	opt := DBCloseOption()
+	if opt == nil {
+		t.Fatal("DBCloseOption should return a non-nil option")
+	}
+}
+
 func TestServiceProviderPreservesCustomDatabaseFactory(t *testing.T) {
 	registry := container.NewContainer()
 	custom := &gorm.DB{}

@@ -90,6 +90,19 @@ func BuildMySQLDSN(cfg MySQLConfig) string {
 	}).FormatDSN()
 }
 
+// buildDSNByDriver 根据驱动类型构建 DSN。
+// 目前仅支持 mysql 驱动，其他驱动返回空字符串。
+func buildDSNByDriver(driver string, cfg MySQLConfig) string {
+	switch strings.ToLower(strings.TrimSpace(driver)) {
+	case "mysql", "":
+		return BuildMySQLDSN(cfg)
+	case "sqlite", "sqlite3":
+		return cfg.DSN
+	default:
+		return ""
+	}
+}
+
 // defaultIfBlank 当 v 为空白字符串时返回 fallback。
 func defaultIfBlank(v, fallback string) string {
 	if strings.TrimSpace(v) == "" {
@@ -141,7 +154,7 @@ func parseDurationSecondsOrText(value string, fallback time.Duration) time.Durat
 }
 
 // OpenDefaultConnection 根据应用配置仓库创建默认数据库连接，目前仅支持 MySQL。
-func OpenDefaultConnection(...any) (*gorm.DB, error) {
+func OpenDefaultConnection() (*gorm.DB, error) {
 	connection := configpkg.GetString("database.default", "mysql")
 	return OpenConnection(connection)
 }
@@ -154,7 +167,7 @@ func OpenConnection(connection string) (*gorm.DB, error) {
 	}
 	prefix := "database.connections." + connection
 	driver := configpkg.GetString(prefix+".driver", "mysql")
-	dsn := BuildMySQLDSN(MySQLConfig{
+	dsn := buildDSNByDriver(driver, MySQLConfig{
 		DSN:       configpkg.GetString(prefix+".dsn", ""),
 		Host:      configpkg.GetString(prefix+".host", "127.0.0.1"),
 		Port:      configpkg.GetString(prefix+".port", "3306"),
@@ -176,6 +189,9 @@ func OpenConnection(connection string) (*gorm.DB, error) {
 		ConnMaxLifetime: parseDurationSecondsOrText(configpkg.GetString(prefix+".conn_max_lifetime", "1h"), time.Hour),
 		ConnMaxIdleTime: parseDurationSecondsOrText(configpkg.GetString(prefix+".conn_max_idle_time", "10m"), 10*time.Minute),
 	}); err != nil {
+		if sqlDB, closeErr := db.DB(); closeErr == nil {
+			_ = sqlDB.Close()
+		}
 		return nil, err
 	}
 	return db, nil

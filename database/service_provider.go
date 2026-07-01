@@ -1,10 +1,8 @@
 package database
 
 import (
-	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
 	providercontract "github.com/prismgo/framework/contracts/provider"
-	"gorm.io/gorm"
 )
 
 // providerApplication 复用公共 provider 契约的最小 Application 视图，避免 database 包反向 import foundation。
@@ -30,13 +28,7 @@ func (ServiceProvider) Register(app providerApplication) error {
 	}
 	return c.Singleton("database.default", func(containercontract.Resolver) (any, error) {
 		return OpenDefaultConnection()
-	}, container.WithCloser(func(db *gorm.DB) error {
-		sqlDB, err := db.DB()
-		if err != nil {
-			return err
-		}
-		return sqlDB.Close()
-	}))
+	}, DBCloseOption())
 }
 
 // Boot 保持无副作用；数据库连接只在 strict Resolve 或真实入口使用时打开。

@@ -234,8 +234,24 @@ func (b *Builder) GetTypes(_ any) ([]TypeInfo, error) {
 
 // HasColumns 判断多个字段是否全部存在。
 func (b *Builder) HasColumns(table string, columns []string) bool {
+	if len(columns) == 0 {
+		return true
+	}
+
+	allColumns, err := b.GetColumns(table)
+	if err != nil {
+		return false
+	}
+
+	// 构建列名集合用于快速查找
+	columnSet := make(map[string]struct{}, len(allColumns))
+	for _, col := range allColumns {
+		columnSet[col.Name] = struct{}{}
+	}
+
+	// 检查所有需要的列是否都存在
 	for _, column := range columns {
-		if !b.HasColumn(table, column) {
+		if _, exists := columnSet[column]; !exists {
 			return false
 		}
 	}
@@ -440,13 +456,21 @@ func (b *Builder) DropColumns(table string, columns ...string) error {
 
 // DropAllTables 删除当前 schema 下所有表。
 func (b *Builder) DropAllTables() error {
+	db, err := b.resolve()
+	if err != nil {
+		return err
+	}
 	tables, err := b.GetTables(nil)
 	if err != nil {
 		return err
 	}
+	if len(tables) == 0 {
+		return nil
+	}
 	return b.WithoutForeignKeyConstraints(func() error {
+		// GetTables 已确认表存在，直接使用 DropTable 避免重复检查
 		for _, table := range tables {
-			if err := b.DropIfExists(table.Name); err != nil {
+			if err := db.Migrator().DropTable(table.Name); err != nil {
 				return err
 			}
 		}

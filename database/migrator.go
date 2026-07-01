@@ -10,6 +10,11 @@ import (
 // mysqlTableOptions 是 MySQL 建表时统一追加的选项，保证 UTF8 与 InnoDB 一致。
 const mysqlTableOptions = "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
 
+// quoteIdentifier 转义 SQL 标识符（表名、列名等），防止 SQL 注入
+func quoteIdentifier(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
+
 // TableOptions 返回指定 GORM dialect 的建表选项，未知 dialect 返回空串。
 // 在 AutoMigrate 之前可通过 db.Set("gorm:table_options", opts) 注入。
 func TableOptions(dialect string) string {
@@ -51,7 +56,7 @@ func EnsureInnoDB(db *gorm.DB, models []any) error {
 		if !ShouldAlterEngine(engine) {
 			continue
 		}
-		if err := db.Exec(fmt.Sprintf("ALTER TABLE `%s` ENGINE=InnoDB", name)).Error; err != nil {
+		if err := db.Exec(fmt.Sprintf("ALTER TABLE %s ENGINE=InnoDB", quoteIdentifier(name))).Error; err != nil {
 			return fmt.Errorf("alter table %s engine failed: %w", name, err)
 		}
 	}
@@ -102,8 +107,8 @@ func EnsureCompositeIndexes(db *gorm.DB, indexes []CompositeIndex) error {
 				continue
 			}
 			sql := fmt.Sprintf(
-				"ALTER TABLE `%s` ADD INDEX `%s` (%s)",
-				idx.Table, idx.Name, idx.Columns,
+				"ALTER TABLE %s ADD INDEX %s (%s)",
+				quoteIdentifier(idx.Table), quoteIdentifier(idx.Name), idx.Columns,
 			)
 			if err := db.Exec(sql).Error; err != nil {
 				return fmt.Errorf("create index %s.%s failed: %w", idx.Table, idx.Name, err)
@@ -112,8 +117,8 @@ func EnsureCompositeIndexes(db *gorm.DB, indexes []CompositeIndex) error {
 	case "sqlite", "sqlite3":
 		for _, idx := range indexes {
 			sql := fmt.Sprintf(
-				"CREATE INDEX IF NOT EXISTS `%s` ON `%s` (%s)",
-				idx.Name, idx.Table, idx.Columns,
+				"CREATE INDEX IF NOT EXISTS %s ON %s (%s)",
+				quoteIdentifier(idx.Name), quoteIdentifier(idx.Table), idx.Columns,
 			)
 			if err := db.Exec(sql).Error; err != nil {
 				return fmt.Errorf("create sqlite index %s.%s failed: %w", idx.Table, idx.Name, err)
@@ -138,8 +143,8 @@ func EnsureCompositeUniqueIndexes(db *gorm.DB, indexes []CompositeUniqueIndex) e
 				continue
 			}
 			sql := fmt.Sprintf(
-				"ALTER TABLE `%s` ADD UNIQUE INDEX `%s` (%s)",
-				idx.Table, idx.Name, idx.Columns,
+				"ALTER TABLE %s ADD UNIQUE INDEX %s (%s)",
+				quoteIdentifier(idx.Table), quoteIdentifier(idx.Name), idx.Columns,
 			)
 			if err := db.Exec(sql).Error; err != nil {
 				return fmt.Errorf("create index %s.%s failed: %w", idx.Table, idx.Name, err)
@@ -149,8 +154,8 @@ func EnsureCompositeUniqueIndexes(db *gorm.DB, indexes []CompositeUniqueIndex) e
 		// SQLite: CREATE UNIQUE INDEX IF NOT EXISTS（幂等，无需预先检查）。
 		for _, idx := range indexes {
 			sql := fmt.Sprintf(
-				"CREATE UNIQUE INDEX IF NOT EXISTS `%s` ON `%s` (%s)",
-				idx.Name, idx.Table, idx.Columns,
+				"CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s (%s)",
+				quoteIdentifier(idx.Name), quoteIdentifier(idx.Table), idx.Columns,
 			)
 			if err := db.Exec(sql).Error; err != nil {
 				return fmt.Errorf("create sqlite index %s.%s failed: %w", idx.Table, idx.Name, err)
@@ -181,7 +186,7 @@ func DropObsoleteIndexes(db *gorm.DB, indexes []DropIndex) error {
 		if !exists {
 			continue
 		}
-		sql := fmt.Sprintf("ALTER TABLE `%s` DROP INDEX `%s`", idx.Table, idx.Name)
+		sql := fmt.Sprintf("ALTER TABLE %s DROP INDEX %s", quoteIdentifier(idx.Table), quoteIdentifier(idx.Name))
 		if err := db.Exec(sql).Error; err != nil {
 			return fmt.Errorf("drop index %s.%s failed: %w", idx.Table, idx.Name, err)
 		}

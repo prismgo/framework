@@ -165,3 +165,53 @@ func TestParseDurationSecondsOrText(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildDSNByDriver(t *testing.T) {
+	cases := []struct {
+		name   string
+		driver string
+		cfg    MySQLConfig
+		check  func(string) bool
+	}{
+		{
+			name:   "mysql driver uses BuildMySQLDSN",
+			driver: "mysql",
+			cfg: MySQLConfig{
+				Host:     "localhost",
+				Port:     "3306",
+				Username: "root",
+				Database: "test",
+			},
+			check: func(dsn string) bool {
+				return strings.Contains(dsn, "root@") && strings.Contains(dsn, "test")
+			},
+		},
+		{
+			name:   "sqlite driver uses raw DSN",
+			driver: "sqlite",
+			cfg: MySQLConfig{
+				DSN: "file::memory:?cache=shared",
+			},
+			check: func(dsn string) bool {
+				return dsn == "file::memory:?cache=shared"
+			},
+		},
+		{
+			name:   "unknown driver returns empty DSN",
+			driver: "unknown",
+			cfg:    MySQLConfig{},
+			check: func(dsn string) bool {
+				return dsn == ""
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dsn := buildDSNByDriver(tc.driver, tc.cfg)
+			if !tc.check(dsn) {
+				t.Fatalf("driver %s DSN check failed, got %q", tc.driver, dsn)
+			}
+		})
+	}
+}

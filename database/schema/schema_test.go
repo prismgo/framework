@@ -1098,6 +1098,24 @@ func TestSyncModelsAddsMissingColumns(t *testing.T) {
 	_ = SyncModels(&syncExpandedWidget{})
 }
 
+func TestBuilderCloseMethod(t *testing.T) {
+	db := openSQLite(t)
+	builder := New(db)
+
+	// Close 方法应该存在且可以调用
+	err := builder.Close()
+	if err != nil {
+		t.Fatalf("Close should not return error for normal builder: %v", err)
+	}
+
+	// 对 nil builder 调用 Close 应该返回错误
+	var nilBuilder *Builder
+	err = nilBuilder.Close()
+	if err == nil {
+		t.Fatal("Close on nil builder should return error")
+	}
+}
+
 func TestBlueprintAliasAndModifierCoverage(t *testing.T) {
 	db := openSQLite(t)
 	mysqlDB := db.Session(&gorm.Session{})

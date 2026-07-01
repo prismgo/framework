@@ -58,6 +58,26 @@ func (b *Builder) Bind(db *gorm.DB) *Builder {
 	return b
 }
 
+// Close 关闭 Builder 持有的数据库连接。
+//
+// 用于释放通过 Connection() 创建的连接资源，避免连接泄漏。
+func (b *Builder) Close() error {
+	if b == nil {
+		return errors.New("schema: nil builder")
+	}
+	b.mu.RLock()
+	db := b.db
+	b.mu.RUnlock()
+	if db == nil {
+		return nil
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
 // Connection 基于 database.connections.{name} 创建新的 Schema 构造器。
 //
 // 如果连接创建失败，错误会暂存在返回的 Builder 中，并在后续执行 Create/Table 等操作时返回。
