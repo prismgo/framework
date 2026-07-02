@@ -76,8 +76,13 @@ func (r *NamespacedItemResolver) doParseKey(key string) transcontract.ParsedKey 
 	}
 }
 
+// FlushParsedKeys 清空所有已解析的 key 缓存。
+// 使用 Range+Delete 而非重新赋值 sync.Map，以避免与并发 ParseKey 调用产生数据竞争。
 func (r *NamespacedItemResolver) FlushParsedKeys() {
-	r.cache = sync.Map{}
+	r.cache.Range(func(key, value any) bool {
+		r.cache.Delete(key)
+		return true
+	})
 }
 
 func (r *NamespacedItemResolver) IsJSONKey(key string) bool {

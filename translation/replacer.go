@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 )
 
 type Replacer struct {
+	mu          sync.RWMutex
 	stringables map[reflect.Type]func(any) string
 }
 
@@ -14,6 +16,12 @@ func NewReplacer() *Replacer {
 	return &Replacer{
 		stringables: make(map[reflect.Type]func(any) string),
 	}
+}
+
+func (r *Replacer) AddStringable(sample any, formatter func(any) string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stringables[reflect.TypeOf(sample)] = formatter
 }
 
 func (r *Replacer) Replace(message string, replace map[string]any) string {
@@ -48,7 +56,11 @@ func (r *Replacer) toString(value any) string {
 		return s.String()
 	}
 
-	if formatter, ok := r.stringables[reflect.TypeOf(value)]; ok {
+	r.mu.RLock()
+	formatter, exists := r.stringables[reflect.TypeOf(value)]
+	r.mu.RUnlock()
+
+	if exists {
 		return formatter(value)
 	}
 

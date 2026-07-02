@@ -1,6 +1,7 @@
 package translation
 
 import (
+	"errors"
 	"path/filepath"
 
 	"github.com/prismgo/framework/config"
@@ -57,13 +58,13 @@ func (p ServiceProvider) Register(app providerApplication) error {
 		fallback := config.GetString("app.fallback_locale", "en")
 
 		raw, err := resolver.Make("translation.loader")
+		if err != nil {
+			return nil, err
+		}
+
 		loader, ok := raw.(transcontract.Loader)
-		if err != nil || !ok || loader == nil {
-			loader = NewFileLoader()
-			if langPath != "" {
-				loader.AddPath(langPath)
-				loader.AddJSONPath(langPath)
-			}
+		if !ok || loader == nil {
+			return nil, errors.New("translation: resolved loader is not valid")
 		}
 
 		translator := NewTranslator(loader, locale, fallback)

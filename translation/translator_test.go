@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/prismgo/framework/container"
@@ -218,8 +219,9 @@ func TestTranslatorChoice(t *testing.T) {
 	loader := NewFileLoader()
 	translator := NewTranslator(loader, "en", "en")
 
+	// 使用显式区间格式来精确控制 0/1/多数的场景
 	translator.AddLines(map[string]any{
-		"apples": "No apples|One apple|Many apples",
+		"apples": "{0} No apples|{1} One apple|[2,*] Many apples",
 	}, "en")
 
 	tests := []struct {
@@ -426,6 +428,29 @@ func TestTranslatorHandleMissingKeysUsing(t *testing.T) {
 	result := translator.Get("custom.missing", nil)
 	if result != "Custom Missing Value" {
 		t.Errorf("Get = %v, want Custom Missing Value", result)
+	}
+}
+
+func TestTranslatorHandleMissingKeysUsingNotCalledForExistingKeys(t *testing.T) {
+	loader := NewFileLoader()
+	translator := NewTranslator(loader, "en", "en")
+
+	translator.AddLines(map[string]any{
+		"existing.key": "Existing Value",
+	}, "en")
+
+	callCount := 0
+	translator.HandleMissingKeysUsing(func(ctx context.Context, key, locale string) (string, bool) {
+		callCount++
+		return "Should Not Be Used", true
+	})
+
+	result := translator.Get("existing.key", nil)
+	if result != "Existing Value" {
+		t.Errorf("Get = %v, want Existing Value", result)
+	}
+	if callCount != 0 {
+		t.Errorf("missingHandler was called %d times, want 0 for existing key", callCount)
 	}
 }
 
@@ -1020,11 +1045,14 @@ func TestMessageSelectorInvalidIntervals(t *testing.T) {
 		want    string
 	}{
 		{"no_pipe", "Just text", 0, "Just text"},
-		{"open_close_only", "{} Em|default", 0, "{} Em|default"},
-		{"non_numeric_exact", "{abc} No|default", 0, "{abc} No|default"},
-		{"unclosed_exact", "{0 No|default", 0, "{0 No|default"},
-		{"unclosed_range", "[1 No|default", 0, "[1 No|default"},
-		{"no_interval_match", "{99} Only|default", 1, "{99} Only|default"},
+		// Laravel 中 {} 和 {abc} 会因 PHP 松散比较而匹配，但 Go 更严格，不匹配
+		// stripConditions 后按 pluralIndex 选择（英语 number=0 → index 1）
+		{"open_close_only", "{} Em|default", 0, "default"},
+		{"non_numeric_exact", "{abc} No|default", 0, "default"},
+		{"unclosed_exact", "{0 No|default", 0, "default"},
+		{"unclosed_range", "[1 No|default", 0, "default"},
+		// {99} 不匹配 number=1，stripConditions 后 pluralIndex=0（英语 number=1）
+		{"no_interval_match", "{99} Only|default", 1, "Only"},
 	}
 
 	for _, tt := range tests {
@@ -1032,6 +1060,49 @@ func TestMessageSelectorInvalidIntervals(t *testing.T) {
 			result := s.Select(tt.message, tt.number, "en")
 			if result != tt.want {
 				t.Errorf("Select = %v, want %v", result, tt.want)
+			}
+		})
+	}
+}
+
+func TestFileLoaderPathTraversal(t *testing.T) {
+	loader := NewFileLoader()
+
+	// 创建临时目录结构
+	tmpDir := t.TempDir()
+	secretFile := filepath.Join(tmpDir, "secret.txt")
+	if err := os.WriteFile(secretFile, []byte("secret data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	langDir := filepath.Join(tmpDir, "lang")
+	if err := os.MkdirAll(langDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	loader.AddPath(langDir)
+
+	// 测试路径遍历攻击向量
+	tests := []struct {
+		name      string
+		locale    string
+		group     string
+		namespace string
+		wantErr   bool
+	}{
+		{"locale_with_dotdot", "../", "messages", "", true},
+		{"locale_with_slash", "en/../../etc", "messages", "", true},
+		{"group_with_dotdot", "en", "../secret", "", true},
+		{"group_with_slash", "en", "messages/../../etc", "", true},
+		{"valid_locale", "en", "messages", "", false},
+		{"valid_locale_with_underscore", "zh_CN", "messages", "", false},
+		{"valid_group_with_dot", "en", "messages.validation", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loader.Load(tt.locale, tt.group, tt.namespace)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Load(%q, %q, %q) error = %v, wantErr = %v", tt.locale, tt.group, tt.namespace, err, tt.wantErr)
 			}
 		})
 	}
@@ -1072,6 +1143,69 @@ func TestFileLoaderDuplicatePath(t *testing.T) {
 	}
 }
 
+func TestFileLoaderConcurrentPathAccess(t *testing.T) {
+	loader := NewFileLoader()
+	loader.AddPath("/initial/path")
+
+	var wg sync.WaitGroup
+	const goroutines = 10
+	const iterations = 100
+
+	// 并发读取 paths
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				paths := loader.getAllPaths()
+				_ = len(paths)
+				for _, p := range paths {
+					_ = p
+				}
+			}
+		}()
+	}
+
+	// 并发添加 paths
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				loader.AddPath(fmt.Sprintf("/path/%d/%d", id, j))
+			}
+		}(i)
+	}
+
+	// 并发读取 jsonPaths
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				paths := loader.getAllJSONPaths()
+				_ = len(paths)
+				for _, p := range paths {
+					_ = p
+				}
+			}
+		}()
+	}
+
+	// 并发添加 jsonPaths
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				loader.AddJSONPath(fmt.Sprintf("/json/%d/%d", id, j))
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}
+
 func TestFacadeLoaderFallback(t *testing.T) {
 	Reset()
 
@@ -1086,4 +1220,227 @@ func TestFacadeLoaderFallback(t *testing.T) {
 	}()
 
 	_ = Loader()
+}
+
+func TestTranslatorConcurrentLocaleAccess(t *testing.T) {
+	loader := NewFileLoader()
+	translator := NewTranslator(loader, "en", "en")
+
+	var wg sync.WaitGroup
+	const goroutines = 10
+	const iterations = 100
+
+	// 并发读取 locale
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_ = translator.Locale()
+				_ = translator.CurrentLocale()
+				_ = translator.GetFallback()
+			}
+		}()
+	}
+
+	// 并发设置 locale
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_ = translator.SetLocale(fmt.Sprintf("locale_%d_%d", id, j))
+				_ = translator.SetFallback(fmt.Sprintf("fallback_%d_%d", id, j))
+			}
+		}(i)
+	}
+
+	// 并发检查 IsLocale
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_ = translator.IsLocale("en")
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestTranslatorConcurrentHandlerAccess(t *testing.T) {
+	loader := NewFileLoader()
+	translator := NewTranslator(loader, "en", "en")
+
+	var wg sync.WaitGroup
+	const goroutines = 10
+	const iterations = 100
+
+	// 并发设置 missingHandler
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				translator.HandleMissingKeysUsing(func(ctx context.Context, key, locale string) (string, bool) {
+					return fmt.Sprintf("handler_%d_%d", id, j), true
+				})
+			}
+		}(i)
+	}
+
+	// 并发设置 localeResolver
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				translator.DetermineLocalesUsing(func(key, requested string) []string {
+					return []string{fmt.Sprintf("locale_%d_%d", id, j)}
+				})
+			}
+		}(i)
+	}
+
+	// 并发调用 Get 触发 handler 读取
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_ = translator.Get("missing.key", nil)
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestTranslatorConcurrentLoaderAccess(t *testing.T) {
+	loader := NewFileLoader()
+	translator := NewTranslator(loader, "en", "en")
+
+	var wg sync.WaitGroup
+	const goroutines = 10
+	const iterations = 100
+
+	// 并发读取 loader
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_ = translator.Loader()
+			}
+		}()
+	}
+
+	// 并发设置 loader
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				newLoader := NewFileLoader()
+				translator.SetLoader(newLoader)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+func TestNamespacedItemResolverConcurrentCacheAccess(t *testing.T) {
+	resolver := NewNamespacedItemResolver()
+
+	var wg sync.WaitGroup
+	const goroutines = 10
+	const iterations = 100
+
+	// 并发解析 key
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				key := fmt.Sprintf("group.item.%d.%d", id, j)
+				_ = resolver.ParseKey(key)
+			}
+		}(i)
+	}
+
+	// 并发检查 IsJSONKey
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				key := fmt.Sprintf("key_%d_%d", id, j)
+				_ = resolver.IsJSONKey(key)
+			}
+		}(i)
+	}
+
+	// 并发清空缓存
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				resolver.FlushParsedKeys()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestFileLoaderConcurrentLoadAccess(t *testing.T) {
+	root := t.TempDir()
+	writeTranslationFile(t, root, "en", "messages", `{"hello": "Hello"}`)
+	writeTranslationFile(t, root, "en", "validation", `{"required": "Required"}`)
+
+	loader := NewFileLoader()
+	loader.AddPath(root)
+
+	var wg sync.WaitGroup
+	const goroutines = 10
+	const iterations = 50
+
+	// 并发加载不同 locale/group
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_, _ = loader.Load("en", "messages", "")
+				_, _ = loader.Load("en", "validation", "")
+			}
+		}(i)
+	}
+
+	// 并发添加路径
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				loader.AddPath(fmt.Sprintf("/path/%d/%d", id, j))
+			}
+		}(i)
+	}
+
+	// 并发添加命名空间
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				loader.AddNamespace(fmt.Sprintf("ns_%d_%d", id, j), "/hint")
+			}
+		}(i)
+	}
+
+	wg.Wait()
 }

@@ -1,6 +1,9 @@
 package translation
 
-import "testing"
+import (
+	"sync"
+	"testing"
+)
 
 func TestReplacerReplaceNoReplacements(t *testing.T) {
 	r := NewReplacer()
@@ -202,4 +205,37 @@ func TestReplacerToStringBool(t *testing.T) {
 	if result != "false" {
 		t.Errorf("toString(false) = %v, want false", result)
 	}
+}
+
+func TestReplacerStringableConcurrentAccess(t *testing.T) {
+	r := NewReplacer()
+
+	type CustomType struct {
+		value string
+	}
+
+	var wg sync.WaitGroup
+	// 启动多个 goroutine 并发写入 stringables
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			r.AddStringable(CustomType{}, func(v any) string {
+				return "custom"
+			})
+		}(i)
+	}
+
+	// 同时启动多个 goroutine 并发读取 stringables
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				r.toString(CustomType{value: "test"})
+			}
+		}()
+	}
+
+	wg.Wait()
 }

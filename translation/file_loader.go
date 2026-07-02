@@ -2,14 +2,22 @@ package translation
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 
 	pathutil "github.com/prismgo/framework/internal/path"
 )
 
 const vendorDir = "vendor"
+
+var validIdentifier = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)
+
+func isValidIdentifier(s string) bool {
+	return s != "" && validIdentifier.MatchString(s)
+}
 
 type FileLoader struct {
 	paths     []string
@@ -30,6 +38,10 @@ func NewFileLoader() *FileLoader {
 }
 
 func (f *FileLoader) Load(locale, group, namespace string) (map[string]any, error) {
+	if !isValidIdentifier(locale) {
+		return nil, errors.New("invalid locale format")
+	}
+
 	if namespace == "" {
 		namespace = defaultNamespace
 	}
@@ -38,8 +50,8 @@ func (f *FileLoader) Load(locale, group, namespace string) (map[string]any, erro
 		return f.loadJSON(locale)
 	}
 
-	if namespace == defaultNamespace && group == "" {
-		return f.loadJSON(locale)
+	if !isValidIdentifier(group) {
+		return nil, errors.New("invalid group format")
 	}
 
 	if namespace == defaultNamespace {
@@ -246,11 +258,17 @@ func (f *FileLoader) JSONPaths() []string {
 func (f *FileLoader) getAllPaths() []string {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	return f.paths
+	// 返回切片副本以避免数据竞争
+	result := make([]string, len(f.paths))
+	copy(result, f.paths)
+	return result
 }
 
 func (f *FileLoader) getAllJSONPaths() []string {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	return f.jsonPaths
+	// 返回切片副本以避免数据竞争
+	result := make([]string, len(f.jsonPaths))
+	copy(result, f.jsonPaths)
+	return result
 }

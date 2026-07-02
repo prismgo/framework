@@ -3,7 +3,6 @@ package translation
 import (
 	"context"
 	"errors"
-	"reflect"
 	"strings"
 	"sync"
 
@@ -22,8 +21,6 @@ type Translator struct {
 	lines      map[string]map[string]map[string]map[string]any
 	linesMutex sync.RWMutex
 
-	stringables map[reflect.Type]func(any) string
-
 	missingHandler func(context.Context, string, string) (string, bool)
 	localeResolver func(key string, requested string) []string
 
@@ -32,14 +29,13 @@ type Translator struct {
 
 func NewTranslator(loader transcontract.Loader, locale, fallback string) *Translator {
 	return &Translator{
-		loader:      loader,
-		resolver:    NewNamespacedItemResolver(),
-		selector:    NewMessageSelector(),
-		replacer:    NewReplacer(),
-		locale:      locale,
-		fallback:    fallback,
-		lines:       make(map[string]map[string]map[string]map[string]any),
-		stringables: make(map[reflect.Type]func(any) string),
+		loader:   loader,
+		resolver: NewNamespacedItemResolver(),
+		selector: NewMessageSelector(),
+		replacer: NewReplacer(),
+		locale:   locale,
+		fallback: fallback,
+		lines:    make(map[string]map[string]map[string]map[string]any),
 	}
 }
 
@@ -89,7 +85,8 @@ func (t *Translator) hasJSON(key, locale string) bool {
 		}
 		t.linesMutex.RUnlock()
 
-		data, err := t.loader.Load(loc, "", defaultNamespace)
+		loader := t.getLoader()
+		data, err := loader.Load(loc, "", defaultNamespace)
 		if err == nil {
 			if value, exists := data[key]; exists {
 				switch value.(type) {
@@ -99,7 +96,7 @@ func (t *Translator) hasJSON(key, locale string) bool {
 			}
 		}
 
-		groupData, err := t.loader.Load(loc, key, defaultNamespace)
+		groupData, err := loader.Load(loc, key, defaultNamespace)
 		if err == nil && len(groupData) > 0 {
 			return true
 		}
@@ -118,34 +115,43 @@ func (t *Translator) get(key string, replace map[string]any, locale string) stri
 		return key
 	}
 
-	ctx := context.Background()
-
-	if t.missingHandler != nil {
-		if value, ok := t.missingHandler(ctx, key, locale); ok {
-			return t.replacer.Replace(value, replace)
-		}
-	}
-
 	parsed := t.resolver.ParseKey(key)
 
+	var result string
+	var found bool
+
 	if parsed.IsJSON {
-		return t.getJSON(key, replace, locale)
+		result = t.getJSON(key, locale)
+		found = result != key
+	} else if parsed.Group == "" {
+		result = t.getJSON(parsed.Item, locale)
+		found = result != parsed.Item
+	} else {
+		result = t.getLine(parsed.Namespace, parsed.Group, parsed.Item, locale)
+		found = result != ""
 	}
 
-	if parsed.Group == "" {
-		return t.getJSON(parsed.Item, replace, locale)
+	if found {
+		return t.replacer.Replace(result, replace)
 	}
 
-	line := t.getLine(parsed.Namespace, parsed.Group, parsed.Item, locale)
-	if line != "" {
-		return t.replacer.Replace(line, replace)
+	t.mu.RLock()
+	handler := t.missingHandler
+	t.mu.RUnlock()
+
+	if handler != nil {
+		ctx := context.Background()
+		if value, ok := handler(ctx, key, locale); ok {
+			return t.replacer.Replace(value, replace)
+		}
 	}
 
 	return key
 }
 
-func (t *Translator) getJSON(key string, replace map[string]any, locale string) string {
+func (t *Translator) getJSON(key string, locale string) string {
 	locales := t.getLocaleChain(locale)
+	loader := t.getLoader()
 
 	for _, loc := range locales {
 		t.linesMutex.RLock()
@@ -155,7 +161,7 @@ func (t *Translator) getJSON(key string, replace map[string]any, locale string) 
 					if value, exists := jsonLines[key]; exists {
 						if str, ok := value.(string); ok {
 							t.linesMutex.RUnlock()
-							return t.replacer.Replace(str, replace)
+							return str
 						}
 					}
 				}
@@ -163,11 +169,11 @@ func (t *Translator) getJSON(key string, replace map[string]any, locale string) 
 		}
 		t.linesMutex.RUnlock()
 
-		data, err := t.loader.Load(loc, "", defaultNamespace)
+		data, err := loader.Load(loc, "", defaultNamespace)
 		if err == nil {
 			if value, exists := data[key]; exists {
 				if str, ok := value.(string); ok {
-					return t.replacer.Replace(str, replace)
+					return str
 				}
 			}
 		}
@@ -178,6 +184,7 @@ func (t *Translator) getJSON(key string, replace map[string]any, locale string) 
 
 func (t *Translator) getLine(namespace, group, item, locale string) string {
 	locales := t.getLocaleChain(locale)
+	loader := t.getLoader()
 
 	for _, loc := range locales {
 		t.linesMutex.RLock()
@@ -195,7 +202,7 @@ func (t *Translator) getLine(namespace, group, item, locale string) string {
 		}
 		t.linesMutex.RUnlock()
 
-		data, err := t.loader.Load(loc, group, namespace)
+		data, err := loader.Load(loc, group, namespace)
 		if err == nil {
 			if value, exists := data[item]; exists {
 				if str, ok := value.(string); ok {
@@ -300,26 +307,29 @@ func (t *Translator) SetFallback(locale string) error {
 }
 
 func (t *Translator) AddNamespace(namespace, hint string) {
-	if loader, ok := t.loader.(interface {
+	loader := t.getLoader()
+	if l, ok := loader.(interface {
 		AddNamespace(namespace, hint string)
 	}); ok {
-		loader.AddNamespace(namespace, hint)
+		l.AddNamespace(namespace, hint)
 	}
 }
 
 func (t *Translator) AddPath(path string) {
-	if loader, ok := t.loader.(interface {
+	loader := t.getLoader()
+	if l, ok := loader.(interface {
 		AddPath(path string)
 	}); ok {
-		loader.AddPath(path)
+		l.AddPath(path)
 	}
 }
 
 func (t *Translator) AddJSONPath(path string) {
-	if loader, ok := t.loader.(interface {
+	loader := t.getLoader()
+	if l, ok := loader.(interface {
 		AddJSONPath(path string)
 	}); ok {
-		loader.AddJSONPath(path)
+		l.AddJSONPath(path)
 	}
 }
 
@@ -327,15 +337,18 @@ func (t *Translator) Stringable(sample any, formatter func(any) string) {
 	if sample == nil || formatter == nil {
 		return
 	}
-	t.stringables[reflect.TypeOf(sample)] = formatter
-	t.replacer.stringables[reflect.TypeOf(sample)] = formatter
+	t.replacer.AddStringable(sample, formatter)
 }
 
 func (t *Translator) HandleMissingKeysUsing(handler func(context.Context, string, string) (string, bool)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.missingHandler = handler
 }
 
 func (t *Translator) DetermineLocalesUsing(resolver func(key string, requested string) []string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.localeResolver = resolver
 }
 
@@ -349,15 +362,16 @@ func (t *Translator) resolveLocale(locale ...string) string {
 }
 
 func (t *Translator) getLocaleChain(locale string) []string {
-	if t.localeResolver != nil {
-		return t.localeResolver("", locale)
+	t.mu.RLock()
+	resolver := t.localeResolver
+	fallback := t.fallback
+	t.mu.RUnlock()
+
+	if resolver != nil {
+		return resolver("", locale)
 	}
 
 	chain := []string{locale}
-
-	t.mu.RLock()
-	fallback := t.fallback
-	t.mu.RUnlock()
 
 	if fallback != "" && fallback != locale {
 		chain = append(chain, fallback)
@@ -367,11 +381,22 @@ func (t *Translator) getLocaleChain(locale string) []string {
 }
 
 func (t *Translator) Loader() transcontract.Loader {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	return t.loader
 }
 
 func (t *Translator) SetLoader(loader transcontract.Loader) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.loader = loader
+}
+
+// getLoader 安全地获取 loader 实例（内部使用）
+func (t *Translator) getLoader() transcontract.Loader {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.loader
 }
 
 func (t *Translator) GetMap(key string, locale ...string) map[string]any {
@@ -391,7 +416,29 @@ func (t *Translator) GetMap(key string, locale ...string) map[string]any {
 
 	locales := t.getLocaleChain(targetLocale)
 	for _, loc := range locales {
-		data, err := t.loader.Load(loc, group, ns)
+		// 检查内存缓存（仅检查，不写入）
+		t.linesMutex.RLock()
+		if nsLines, ok := t.lines[ns]; ok {
+			if localeLines, ok := nsLines[loc]; ok {
+				if groupLines, ok := localeLines[group]; ok {
+					if item == "" {
+						t.linesMutex.RUnlock()
+						return groupLines
+					}
+					if v, ok := groupLines[item]; ok {
+						t.linesMutex.RUnlock()
+						if m, ok := v.(map[string]any); ok {
+							return m
+						}
+						return nil
+					}
+				}
+			}
+		}
+		t.linesMutex.RUnlock()
+
+		// 缓存未命中，从 loader 加载
+		data, err := t.getLoader().Load(loc, group, ns)
 		if err != nil || len(data) == 0 {
 			continue
 		}

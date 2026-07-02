@@ -17,13 +17,249 @@ func (s *MessageSelector) Select(message string, number any, locale string) stri
 	}
 
 	segments := strings.Split(message, "|")
-	idx := s.findIndex(segments, number, locale)
 
-	if idx < 0 || idx >= len(segments) {
-		return message
+	// 第一步：尝试用显式条件（区间/精确值）匹配
+	if value := s.extract(segments, number); value != "" {
+		return value
 	}
 
-	return strings.TrimSpace(s.stripIntervalPrefix(segments[idx]))
+	// 第二步：剥离所有条件前缀，只保留文本
+	stripped := s.stripConditions(segments)
+
+	// 第三步：根据 locale 的复数规则计算索引
+	pluralIdx := s.getPluralIndex(locale, s.toInt(number))
+
+	if len(stripped) == 1 || pluralIdx >= len(stripped) {
+		return strings.TrimSpace(stripped[0])
+	}
+
+	return strings.TrimSpace(stripped[pluralIdx])
+}
+
+// extract 尝试用显式区间条件匹配 segments，成功返回匹配段文本（已剥离前缀），失败返回空字符串。
+func (s *MessageSelector) extract(segments []string, number any) string {
+	numberInt := s.toInt(number)
+
+	for _, segment := range segments {
+		segment = strings.TrimSpace(segment)
+		if len(segment) == 0 {
+			continue
+		}
+
+		if segment[0] == '{' || segment[0] == '[' {
+			var interval *Interval
+			if segment[0] == '{' {
+				interval = s.parseExactInterval(segment)
+			} else {
+				interval = s.parseRangeInterval(segment)
+			}
+			if interval != nil && interval.Match(numberInt) {
+				return strings.TrimSpace(s.stripIntervalPrefix(segment))
+			}
+		}
+	}
+	return ""
+}
+
+// stripConditions 剥离所有 segment 的区间前缀，只保留文本部分。
+func (s *MessageSelector) stripConditions(segments []string) []string {
+	result := make([]string, len(segments))
+	for i, segment := range segments {
+		result[i] = s.stripIntervalPrefix(segment)
+	}
+	return result
+}
+
+// getPluralIndex 根据 locale 的语法规则返回复数索引。
+// 完全对齐 Laravel 13 Illuminate\Translation\MessageSelector::getPluralIndex。
+// 支持区域变体 locale（如 en_US、zh_CN），采用精确匹配策略，与 Laravel 保持一致。
+func (s *MessageSelector) getPluralIndex(locale string, number int) int {
+	switch locale {
+	// 无复数形式：始终返回 0
+	case "az", "bo", "dz", "id", "ja", "jv", "ka", "km", "kn", "ko", "ms",
+		"my", "th", "tr", "vi", "zh", "yo",
+		"zh_CN", "zh_TW", "zh_HK", "zh_SG":
+		return 0
+
+	// 两种复数形式：number == 1 → 0，否则 → 1
+	case "af", "bn", "bg", "ca", "da", "de", "el", "en", "eo", "es", "et",
+		"eu", "fa", "fi", "fo", "fur", "fy", "gl", "gu", "ha", "he", "hu",
+		"is", "it", "ku", "lb", "ml", "mn", "mr", "nah", "nb", "ne", "nl",
+		"nn", "no", "om", "or", "pa", "pap", "ps", "pt", "so", "sq", "sv",
+		"sw", "ta", "te", "tk", "ur", "zu",
+		"en_US", "en_GB", "en_AU", "en_CA", "en_NZ", "en_IE", "en_ZA", "en_PH",
+		"de_DE", "de_AT", "de_CH",
+		"es_ES", "es_MX", "es_AR", "es_CO", "es_CL", "es_PE", "es_VE", "es_EC",
+		"pt_PT", "pt_BR":
+		if number == 1 {
+			return 0
+		}
+		return 1
+
+	// 两种复数形式：number == 0 或 1 → 0，否则 → 1
+	case "am", "bh", "fil", "fr", "gun", "hi", "hy", "ln", "mg", "nso",
+		"ti", "wa", "xbr",
+		"fr_FR", "fr_CA", "fr_BE", "fr_CH", "fr_LU":
+		if number == 0 || number == 1 {
+			return 0
+		}
+		return 1
+
+	// 三种复数形式（俄语规则）
+	case "be", "bs", "hr", "ru", "sr", "uk",
+		"ru_RU", "ru_UA":
+		rem10 := number % 10
+		rem100 := number % 100
+		if rem10 == 1 && rem100 != 11 {
+			return 0
+		}
+		if rem10 >= 2 && rem10 <= 4 && !(rem100 >= 12 && rem100 <= 14) {
+			return 1
+		}
+		return 2
+
+	// 三种复数形式（捷克语规则）
+	case "cs", "sk":
+		if number == 1 {
+			return 0
+		}
+		if number >= 2 && number <= 4 {
+			return 1
+		}
+		return 2
+
+	// 三种复数形式（爱尔兰语规则）
+	case "ga":
+		if number == 1 {
+			return 0
+		}
+		if number == 2 {
+			return 1
+		}
+		return 2
+
+	// 三种复数形式（立陶宛语规则）
+	case "lt":
+		rem10 := number % 10
+		rem100 := number % 100
+		if rem10 == 1 && rem100 != 11 {
+			return 0
+		}
+		if rem10 >= 2 && (rem100 < 10 || rem100 >= 20) {
+			return 1
+		}
+		return 2
+
+	// 四种复数形式（斯洛文尼亚语规则）
+	case "sl":
+		rem100 := number % 100
+		if rem100 == 1 {
+			return 0
+		}
+		if rem100 == 2 {
+			return 1
+		}
+		if rem100 == 3 || rem100 == 4 {
+			return 2
+		}
+		return 3
+
+	// 两种复数形式（马其顿语规则）
+	case "mk":
+		rem10 := number % 10
+		if rem10 == 1 {
+			return 0
+		}
+		return 1
+
+	// 四种复数形式（马耳他语规则）
+	case "mt":
+		rem100 := number % 100
+		if number == 1 {
+			return 0
+		}
+		if number == 0 || (rem100 > 1 && rem100 < 11) {
+			return 1
+		}
+		if rem100 > 10 && rem100 < 20 {
+			return 2
+		}
+		return 3
+
+	// 三种复数形式（拉脱维亚语规则）
+	case "lv":
+		if number == 0 {
+			return 0
+		}
+		rem10 := number % 10
+		rem100 := number % 100
+		if rem10 == 1 && rem100 != 11 {
+			return 1
+		}
+		return 2
+
+	// 三种复数形式（波兰语规则）
+	case "pl":
+		if number == 1 {
+			return 0
+		}
+		rem10 := number % 10
+		rem100 := number % 100
+		if rem10 >= 2 && rem10 <= 4 && (rem100 < 12 || rem100 > 14) {
+			return 1
+		}
+		return 2
+
+	// 四种复数形式（威尔士语规则）
+	case "cy":
+		if number == 1 {
+			return 0
+		}
+		if number == 2 {
+			return 1
+		}
+		if number == 8 || number == 11 {
+			return 2
+		}
+		return 3
+
+	// 三种复数形式（罗马尼亚语规则）
+	case "ro":
+		if number == 1 {
+			return 0
+		}
+		rem100 := number % 100
+		if number == 0 || (rem100 > 0 && rem100 < 20) {
+			return 1
+		}
+		return 2
+
+	// 六种复数形式（阿拉伯语规则）
+	case "ar", "ar_SA", "ar_EG", "ar_AE", "ar_JO", "ar_LB", "ar_MA", "ar_DZ",
+		"ar_BH", "ar_IQ", "ar_KW", "ar_LY", "ar_OM", "ar_QA", "ar_SD", "ar_SY",
+		"ar_TN", "ar_YE":
+		if number == 0 {
+			return 0
+		}
+		if number == 1 {
+			return 1
+		}
+		if number == 2 {
+			return 2
+		}
+		rem100 := number % 100
+		if rem100 >= 3 && rem100 <= 10 {
+			return 3
+		}
+		if rem100 >= 11 && rem100 <= 99 {
+			return 4
+		}
+		return 5
+
+	// 默认：返回 0
+	default:
+		return 0
+	}
 }
 
 func (s *MessageSelector) stripIntervalPrefix(segment string) string {
@@ -43,53 +279,6 @@ func (s *MessageSelector) stripIntervalPrefix(segment string) string {
 		}
 	}
 	return segment
-}
-
-func (s *MessageSelector) findIndex(segments []string, number any, locale string) int {
-	numberInt := s.toInt(number)
-
-	hasExplicitInterval := false
-	for _, segment := range segments {
-		segment = strings.TrimSpace(segment)
-		if len(segment) > 0 && (segment[0] == '{' || segment[0] == '[') {
-			hasExplicitInterval = true
-			break
-		}
-	}
-
-	if !hasExplicitInterval {
-		if numberInt == 0 && len(segments) > 0 {
-			return 0
-		}
-		if numberInt == 1 && len(segments) > 1 {
-			return 1
-		}
-		if numberInt >= 2 && len(segments) > 2 {
-			return 2
-		}
-		if numberInt >= 2 && len(segments) == 2 {
-			return 1
-		}
-		return -1
-	}
-
-	for i, segment := range segments {
-		segment = strings.TrimSpace(segment)
-
-		if len(segment) > 0 && segment[0] == '{' {
-			interval := s.parseExactInterval(segment)
-			if interval != nil && interval.Match(numberInt) {
-				return i
-			}
-		} else if len(segment) > 0 && segment[0] == '[' {
-			interval := s.parseRangeInterval(segment)
-			if interval != nil && interval.Match(numberInt) {
-				return i
-			}
-		}
-	}
-
-	return -1
 }
 
 type Interval struct {
@@ -178,7 +367,7 @@ func (s *MessageSelector) parseRangeInterval(segment string) *Interval {
 	}
 
 	if hasStart && !hasEnd {
-		return &Interval{Start: start, End: start}
+		return &Interval{Start: start, End: -1}
 	}
 
 	if !hasStart && hasEnd {
