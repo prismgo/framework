@@ -41,10 +41,7 @@ const (
 )
 
 func normalizedContractCloseGroup(group containercontract.CloseGroup) CloseGroup {
-	if group == "" {
-		return CloseGroupNormal
-	}
-	return CloseGroup(group)
+	return normalizedCloseGroup(CloseGroup(group))
 }
 
 type entry struct {
@@ -60,10 +57,7 @@ type entry struct {
 	lazyMu    sync.Mutex
 	factory   func() (any, error)
 	singleton bool
-	once      sync.Once
 	initErr   error
-	// initDone 记录 lazy factory 是否已完成尝试，用于保证 singleton 失败后可重试、成功后只初始化一次。
-	initDone bool
 }
 
 var _ containercontract.Container = (*Container)(nil)
@@ -109,13 +103,13 @@ func NewContainer() *Container {
 //
 //	c.Forget("cache.manager")
 //	_ = c.Singleton("cache.manager", newTestCache)
-func (r *Container) Forget(key string) {
+func (r *Container) Forget(key string) error {
 	if r == nil {
-		return
+		return nil
 	}
 	key = r.canonical(key)
 	if key == "" {
-		return
+		return fmt.Errorf("container key is empty")
 	}
 	r.mu.Lock()
 	ent := r.ensureEntryLocked(key)
@@ -123,11 +117,10 @@ func (r *Container) Forget(key string) {
 	ent.value = nil
 	ent.factory = nil
 	ent.resolved = false
-	ent.once = sync.Once{}
 	ent.initErr = nil
-	ent.initDone = false
 	ent.version++
 	r.mu.Unlock()
+	return nil
 }
 
 // Close 按注册反序关闭当前注册中心里仍 registered 的当前值。
@@ -207,9 +200,7 @@ func (r *Container) Instance(key string, value any, options ...containercontract
 	ent.singleton = true
 	ent.factory = nil
 	ent.resolved = value != nil
-	ent.once = sync.Once{}
 	ent.initErr = nil
-	ent.initDone = false
 	ent.version++
 	r.mu.Unlock()
 	return nil
@@ -279,10 +270,9 @@ func (r *Container) Bound(key string) bool {
 		return false
 	}
 	r.mu.RLock()
-	_, hasAlias := r.aliases[key]
 	canonical := r.canonicalLocked(key)
 	ent := r.entries[canonical]
-	bound := hasAlias || (ent != nil && (ent.registered || ent.factory != nil))
+	bound := ent != nil && (ent.registered || ent.factory != nil)
 	r.mu.RUnlock()
 	return bound
 }
@@ -408,7 +398,7 @@ func (r *Container) Call(callback any, args ...any) ([]any, error) {
 			in = append(in, arg)
 			continue
 		}
-		resolved, err := r.Make(fnType.In(i).String())
+		resolved, err := r.Make(typeKey(fnType.In(i)))
 		if err != nil {
 			return nil, fmt.Errorf("container call argument %d: %w", i, err)
 		}
@@ -447,60 +437,62 @@ func (r *Container) bind(key string, factory containercontract.Factory, singleto
 	ent.singleton = singleton
 	ent.resolved = false
 	ent.factory = func() (any, error) { return factory(r) }
-	ent.once = sync.Once{}
 	ent.initErr = nil
-	ent.initDone = false
 	ent.version++
 	r.mu.Unlock()
 	return nil
 }
 
 func (r *Container) makeSingleton(key string) (any, error) {
-	ent := r.lazyEntry(key)
-	if ent == nil {
-		return nil, fmt.Errorf("container %q: %w", key, ErrFactoryNotRegistered)
-	}
-
-	retry := false
-	value, err := func() (any, error) {
-		ent.lazyMu.Lock()
-		defer ent.lazyMu.Unlock()
-
-		if raw, ok := r.get(key); ok {
-			return raw, nil
+	const maxRetries = 3
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		ent := r.lazyEntry(key)
+		if ent == nil {
+			return nil, fmt.Errorf("container %q: %w", key, ErrFactoryNotRegistered)
 		}
-		factory, singleton, version, err := r.factorySnapshot(key)
-		if err != nil {
-			return nil, err
-		}
-		if !singleton {
-			value, err := factory()
+
+		retry := false
+		value, err := func() (any, error) {
+			ent.lazyMu.Lock()
+			defer ent.lazyMu.Unlock()
+
+			if raw, ok := r.get(key); ok {
+				return raw, nil
+			}
+			factory, singleton, version, err := r.factorySnapshot(key)
 			if err != nil {
 				return nil, err
 			}
-			r.markResolvedIfCurrent(key, version)
+			if !singleton {
+				value, err := factory()
+				if err != nil {
+					return nil, err
+				}
+				r.markResolvedIfCurrent(key, version)
+				return value, nil
+			}
+			value, err := factory()
+			if err != nil {
+				r.recordSingletonAttempt(key, version, err)
+				return nil, err
+			}
+			if value == nil {
+				err := fmt.Errorf("container %q: %w", key, ErrFactoryReturnedNil)
+				r.recordSingletonAttempt(key, version, err)
+				return nil, err
+			}
+			if !r.setSingletonIfCurrent(key, version, value) {
+				retry = true
+				return nil, nil
+			}
 			return value, nil
+		}()
+		if retry {
+			continue
 		}
-		value, err := factory()
-		if err != nil {
-			r.recordSingletonAttempt(key, version, err)
-			return nil, err
-		}
-		if value == nil {
-			err := fmt.Errorf("container %q: %w", key, ErrFactoryReturnedNil)
-			r.recordSingletonAttempt(key, version, err)
-			return nil, err
-		}
-		if !r.setSingletonIfCurrent(key, version, value) {
-			retry = true
-			return nil, nil
-		}
-		return value, nil
-	}()
-	if retry {
-		return r.Make(key)
+		return value, err
 	}
-	return value, err
+	return nil, fmt.Errorf("container %q: too many retries due to concurrent modifications", key)
 }
 
 func (r *Container) factorySnapshot(key string) (func() (any, error), bool, uint64, error) {
@@ -527,7 +519,6 @@ func (r *Container) recordSingletonAttempt(key string, version uint64, err error
 		return
 	}
 	ent.initErr = err
-	ent.initDone = true
 }
 
 func (r *Container) setSingletonIfCurrent(key string, version uint64, value any) bool {
@@ -543,7 +534,6 @@ func (r *Container) setSingletonIfCurrent(key string, version uint64, value any)
 	ent.value = value
 	ent.resolved = true
 	ent.initErr = nil
-	ent.initDone = true
 	ent.version++
 	return true
 }
@@ -572,14 +562,10 @@ func (r *Container) close(ctx context.Context, include func(*entry) bool) error 
 
 	var errs []error
 	for i := len(order) - 1; i >= 0; i-- {
-		if err := ctx.Err(); err != nil {
-			errs = append(errs, err)
-			break
-		}
 		item, ok, err := r.closeItem(ctx, order[i], include)
 		if err != nil {
-			errs = append(errs, err)
-			break
+			errs = append(errs, fmt.Errorf("container %q: waiting for lazy init: %w", order[i], err))
+			continue // 继续尝试后续资源
 		}
 		if !ok {
 			continue
@@ -638,18 +624,24 @@ func (r *Container) closeEntry(key string, include func(*entry) bool) (*entry, b
 // 需求背景：singleton factory 在锁外执行用户代码后才注册 value；Close 如果提前读取快照，
 // 会看不到即将注册的资源。这里用 TryLock 轮询而不是阻塞 Lock，确保 ctx 取消能及时返回，
 // 并保持关闭失败可重试语义。
+//
+// 性能优化：采用指数退避策略（1ms -> 16ms），减少长期等待时的 CPU 开销。
 func lockLazyForClose(ctx context.Context, ent *entry) (func(), error) {
-	ticker := time.NewTicker(time.Millisecond)
-	defer ticker.Stop()
-
+	delay := time.Millisecond
+	const maxDelay = 16 * time.Millisecond
 	for {
 		if ent.lazyMu.TryLock() {
 			return ent.lazyMu.Unlock, nil
 		}
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return nil, ctx.Err()
-		case <-ticker.C:
+		case <-timer.C:
+		}
+		if delay < maxDelay {
+			delay *= 2
 		}
 	}
 }
@@ -657,6 +649,9 @@ func lockLazyForClose(ctx context.Context, ent *entry) (func(), error) {
 // closeItemSnapshot 只负责在锁内读取指定 key 的当前关闭快照。
 //
 // 返回 false 表示该服务不存在、分组不匹配或当前没有 registered value，Close 应跳过它。
+//
+// 约束：include 回调在 RLock 内调用，必须快速返回且不能阻塞或调用容器方法，
+// 否则会导致死锁或性能问题。
 func (r *Container) closeItemSnapshot(key string, include func(*entry) bool) (closeItem, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -769,9 +764,7 @@ func (r *Container) setFactory(key string, factory func() (any, error)) {
 	ent.version++
 	ent.factory = factory
 	ent.singleton = true
-	ent.once = sync.Once{}
 	ent.initErr = nil
-	ent.initDone = false
 }
 
 func (r *Container) clear(key string) {
@@ -783,9 +776,7 @@ func (r *Container) clear(key string) {
 	ent.value = nil
 	ent.resolved = false
 	ent.version++
-	ent.once = sync.Once{}
 	ent.initErr = nil
-	ent.initDone = false
 }
 
 func (r *Container) get(key string) (any, bool) {
@@ -854,17 +845,21 @@ func (r *Container) canonical(key string) string {
 }
 
 func (r *Container) canonicalLocked(key string) string {
-	seen := map[string]struct{}{}
+	next := r.aliases[key]
+	if next == "" {
+		return key // 快路径：无别名，零分配
+	}
+	seen := map[string]struct{}{key: {}}
 	for {
-		next := r.aliases[key]
-		if next == "" {
-			return key
-		}
 		if _, ok := seen[next]; ok {
 			return key
 		}
-		seen[key] = struct{}{}
+		seen[next] = struct{}{}
 		key = next
+		next = r.aliases[key]
+		if next == "" {
+			return key
+		}
 	}
 }
 
@@ -880,4 +875,18 @@ func normalizedCloseGroup(group CloseGroup) CloseGroup {
 		return CloseGroupNormal
 	}
 	return group
+}
+
+// typeKey 构造类型的严格标识符，用于 Call 方法的参数解析。
+// 使用 PkgPath() + "." + Name() 避免不同模块下同名类型的冲突。
+// 对于指针类型，包含 "*" 前缀以区分值类型。
+// 对于内置类型（PkgPath 为空），回退到 String()。
+func typeKey(t reflect.Type) string {
+	if t.Kind() == reflect.Ptr {
+		return "*" + typeKey(t.Elem())
+	}
+	if t.PkgPath() == "" {
+		return t.String()
+	}
+	return t.PkgPath() + "." + t.Name()
 }

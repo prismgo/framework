@@ -118,7 +118,7 @@ func Make[T any](key string) (T, error) {
 		return zero, err
 	}
 	typed, ok := raw.(T)
-	if !ok || isNilValue(typed) {
+	if !ok {
 		var zero T
 		return zero, fmt.Errorf("container %q resolved %T, want %T", key, raw, zero)
 	}

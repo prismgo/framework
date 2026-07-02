@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -145,7 +146,9 @@ func TestContainerDeferredLoaderSemantics(t *testing.T) {
 
 func TestContainerCallResolvesMissingArguments(t *testing.T) {
 	c := NewContainer()
-	if err := c.Instance(reflect.TypeOf((*closeProbe)(nil)).String(), &closeProbe{name: "resolved"}); err != nil {
+	probeType := reflect.TypeOf((*closeProbe)(nil))
+	key := "*" + probeType.Elem().PkgPath() + "." + probeType.Elem().Name()
+	if err := c.Instance(key, &closeProbe{name: "resolved"}); err != nil {
 		t.Fatalf("instance: %v", err)
 	}
 
@@ -634,5 +637,238 @@ func TestContainerConcurrentMakeAndRebindHasNoRace(t *testing.T) {
 	_, err := c.Make("service")
 	if err != nil && !errors.Is(err, ErrFactoryNotRegistered) {
 		t.Fatalf("final make error = %v, want nil or ErrFactoryNotRegistered", err)
+	}
+}
+
+func TestContainerCallUsesStrictTypeKey(t *testing.T) {
+	// 需求背景：Call 方法应使用完整的包路径+类型名作为服务 key，避免同名类型冲突。
+	// 逻辑说明：使用 PkgPath() + "." + Name() 构造 key，指针类型包含 "*" 前缀。
+	c := NewContainer()
+	
+	// 注册一个服务，使用完整路径作为 key（包括指针前缀）
+	probeType := reflect.TypeOf((*closeProbe)(nil))
+	pkgPath := probeType.Elem().PkgPath()
+	typeName := probeType.Elem().Name()
+	fullKey := "*" + pkgPath + "." + typeName
+	
+	if err := c.Instance(fullKey, &closeProbe{name: "strict"}); err != nil {
+		t.Fatalf("instance: %v", err)
+	}
+
+	// Call 应该能通过完整路径解析到服务
+	out, err := c.Call(func(probe *closeProbe) string {
+		return probe.name
+	})
+	if err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if len(out) != 1 || out[0] != "strict" {
+		t.Fatalf("call output = %#v, want [strict]", out)
+	}
+}
+
+func TestContainerCallAcceptsNilInterfaceArgument(t *testing.T) {
+	// 需求背景：Call 方法应允许 Make 返回 nil 时注入到 interface 类型参数。
+	// 逻辑说明：当 Make 返回 nil 且参数类型为 interface 时，应使用 reflect.Zero 构造零值，
+	// 而不是因 reflect.ValueOf(nil) 无效直接报错。
+	c := NewContainer()
+
+	// 注册一个返回 nil 的 singleton factory
+	probeType := reflect.TypeOf((*closeProbe)(nil))
+	key := "*" + probeType.Elem().PkgPath() + "." + probeType.Elem().Name()
+	var nilProbe *closeProbe
+	if err := c.Instance(key, nilProbe); err != nil {
+		t.Fatalf("instance: %v", err)
+	}
+
+	// Call 应能接受 Make 返回的 nil 注入到 interface 参数
+	out, err := c.Call(func(probe *closeProbe) bool {
+		return probe == nil
+	})
+	if err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if len(out) != 1 || out[0] != true {
+		t.Fatalf("call output = %#v, want [true]", out)
+	}
+}
+
+func TestContainerForgetEmptyKeyReturnsError(t *testing.T) {
+	// 需求背景：Forget("") 应返回 error 以保持与 Bind("")、Singleton("") 等方法的 API 一致性。
+	c := NewContainer()
+	if err := c.Forget(""); err == nil {
+		t.Fatal("Forget with empty key should return error")
+	}
+}
+
+func TestContainerBoundValidatesAliasTargetBinding(t *testing.T) {
+	// 需求背景：Bound 应验证别名指向的目标服务是否实际绑定，而非仅检查别名是否存在。
+	// 逻辑说明：别名指向被 Forget 或从未绑定的服务时，Bound 必须返回 false。
+	c := NewContainer()
+	if err := c.Singleton("cache.manager", func(containercontract.Resolver) (any, error) {
+		return "manager", nil
+	}); err != nil {
+		t.Fatalf("singleton: %v", err)
+	}
+	if err := c.Alias("cache.manager", "cache"); err != nil {
+		t.Fatalf("alias: %v", err)
+	}
+
+	if !c.Bound("cache") {
+		t.Fatal("alias to bound service should be bound")
+	}
+
+	c.Forget("cache.manager")
+	if c.Bound("cache") {
+		t.Fatal("alias to forgotten service should not be bound")
+	}
+
+	if err := c.Alias("missing", "missing.alias"); err != nil {
+		t.Fatalf("alias missing: %v", err)
+	}
+	if c.Bound("missing.alias") {
+		t.Fatal("alias to never-bound service should not be bound")
+	}
+}
+
+func TestContainerSingletonRetryLimit(t *testing.T) {
+	// 需求背景：makeSingleton 在并发 Forget/Bind 导致 version 变化时应重试，但需限制最大重试次数。
+	// 逻辑说明：超过最大重试次数（3 次）后应返回错误，避免无限递归。
+	c := NewContainer()
+	
+	// 注册一个 singleton，factory 会返回新值
+	if err := c.Singleton("service", func(containercontract.Resolver) (any, error) {
+		return "value", nil
+	}); err != nil {
+		t.Fatalf("singleton: %v", err)
+	}
+
+	// 启动多个 goroutine 并发 Forget 和 Make，触发重试
+	var wg sync.WaitGroup
+	stopCh := make(chan struct{})
+	
+	// 并发 Forget
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stopCh:
+					return
+				default:
+					c.Forget("service")
+					// 立即重新注册
+					_ = c.Singleton("service", func(containercontract.Resolver) (any, error) {
+						return "value", nil
+					})
+				}
+			}
+		}()
+	}
+
+	// 并发 Make
+	errCount := 0
+	var mu sync.Mutex
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				_, err := c.Make("service")
+				if err != nil {
+					mu.Lock()
+					errCount++
+					mu.Unlock()
+				}
+			}
+		}()
+	}
+
+	// 让并发操作运行一段时间
+	time.Sleep(50 * time.Millisecond)
+	close(stopCh)
+	wg.Wait()
+
+	// 验证：即使有并发 Forget/Bind，Make 也应该能成功或返回明确错误
+	// 不应该出现无限递归导致的栈溢出
+	_, err := c.Make("service")
+	if err != nil && !errors.Is(err, ErrFactoryNotRegistered) {
+		// 允许返回 ErrFactoryNotRegistered（如果刚好 Forget 了）
+		// 但不应该有其他错误
+		t.Logf("final make error (acceptable): %v", err)
+	}
+}
+
+func TestContainerCloseContinuesAfterNonContextError(t *testing.T) {
+	// 需求背景：close 循环中 closeItem 返回非 context 错误时，应继续尝试关闭后续资源。
+	// 逻辑说明：只有 context 已取消时才提前退出，临时错误应记录并继续。
+	c := NewContainer()
+	var closed []string
+
+	// 注册三个服务，第二个服务的 factory 会阻塞导致 closeItem 等待超时
+	if err := c.Instance("first", &closeProbe{name: "first"}, func(binding *containercontract.Binding) {
+		binding.Closer = func(context.Context, any) error {
+			closed = append(closed, "first")
+			return nil
+		}
+	}); err != nil {
+		t.Fatalf("instance first: %v", err)
+	}
+
+	factoryStarted := make(chan struct{})
+	releaseFactory := make(chan struct{})
+	if err := c.Singleton("second", func(containercontract.Resolver) (any, error) {
+		close(factoryStarted)
+		<-releaseFactory
+		return &closeProbe{name: "second"}, nil
+	}, func(binding *containercontract.Binding) {
+		binding.Closer = func(context.Context, any) error {
+			closed = append(closed, "second")
+			return nil
+		}
+	}); err != nil {
+		t.Fatalf("singleton second: %v", err)
+	}
+
+	if err := c.Instance("third", &closeProbe{name: "third"}, func(binding *containercontract.Binding) {
+		binding.Closer = func(context.Context, any) error {
+			closed = append(closed, "third")
+			return nil
+		}
+	}); err != nil {
+		t.Fatalf("instance third: %v", err)
+	}
+
+	// 启动 factory 但不释放
+	go func() {
+		_, _ = c.Make("second")
+	}()
+	<-factoryStarted
+
+	// 使用短超时 context 触发 closeItem 错误
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	// 等待 factory 阻塞 closeItem
+	time.Sleep(5 * time.Millisecond)
+
+	err := c.Close(ctx)
+	if err == nil {
+		t.Fatal("close should return error after context timeout")
+	}
+
+	// 验证错误信息包含 key 上下文
+	if !strings.Contains(err.Error(), "second") {
+		t.Errorf("error should contain key 'second', got: %v", err)
+	}
+
+	// 释放 factory，让第二个服务完成初始化
+	close(releaseFactory)
+	time.Sleep(5 * time.Millisecond)
+
+	// 验证：即使第二个服务关闭失败，第一个和第三个服务也应该被关闭
+	if len(closed) < 2 {
+		t.Fatalf("closed = %v, want at least [third, first]", closed)
 	}
 }

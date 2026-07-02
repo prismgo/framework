@@ -49,6 +49,14 @@ func TestTypedFactoryAndOptions(t *testing.T) {
 	SetProvider(func() *Container { return c })
 	t.Cleanup(func() { SetProvider(nil) })
 
+	// Low #7: Make[T] 应该返回类型不匹配的明确错误，而不是 isNilValue 检查
+	if err := c.Instance("string.service", "hello"); err != nil {
+		t.Fatalf("instance: %v", err)
+	}
+	if _, err := Make[*helperProbe]("string.service"); err == nil {
+		t.Fatal("Make[T] should return error when type mismatch")
+	}
+
 	var closed []string
 	err := c.Singleton("probe", func(containercontract.Resolver) (any, error) {
 		return &helperProbe{name: "factory"}, nil
