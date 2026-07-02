@@ -15,6 +15,29 @@ import (
 )
 
 func TestCurrentServerConfigDefaults(t *testing.T) {
+	// 清理可能影响测试的环境变量
+	envVars := []string{"SERVER_HOST", "SERVER_PORT", "SERVER_TIMEOUT", "SERVER_READ_TIMEOUT",
+		"SERVER_READ_HEADER_TIMEOUT", "SERVER_WRITE_TIMEOUT", "SERVER_IDLE_TIMEOUT",
+		"SERVER_SHUTDOWN_TIMEOUT", "SERVER_MAX_HEADER_BYTES", "SERVER_MAX_MULTIPART_MEMORY",
+		"SERVER_TRUSTED_PROXIES", "SERVER_CLIENT_IP_HEADERS", "SERVER_ACCESS_LOG",
+		"SERVER_EXCEPTION_HANDLER", "APP_DEBUG"}
+	oldValues := make(map[string]string)
+	for _, key := range envVars {
+		oldValues[key] = os.Getenv(key)
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatalf("unsetenv %s: %v", key, err)
+		}
+	}
+	defer func() {
+		for key, value := range oldValues {
+			if value != "" {
+				if err := os.Setenv(key, value); err != nil {
+					t.Errorf("setenv %s: %v", key, err)
+				}
+			}
+		}
+	}()
+
 	loadHTTPServerConfig(t, "")
 
 	cfg := CurrentServerConfig()

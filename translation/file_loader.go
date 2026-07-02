@@ -1,13 +1,16 @@
 package translation
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sync"
 
+	"github.com/prismgo/framework/exception"
 	pathutil "github.com/prismgo/framework/internal/path"
 )
 
@@ -155,20 +158,30 @@ func (f *FileLoader) loadJSON(locale string) (map[string]any, error) {
 
 	for _, jsonPath := range f.getAllJSONPaths() {
 		filePath := filepath.Join(jsonPath, locale+".json")
-		if data, err := f.loadFile(filePath); err == nil {
-			for k, v := range data {
-				merged[k] = v
+		data, err := f.loadFile(filePath)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				exception.Report(context.Background(), fmt.Errorf("translation: load JSON file %s: %w", filePath, err), nil)
 			}
+			continue
+		}
+		for k, v := range data {
+			merged[k] = v
 		}
 	}
 
 	for _, path := range f.getAllPaths() {
 		filePath := filepath.Join(path, locale+".json")
-		if data, err := f.loadFile(filePath); err == nil {
-			for k, v := range data {
-				if _, exists := merged[k]; !exists {
-					merged[k] = v
-				}
+		data, err := f.loadFile(filePath)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				exception.Report(context.Background(), fmt.Errorf("translation: load JSON file %s: %w", filePath, err), nil)
+			}
+			continue
+		}
+		for k, v := range data {
+			if _, exists := merged[k]; !exists {
+				merged[k] = v
 			}
 		}
 	}

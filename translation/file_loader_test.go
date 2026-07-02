@@ -6,9 +6,48 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/prismgo/framework/container"
+	"github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 )
 
+// setupTranslationTestContainer 创建测试所需的容器环境，包含 logger 和 exception handler。
+func setupTranslationTestContainer(t *testing.T) {
+	t.Helper()
+
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container {
+		return registry
+	})
+	t.Cleanup(func() {
+		container.SetProvider(nil)
+	})
+
+	// 创建并绑定 logger manager
+	mgr, err := logger.NewManager(logger.Config{
+		Default: "null",
+		Channels: map[string]logger.ChannelOptions{
+			"null": {Driver: "null"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", mgr); err != nil {
+		t.Fatalf("Failed to bind logger manager: %v", err)
+	}
+
+	// 创建并绑定 exception handler
+	handler := exception.New()
+	if err := registry.Instance("exception.handler", handler); err != nil {
+		t.Fatalf("Failed to bind exception handler: %v", err)
+	}
+}
+
 func TestFileLoaderJSONParseError(t *testing.T) {
+	setupTranslationTestContainer(t)
+
 	// 创建临时目录
 	tmpDir, err := os.MkdirTemp("", "translation_test_*")
 	if err != nil {
@@ -30,10 +69,13 @@ func TestFileLoaderJSONParseError(t *testing.T) {
 	loader := NewFileLoader()
 	loader.AddJSONPath(tmpDir)
 
-	// 任务 2：JSON 解析错误应该返回错误，而不是吞掉
-	_, err = loader.Load("en", "", "")
-	if err == nil {
-		t.Error("Expected error for invalid JSON, got nil")
+	// JSON 解析错误应该通过 exception.Report 上报，而不是返回错误
+	result, err := loader.Load("en", "", "")
+	if err != nil {
+		t.Errorf("Expected no error returned, got: %v", err)
+	}
+	if result == nil {
+		t.Error("Expected empty map, got nil")
 	}
 }
 

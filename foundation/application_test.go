@@ -105,7 +105,7 @@ func TestApplicationContainerHelpersSupportInstanceBindAndCall(t *testing.T) {
 	if !app.Resolved("foundation.helper.instance") {
 		t.Fatal("Instance should mark service resolved")
 	}
-	if err := app.Bind("*foundation.closeContextProbe", func(containercontract.Resolver) (any, error) {
+	if err := app.Bind("*github.com/prismgo/framework/foundation.closeContextProbe", func(containercontract.Resolver) (any, error) {
 		return probe, nil
 	}); err != nil {
 		t.Fatalf("Bind failed: %v", err)
