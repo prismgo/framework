@@ -113,7 +113,7 @@ func (s *MessageSelector) getPluralIndex(locale string, number int) int {
 		if rem10 == 1 && rem100 != 11 {
 			return 0
 		}
-		if rem10 >= 2 && rem10 <= 4 && !(rem100 >= 12 && rem100 <= 14) {
+		if rem10 >= 2 && rem10 <= 4 && (rem100 < 12 || rem100 > 14) {
 			return 1
 		}
 		return 2

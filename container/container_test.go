@@ -619,7 +619,9 @@ func TestContainerConcurrentMakeAndRebindHasNoRace(t *testing.T) {
 						t.Errorf("instance: %v", err)
 					}
 				case 2:
-					c.Forget("service")
+					if err := c.Forget("service"); err != nil {
+						t.Errorf("forget: %v", err)
+					}
 				default:
 					if err := c.Bind("service", func(containercontract.Resolver) (any, error) {
 						return &closeProbe{name: "bound"}, nil
@@ -718,7 +720,9 @@ func TestContainerBoundValidatesAliasTargetBinding(t *testing.T) {
 		t.Fatal("alias to bound service should be bound")
 	}
 
-	c.Forget("cache.manager")
+	if err := c.Forget("cache.manager"); err != nil {
+		t.Fatalf("forget cache.manager: %v", err)
+	}
 	if c.Bound("cache") {
 		t.Fatal("alias to forgotten service should not be bound")
 	}
@@ -757,7 +761,7 @@ func TestContainerSingletonRetryLimit(t *testing.T) {
 				case <-stopCh:
 					return
 				default:
-					c.Forget("service")
+					_ = c.Forget("service")
 					// 立即重新注册
 					_ = c.Singleton("service", func(containercontract.Resolver) (any, error) {
 						return "value", nil

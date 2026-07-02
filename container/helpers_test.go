@@ -274,7 +274,7 @@ func TestContainerNilReceiversAndCurrentErrorBranches(t *testing.T) {
 	// 稳定错误或零值，便于上层用 errors.Is 做明确诊断。
 	SetProvider(nil)
 	var c *Container
-	c.Forget("missing")
+	_ = c.Forget("missing")
 	c.SetMissingFactoryLoader(func(string) error { return nil })
 
 	if err := c.Bind("service", func(containercontract.Resolver) (any, error) { return nil, nil }); !errors.Is(err, ErrNoCurrentContainer) {

@@ -185,7 +185,9 @@ func TestApplicationRegistrationAndVolatileDriverBranches(t *testing.T) {
 	if resolved := Resolve(); resolved == nil {
 		t.Fatal("Resolve registered factory returned nil")
 	}
-	registry.Forget(serviceKey)
+	if err := registry.Forget(serviceKey); err != nil {
+		t.Fatalf("forget session service: %v", err)
+	}
 	bindSessionConfigInRegistry(t, registry, configpkg.New())
 	if err := (ServiceProvider{}).Register(providerTestApp{registry: registry}); err != nil {
 		t.Fatalf("register service provider: %v", err)

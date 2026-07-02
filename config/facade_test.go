@@ -34,7 +34,9 @@ func TestContainerBindingReplacesResolvedConfig(t *testing.T) {
 func TestUseNilFallsBackToFreshConfig(t *testing.T) {
 	cfg := &Config{store: map[string]any{"app": map[string]any{"name": "custom"}}}
 	registry := bindConfigForTest(t, cfg)
-	registry.Forget(serviceKey)
+	if err := registry.Forget(serviceKey); err != nil {
+		t.Fatalf("forget config service: %v", err)
+	}
 	defer func() {
 		if recovered := recover(); recovered == nil {
 			t.Fatal("expected Resolve to panic after clearing container binding")

@@ -71,7 +71,9 @@ func registerCacheFactoryForTest(t *testing.T, registry *container.Container, fa
 		registry = useCacheTestContainer(t)
 	}
 	if factory == nil {
-		registry.Forget(serviceKey)
+		if err := registry.Forget(serviceKey); err != nil {
+			t.Fatalf("forget cache service: %v", err)
+		}
 		return
 	}
 	if err := registry.Singleton(serviceKey, func(containercontract.Resolver) (any, error) {

@@ -48,7 +48,7 @@ func TestWriteLogrusEntryPanicLevelPanics(t *testing.T) {
 				}
 			}
 		}()
-		writeLogrusEntry(c, entry)
+		_ = writeLogrusEntry(c, entry)
 	}()
 	if !panicked {
 		t.Fatal("expected panic for PanicLevel")

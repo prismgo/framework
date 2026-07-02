@@ -277,7 +277,11 @@ func TestWithLockBranches(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seed Lock error = %v", err)
 		}
-		defer lock.Release(context.Background())
+		defer func() {
+			if err := lock.Release(context.Background()); err != nil {
+				t.Errorf("release seed lock: %v", err)
+			}
+		}()
 		// 尝试再次获取锁，应该失败
 		if err := manager.withLock(context.Background(), id, func() error {
 			return nil
