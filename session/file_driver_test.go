@@ -50,21 +50,32 @@ func TestFileDriverPersistsPayloadAndRecovers(t *testing.T) {
 func TestFileDriverExpiresGCAndMalformedRecovery(t *testing.T) {
 	cfg := testConfig(t)
 	driver := newTestFileDriver(t, cfg)
+
+	// 模拟已存在的过期 session 文件（绕过 Write 方法，直接写入文件）
+	// 这符合 Laravel 的语义：Write 总是写入未来时间，过期检查在 Read 时进行
 	expiredID := newSessionID()
 	expiredAt := time.Now().Add(-time.Minute)
-
-	if err := driver.Write(context.Background(), expiredID, Payload{
+	expiredPayload := Payload{
 		ID:           expiredID,
 		Values:       map[string]any{"secret": "hidden"},
 		CreatedAt:    testNow().Add(-time.Hour),
 		LastActivity: testNow().Add(-time.Hour),
-	}, &expiredAt); err != nil {
-		t.Fatalf("Write expired error = %v", err)
+		ExpiresAt:    &expiredAt,
 	}
+	expiredData, err := driver.encode(context.Background(), expiredPayload)
+	if err != nil {
+		t.Fatalf("encode expired payload error = %v", err)
+	}
+	if err := os.WriteFile(driver.pathForID(expiredID), expiredData, 0o600); err != nil {
+		t.Fatalf("write expired fixture error = %v", err)
+	}
+
+	// 验证 Read 能检测到过期并返回 ErrSessionExpired
 	if _, err := driver.Read(context.Background(), expiredID); !errors.Is(err, ErrSessionExpired) {
 		t.Fatalf("Read expired error = %v", err)
 	}
 
+	// 测试损坏文件的恢复
 	malformedID := newSessionID()
 	if err := os.WriteFile(driver.pathForID(malformedID), []byte("{secret payload"), 0o600); err != nil {
 		t.Fatalf("write malformed fixture error = %v", err)
@@ -73,6 +84,7 @@ func TestFileDriverExpiresGCAndMalformedRecovery(t *testing.T) {
 		t.Fatalf("Read malformed error = %v", err)
 	}
 
+	// 验证 GC 能清理过期文件
 	if err := driver.GC(context.Background(), testNow()); err != nil {
 		t.Fatalf("GC error = %v", err)
 	}

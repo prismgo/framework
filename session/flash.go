@@ -54,7 +54,7 @@ func uniqueStrings(items []string) []string {
 }
 
 func removeString(items []string, target string) []string {
-	out := items[:0]
+	out := make([]string, 0, len(items))
 	for _, item := range items {
 		if item != target {
 			out = append(out, item)

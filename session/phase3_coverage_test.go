@@ -224,10 +224,10 @@ func TestNumericAndResponseWriterBranches(t *testing.T) {
 			t.Fatalf("numericValue(%T) = %d, %v", value, got, err)
 		}
 	}
-	if _, err := numericValue(float64(1.5)); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := numericValue(float64(1.5)); !errors.Is(err, ErrInvalidValueType) {
 		t.Fatalf("float numeric error = %v", err)
 	}
-	if _, err := unsignedToInt64(uint64(^uint64(0))); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := unsignedToInt64(uint64(^uint64(0))); !errors.Is(err, ErrInvalidValueType) {
 		t.Fatalf("overflow error = %v", err)
 	}
 

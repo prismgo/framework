@@ -119,11 +119,14 @@ func (d *RedisDriver) Read(ctx context.Context, id string) (Payload, error) {
 
 // Write 写入 Redis session payload 并刷新 Redis TTL。
 //
-// 参数 expiresAt 来自 Manager.Save 的生命周期计算；有值时转换为 Redis TTL，没有值时写入
-// 无自动过期 key。写入内容使用 session Payload Encoding，开启 Encrypt 时先编码再加密完整字节。
+// 参数 expiresAt 来自 Manager.Save 的生命周期计算；有值时转换为 Redis TTL。写入内容使用 session Payload Encoding，
+// 开启 Encrypt 时先编码再加密完整字节。当 expiresAt 为 nil 或过去时间时，返回 ErrInvalidExpiresAt。
 func (d *RedisDriver) Write(ctx context.Context, id string, payload Payload, expiresAt *time.Time) error {
 	if !validSessionID(id) || payload.ID != id {
 		return ErrInvalidSessionID
+	}
+	if expiresAt == nil || !expiresAt.After(time.Now()) {
+		return ErrInvalidExpiresAt
 	}
 	payload.ExpiresAt = expiresAt
 	data, err := d.encode(ctx, payload)

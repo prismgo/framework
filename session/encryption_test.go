@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 )
 
 type prefixEncryptor struct{}
@@ -36,12 +37,13 @@ func TestFileDriverEncryptsPayloadWhenEnabled(t *testing.T) {
 	driver := newTestFileDriver(t, cfg)
 	id := newSessionID()
 
+	expiresAt := testNow().Add(time.Hour)
 	if err := driver.Write(context.Background(), id, Payload{
 		ID:           id,
 		Values:       map[string]any{"secret": "visible only after decrypt"},
 		CreatedAt:    testNow(),
 		LastActivity: testNow(),
-	}, nil); err != nil {
+	}, &expiresAt); err != nil {
 		t.Fatalf("Write encrypted error = %v", err)
 	}
 	raw, err := os.ReadFile(driver.pathForID(id))
@@ -67,7 +69,8 @@ func TestFileDriverEncryptionFailuresAreSanitized(t *testing.T) {
 	driver := newTestFileDriver(t, cfg)
 	id := newSessionID()
 
-	err := driver.Write(context.Background(), id, Payload{ID: id, Values: map[string]any{"secret": "payload"}}, nil)
+	expiresAt := testNow().Add(time.Hour)
+	err := driver.Write(context.Background(), id, Payload{ID: id, Values: map[string]any{"secret": "payload"}}, &expiresAt)
 	if !errors.Is(err, ErrEncryptionFailed) || bytes.Contains([]byte(err.Error()), []byte("secret")) {
 		t.Fatalf("encryption error = %v", err)
 	}

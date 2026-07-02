@@ -152,7 +152,7 @@ func (s *Store) Flush() {
 
 // Increment 按 amount 递增数值型 session 值，未传 amount 时默认加 1。
 //
-// 参数 key 是计数器键；amount 是可选增量。非整数值会返回 ErrInvalidConfig，避免隐式类型转换造成业务歧义。
+// 参数 key 是计数器键；amount 是可选增量。非整数值会返回 ErrInvalidValueType，避免隐式类型转换造成业务歧义。
 func (s *Store) Increment(key string, amount ...int64) (int64, error) {
 	delta := int64(1)
 	if len(amount) > 0 {
@@ -185,7 +185,7 @@ func (s *Store) Regenerate(ctx context.Context) error {
 	s.payload.ID = s.id
 	s.markDirty()
 	if s.manager == nil || s.manager.driver == nil {
-		return nil
+		return ErrInvalidConfig
 	}
 	if s.ownsRequestLock(oldID) {
 		err := s.manager.driver.Destroy(ctx, oldID)
@@ -314,12 +314,12 @@ func numericValue(value any) (int64, error) {
 			return int64(v), nil
 		}
 	}
-	return 0, ErrInvalidConfig
+	return 0, ErrInvalidValueType
 }
 
 func unsignedToInt64(value uint64) (int64, error) {
 	if value > math.MaxInt64 {
-		return 0, ErrInvalidConfig
+		return 0, ErrInvalidValueType
 	}
 	return int64(value), nil
 }

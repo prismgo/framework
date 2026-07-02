@@ -27,6 +27,10 @@ var (
 	ErrLockTimeout = errors.New("session: lock wait timeout")
 	// ErrLockNotHeld 表示释放或续期锁时当前调用方并未持有该锁。
 	ErrLockNotHeld = errors.New("session: lock not held")
+	// ErrInvalidValueType 表示 session 值类型不符合操作要求，例如 Increment/Decrement 遇到非整数类型。
+	ErrInvalidValueType = errors.New("session: invalid value type")
+	// ErrInvalidExpiresAt 表示写入时 expiresAt 为 nil 或过去时间，无法设置有效的过期时间。
+	ErrInvalidExpiresAt = errors.New("session: invalid expires at")
 )
 
 // SensitiveError 表示涉及敏感 session 内容的失败。

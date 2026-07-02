@@ -95,9 +95,13 @@ func (d *FileDriver) Read(ctx context.Context, id string) (Payload, error) {
 // Write 序列化并原子写入 session payload。
 //
 // 参数 expiresAt 会同步写入 payload.ExpiresAt；payload.Values 必须可由当前 Payload Encoding 序列化。
+// 当 expiresAt 为 nil 或过去时间时，返回 ErrInvalidExpiresAt。
 func (d *FileDriver) Write(ctx context.Context, id string, payload Payload, expiresAt *time.Time) error {
 	if !validSessionID(id) || payload.ID != id {
 		return ErrInvalidSessionID
+	}
+	if expiresAt == nil || !expiresAt.After(time.Now()) {
+		return ErrInvalidExpiresAt
 	}
 	payload.ExpiresAt = expiresAt
 	data, err := d.encode(ctx, payload)

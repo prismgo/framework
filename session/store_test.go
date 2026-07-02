@@ -131,7 +131,7 @@ func TestStoreInvalidNumericIncrement(t *testing.T) {
 	manager, _ := newTestManager(t)
 	store := newStore(manager, Payload{}, nil)
 	store.Put("count", "bad")
-	if _, err := store.Increment("count"); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := store.Increment("count"); !errors.Is(err, ErrInvalidValueType) {
 		t.Fatalf("Increment error = %v", err)
 	}
 }

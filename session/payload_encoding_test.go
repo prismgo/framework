@@ -19,7 +19,8 @@ func TestFileDriverUsesConfiguredPayloadEncoding(t *testing.T) {
 	driver := newTestFileDriver(t, cfg)
 	id := newSessionID()
 
-	if err := driver.Write(context.Background(), id, Payload{ID: id, Values: map[string]any{"name": "alice"}}, nil); err != nil {
+	expiresAt := time.Now().Add(time.Hour)
+	if err := driver.Write(context.Background(), id, Payload{ID: id, Values: map[string]any{"name": "alice"}}, &expiresAt); err != nil {
 		t.Fatalf("Write msgpack error = %v", err)
 	}
 	raw, err := os.ReadFile(driver.pathForID(id))
@@ -36,7 +37,8 @@ func TestFileDriverUsesConfiguredPayloadEncoding(t *testing.T) {
 	cfg.Encoding = encodingpkg.NameJSON
 	jsonDriver := newTestFileDriver(t, cfg)
 	jsonID := newSessionID()
-	if err := jsonDriver.Write(context.Background(), jsonID, Payload{ID: jsonID, Values: map[string]any{"name": "bob"}}, nil); err != nil {
+	jsonExpiresAt := time.Now().Add(time.Hour)
+	if err := jsonDriver.Write(context.Background(), jsonID, Payload{ID: jsonID, Values: map[string]any{"name": "bob"}}, &jsonExpiresAt); err != nil {
 		t.Fatalf("Write json error = %v", err)
 	}
 	jsonRaw, err := os.ReadFile(jsonDriver.pathForID(jsonID))
@@ -71,7 +73,8 @@ func TestFileDriverEncryptsEncodedPayloadBytes(t *testing.T) {
 	driver := newTestFileDriver(t, cfg)
 	id := newSessionID()
 
-	if err := driver.Write(context.Background(), id, Payload{ID: id, Values: map[string]any{"secret": "value"}}, nil); err != nil {
+	expiresAt := time.Now().Add(time.Hour)
+	if err := driver.Write(context.Background(), id, Payload{ID: id, Values: map[string]any{"secret": "value"}}, &expiresAt); err != nil {
 		t.Fatalf("Write encrypted msgpack error = %v", err)
 	}
 	raw, err := os.ReadFile(driver.pathForID(id))

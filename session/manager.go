@@ -193,7 +193,20 @@ func (m *Manager) sessionCookie(id string, expiresAt *time.Time) *http.Cookie {
 	c := cookiepkg.New(m.cfg.Cookie.Name, id, 0, options...)
 	httpCookie, err := c.ToHTTP()
 	if err != nil {
-		return &http.Cookie{Name: m.cfg.Cookie.Name, Value: id, Path: m.cfg.Cookie.Path, HttpOnly: true}
+		fallback := &http.Cookie{
+			Name:     m.cfg.Cookie.Name,
+			Value:    id,
+			Path:     m.cfg.Cookie.Path,
+			Domain:   m.cfg.Cookie.Domain,
+			Secure:   m.cfg.Cookie.Secure,
+			HttpOnly: m.cfg.Cookie.HTTPOnly,
+			SameSite: cookiepkg.SameSiteMode(m.cfg.Cookie.SameSite).ToHTTPSameSite(),
+		}
+		if !m.cfg.ExpireOnClose && expiresAt != nil {
+			fallback.Expires = *expiresAt
+			fallback.MaxAge = int(expiresAt.Sub(m.now()).Seconds())
+		}
+		return fallback
 	}
 	return httpCookie
 }
