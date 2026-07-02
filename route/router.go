@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -47,20 +48,22 @@ type RouteInfo struct {
 // 这样做的原因是 Route.Name 支持重复调用覆盖后缀。如果不把前缀和后缀拆开保存，
 // 二次命名时只能拿到上一次的完整名字，无法在保留分组前缀的同时安全替换路由后缀。
 type routeEntry struct {
-	methods       []string
-	uri           string
-	name          string
-	namePrefix    string
-	nameSuffix    string
-	domain        string
-	action        HandlerFunc
-	middleware    []HandlerFunc
-	middlewareIDs []string
-	where         map[string]string
-	missing       HandlerFunc
-	controller    any
-	handlerName   string
-	sourcePath    string
+	methods         []string
+	uri             string
+	name            string
+	namePrefix      string
+	nameSuffix      string
+	domain          string
+	action          HandlerFunc
+	middleware      []HandlerFunc
+	middlewareIDs   []string
+	where           map[string]string
+	compiledConstraints map[string]*regexp.Regexp // 预编译的约束正则，避免每次请求重新编译
+	missing         HandlerFunc
+	controller      any
+	handlerName     string
+	sourcePath      string
+	compiledPaths   []string // 缓存编译后的 Gin 路径，避免 List/Mount 重复计算
 }
 
 type groupAttributes struct {
@@ -167,14 +170,30 @@ func (r *Router) Model(param string, binder Binder) {
 }
 
 // Pattern 注册全局参数约束。局部 Where 会覆盖同名全局约束。
+//
+// 需求背景：Medium #3 - 与 Route.Where() 保持一致的 fail-fast 语义，
+// 在注册无效正则时立即 panic，而非静默忽略导致运行时约束不生效。
 func (r *Router) Pattern(param, expr string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	param = strings.TrimSpace(param)
 	expr = strings.TrimSpace(expr)
 	if param == "" || expr == "" {
 		return
 	}
+
+	// 验证正则表达式（在获取锁之前验证，避免持有锁时 panic）
+	fullExpr := expr
+	if !strings.HasPrefix(fullExpr, "^") {
+		fullExpr = "^" + fullExpr
+	}
+	if !strings.HasSuffix(fullExpr, "$") {
+		fullExpr += "$"
+	}
+	if _, err := regexp.Compile(fullExpr); err != nil {
+		panic(fmt.Sprintf("route: invalid pattern for %q: %v", param, err))
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.patterns[param] = expr
 }
 
@@ -220,6 +239,10 @@ func (r *Router) addWithAttributes(attrs groupAttributes, methods []string, uri 
 		handlerName:   functionName(action),
 		sourcePath:    functionFile(action),
 	}
+	// 预编译路径并缓存
+	entry.compiledPaths = compilePaths(entry.uri, entry.where)
+	// 预编译约束正则
+	entry.compiledConstraints = compileConstraints(entry.where)
 	r.routes = append(r.routes, entry)
 	route := &Route{router: r, entry: entry}
 	r.indexName(entry)
@@ -288,7 +311,15 @@ func (r *Router) PermanentRedirect(uri, destination string) *Route {
 // Static 注册静态文件目录。
 func (r *Router) Static(uri, root string) *Route {
 	return r.Get(joinPaths(uri, "{filepath}"), func(c *gin.Context) {
-		c.FileFromFS(strings.TrimPrefix(c.Param("filepath"), "/"), http.Dir(root))
+		filepath := strings.TrimPrefix(c.Param("filepath"), "/")
+		// 显式验证路径不包含路径穿越段（".."），防止路径穿越攻击
+		// 仅阻止 ".." 作为路径段，允许包含 ".." 的合法文件名（如 file..name.txt）
+		if filepath == ".." || strings.HasPrefix(filepath, "../") ||
+			strings.HasSuffix(filepath, "/..") || strings.Contains(filepath, "/../") {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		c.FileFromFS(filepath, http.Dir(root))
 	}).Where("filepath", ".*")
 }
 
@@ -317,6 +348,11 @@ func (r *Router) Middleware(handlers ...HandlerFunc) *Registrar {
 	return (&Registrar{router: r}).Middleware(handlers...)
 }
 
+// WithoutMiddleware 创建排除指定中间件的路由声明器。
+func (r *Router) WithoutMiddleware(names ...string) *Registrar {
+	return (&Registrar{router: r}).WithoutMiddleware(names...)
+}
+
 // Controller 创建带控制器对象的路由声明器。
 func (r *Router) Controller(controller any) *Registrar {
 	return (&Registrar{router: r}).Controller(controller)
@@ -333,7 +369,8 @@ func (r *Router) List() []RouteInfo {
 	defer r.mu.RUnlock()
 	out := make([]RouteInfo, 0, len(r.routes))
 	for _, entry := range r.routes {
-		for _, path := range compilePaths(entry.uri, entry.where) {
+		// 使用缓存的编译路径
+		for _, path := range entry.compiledPaths {
 			out = append(out, entry.info(path))
 		}
 	}
@@ -379,13 +416,13 @@ func (r *Router) Mount(engine *gin.Engine) error {
 	r.mu.RUnlock()
 
 	for _, entry := range routes {
-		paths := compilePaths(entry.uri, entry.where)
+		// 使用缓存的编译路径
 		if len(entry.methods) == 1 && entry.methods[0] == "FALLBACK" {
 			engine.NoRoute(entry.chain(binders)...)
 			continue
 		}
 		for _, method := range entry.methods {
-			for _, path := range paths {
+			for _, path := range entry.compiledPaths {
 				engine.Handle(method, path, entry.chain(binders)...)
 			}
 		}
@@ -471,12 +508,12 @@ func (e *routeEntry) domainMiddleware() gin.HandlerFunc {
 
 func (e *routeEntry) constraintMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		for param, expr := range e.where {
+		for param, re := range e.compiledConstraints {
 			value := c.Param(param)
 			if value == "" {
 				continue
 			}
-			if !matchesConstraint(expr, value) {
+			if !re.MatchString(value) {
 				c.AbortWithStatus(http.StatusNotFound)
 				return
 			}
@@ -533,20 +570,22 @@ func (e *routeEntry) clone() *routeEntry {
 		return nil
 	}
 	return &routeEntry{
-		methods:       append([]string(nil), e.methods...),
-		uri:           e.uri,
-		name:          e.name,
-		namePrefix:    e.namePrefix,
-		nameSuffix:    e.nameSuffix,
-		domain:        e.domain,
-		action:        e.action,
-		middleware:    append([]HandlerFunc(nil), e.middleware...),
-		middlewareIDs: append([]string(nil), e.middlewareIDs...),
-		where:         mergeStringMap(e.where),
-		missing:       e.missing,
-		controller:    e.controller,
-		handlerName:   e.handlerName,
-		sourcePath:    e.sourcePath,
+		methods:             append([]string(nil), e.methods...),
+		uri:                 e.uri,
+		name:                e.name,
+		namePrefix:          e.namePrefix,
+		nameSuffix:          e.nameSuffix,
+		domain:              e.domain,
+		action:              e.action,
+		middleware:          append([]HandlerFunc(nil), e.middleware...),
+		middlewareIDs:       append([]string(nil), e.middlewareIDs...),
+		where:               mergeStringMap(e.where),
+		compiledConstraints: cloneCompiledConstraints(e.compiledConstraints),
+		missing:             e.missing,
+		controller:          e.controller,
+		handlerName:         e.handlerName,
+		sourcePath:          e.sourcePath,
+		compiledPaths:       append([]string(nil), e.compiledPaths...),
 	}
 }
 
@@ -710,19 +749,129 @@ func mergeStringSet(sets ...map[string]struct{}) map[string]struct{} {
 	return out
 }
 
+// placeholderPattern 匹配未替换的 :key 或 *key 格式占位符（必须跟在 / 后面）
+var placeholderPattern = regexp.MustCompile(`/[:*][A-Za-z_][A-Za-z0-9_]*`)
+
 func fillURI(uri string, params map[string]any) (string, error) {
 	path := uri
 	for key, value := range params {
-		replacements := []string{"{" + key + "}", "{" + key + "?}", ":" + key, "*" + key}
 		escaped := url.PathEscape(fmt.Sprint(value))
-		for _, pattern := range replacements {
-			path = strings.ReplaceAll(path, pattern, escaped)
-		}
+		// 替换 {key} 和 {key?} 格式（有明确分隔符，无前缀歧义）
+		path = strings.ReplaceAll(path, "{"+key+"}", escaped)
+		path = strings.ReplaceAll(path, "{"+key+"?}", escaped)
+		// 替换 :key 和 *key 格式（需要边界检查，避免前缀歧义）
+		path = replaceParamPrefix(path, ":", key, escaped)
+		path = replaceParamPrefix(path, "*", key, escaped)
 	}
-	if strings.Contains(path, "{") || strings.Contains(path, ":") || strings.Contains(path, "*") {
+	// 移除未填充的可选参数占位符及其前置斜杠
+	path = removeOptionalPlaceholders(path)
+	// 检查是否还有未替换的占位符
+	if hasUnfilledPlaceholders(path) {
 		return "", fmt.Errorf("route: missing parameters for %q", uri)
 	}
 	return path, nil
+}
+
+// replaceParamPrefix 替换带前缀的参数占位符，使用边界检查避免前缀歧义。
+//
+// 需求背景：Medium #1 - 当参数名是另一个参数名的前缀时（如 id 和 id_extra），
+// 简单的 strings.ReplaceAll 会破坏更长的参数名。此函数检查后续字符是否为单词字符，
+// 确保匹配到的是完整参数名。
+func replaceParamPrefix(path, prefix, key, value string) string {
+	target := prefix + key
+	var builder strings.Builder
+	builder.Grow(len(path))
+	rest := path
+	for {
+		idx := strings.Index(rest, target)
+		if idx == -1 {
+			builder.WriteString(rest)
+			break
+		}
+		afterIdx := idx + len(target)
+		// 检查后续字符是否为单词字符（字母、数字、下划线）
+		if afterIdx < len(rest) && isWordChar(rest[afterIdx]) {
+			// 不是完整参数名，跳过
+			builder.WriteString(rest[:idx+len(target)])
+			rest = rest[idx+len(target):]
+			continue
+		}
+		builder.WriteString(rest[:idx])
+		builder.WriteString(value)
+		rest = rest[afterIdx:]
+	}
+	return builder.String()
+}
+
+// isWordChar 判断字节是否为单词字符（字母、数字、下划线）
+func isWordChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
+}
+
+// removeOptionalPlaceholders 移除未填充的可选参数占位符及其前置斜杠。
+//
+// 需求背景：High #2 - 当可选参数 {key?} 未提供时，应移除占位符及前置斜杠，
+// 而非保留占位符导致错误。
+// Medium #1 - 修复双斜杠问题：当可选参数在路径中间或开头时，避免产生 "//"。
+func removeOptionalPlaceholders(path string) string {
+	// 空字符串直接返回
+	if path == "" {
+		return ""
+	}
+
+	originalPath := path
+	var builder strings.Builder
+	builder.Grow(len(path))
+
+	for {
+		idx := strings.Index(path, "{")
+		if idx == -1 {
+			builder.WriteString(path)
+			break
+		}
+		end := strings.Index(path[idx:], "}")
+		if end == -1 {
+			builder.WriteString(path)
+			break
+		}
+		end += idx
+		placeholder := path[idx : end+1]
+		if strings.HasSuffix(placeholder, "?}") {
+			// 写入占位符前的内容（移除前置斜杠）
+			prefix := strings.TrimSuffix(path[:idx], "/")
+			builder.WriteString(prefix)
+			// 跳过占位符，继续处理后续内容
+			path = path[end+1:]
+			// 如果后续内容不以 "/" 开头，添加 "/" 分隔符
+			if path != "" && !strings.HasPrefix(path, "/") {
+				builder.WriteString("/")
+			}
+		} else {
+			// 遇到必填占位符，写入剩余内容并停止处理
+			builder.WriteString(path)
+			break
+		}
+	}
+
+	result := builder.String()
+	// 确保路径不为空（仅当原始路径非空时）
+	if result == "" && originalPath != "" {
+		return "/"
+	}
+	return result
+}
+
+// hasUnfilledPlaceholders 检查路径中是否还有未替换的参数占位符。
+//
+// 需求背景：Low #5 - 原实现盲目检查字面冒号和星号，导致路径包含字面冒号（如 /api/v1:batch）
+// 时误报为缺少参数。此函数仅检查已知的占位符模式：{key} 和 :key/*key 格式。
+func hasUnfilledPlaceholders(path string) bool {
+	// 检查是否还有未替换的 {key} 占位符
+	if strings.Contains(path, "{") {
+		return true
+	}
+	// 检查是否还有未替换的 :key 或 *key 占位符
+	return placeholderPattern.MatchString(path)
 }
 
 func hostMatches(pattern, host string) bool {

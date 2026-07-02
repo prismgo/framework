@@ -1,6 +1,7 @@
 package route
 
 import (
+	"fmt"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -37,12 +38,36 @@ func (r *Route) Where(param, expr string) *Route {
 	if param == "" || expr == "" {
 		return r
 	}
+
+	// 预编译验证正则表达式
+	fullExpr := expr
+	if !strings.HasPrefix(fullExpr, "^") {
+		fullExpr = "^" + fullExpr
+	}
+	if !strings.HasSuffix(fullExpr, "$") {
+		fullExpr += "$"
+	}
+	compiled, err := regexp.Compile(fullExpr)
+	if err != nil {
+		panic(fmt.Sprintf("route: invalid constraint for %q: %v", param, err))
+	}
+
 	r.router.mu.Lock()
 	defer r.router.mu.Unlock()
 	if r.entry.where == nil {
 		r.entry.where = map[string]string{}
 	}
 	r.entry.where[param] = expr
+
+	// 复用已编译的正则表达式
+	if r.entry.compiledConstraints == nil {
+		r.entry.compiledConstraints = map[string]*regexp.Regexp{}
+	}
+	r.entry.compiledConstraints[param] = compiled
+
+	// 约束变更影响路径编译（末尾通配符），需要重新编译
+	r.entry.compiledPaths = compilePaths(r.entry.uri, r.entry.where)
+
 	return r
 }
 
@@ -97,8 +122,8 @@ func (r *Route) Missing(handler gin.HandlerFunc) *Route {
 		return r
 	}
 	r.router.mu.Lock()
+	defer r.router.mu.Unlock()
 	r.entry.missing = handler
-	r.router.mu.Unlock()
 	return r
 }
 
@@ -108,11 +133,11 @@ func (r *Route) Middleware(handlers ...gin.HandlerFunc) *Route {
 		return r
 	}
 	r.router.mu.Lock()
+	defer r.router.mu.Unlock()
 	r.entry.middleware = append(r.entry.middleware, handlers...)
 	for _, handler := range handlers {
 		r.entry.middlewareIDs = append(r.entry.middlewareIDs, middlewareID(handler))
 	}
-	r.router.mu.Unlock()
 	return r
 }
 

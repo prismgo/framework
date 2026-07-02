@@ -406,6 +406,94 @@ func TestActionPanicsWithReadableMessageWhenControllerSignatureIsInvalid(t *test
 	})
 }
 
+func TestWherePanicsWithInvalidRegex(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：无效正则应在 Where 设置约束时立即报错，而不是静默导致路由永远 404。
+	router := New()
+	route := router.Get("/test", func(c *gin.Context) {})
+
+	assertPanicsWith(t, "invalid constraint", func() {
+		route.Where("id", "[invalid")
+	})
+}
+
+func TestConstraintMiddlewareUsesPrecompiledRegex(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：约束正则应在路由注册时预编译，避免每次请求重新编译（ReDoS 风险 + 性能问题）。
+	router := New()
+	router.Get("/users/{id}", func(c *gin.Context) {
+		c.String(http.StatusOK, "ok:"+c.Param("id"))
+	}).Where("id", `^\d+$`)
+
+	engine := gin.New()
+	if err := router.Mount(engine); err != nil {
+		t.Fatalf("Mount failed: %v", err)
+	}
+
+	// 有效参数应匹配
+	w := perform(engine, http.MethodGet, "/users/123")
+	if w.Code != http.StatusOK || w.Body.String() != "ok:123" {
+		t.Fatalf("valid param response = %d %q, want 200 ok:123", w.Code, w.Body.String())
+	}
+
+	// 无效参数应 404
+	w = perform(engine, http.MethodGet, "/users/abc")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("invalid param response = %d, want 404", w.Code)
+	}
+}
+
+func TestCompilePathsOptionalParametersOnlyOmitFromTrailing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：多个可选参数应仅支持尾部省略，不应生成跳过中间参数的组合路径。
+	// 例如 /a/{b?}/{c?} 应生成 /a、/a/:b、/a/:b/:c，而不应生成 /a/:c。
+	paths := compilePaths("/a/{b?}/{c?}", nil)
+	expected := map[string]bool{
+		"/a":      true,
+		"/a/:b":   true,
+		"/a/:b/:c": true,
+	}
+	if len(paths) != len(expected) {
+		t.Fatalf("compilePaths generated %d paths, want %d: %v", len(paths), len(expected), paths)
+	}
+	for _, path := range paths {
+		if !expected[path] {
+			t.Fatalf("unexpected path %q, expected one of %v", path, expected)
+		}
+	}
+}
+
+func TestRouteEntryCachesCompiledPaths(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：compilePaths 在 List() 和 Mount() 中会被重复调用，但路由的 URI 和约束
+	// 在注册后不会改变。缓存编译结果可以避免重复计算，提升性能。
+	router := New()
+	router.Get("/users/{id}", func(c *gin.Context) {
+		c.String(http.StatusOK, c.Param("id"))
+	}).WhereNumber("id")
+
+	// 第一次调用 List() 应该触发 compilePaths 并缓存
+	list1 := router.List()
+	if len(list1) != 1 {
+		t.Fatalf("expected 1 route, got %d", len(list1))
+	}
+
+	// 第二次调用 List() 应该使用缓存的结果
+	list2 := router.List()
+	if len(list2) != 1 {
+		t.Fatalf("expected 1 route, got %d", len(list2))
+	}
+
+	// 验证两次返回的路径信息一致
+	if list1[0].GinPath != list2[0].GinPath {
+		t.Fatalf("cached paths mismatch: %q vs %q", list1[0].GinPath, list2[0].GinPath)
+	}
+}
+
 func TestOptionalWildcardRedirectFallbackAndBinding(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := New()
@@ -599,4 +687,344 @@ type invalidActionController struct{}
 
 func (c *invalidActionController) Show(ctx *gin.Context, id string) {
 	ctx.String(http.StatusOK, id)
+}
+
+func TestFillURIRemovesUnfilledOptionalParameters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：High #2 - fillURI 可选参数未提供时应移除占位符，而非返回错误。
+	router := New()
+	router.Get("/users/{id?}", func(c *gin.Context) {
+		c.String(http.StatusOK, "user:"+c.Param("id"))
+	}).Name("users.show")
+
+	// 不提供可选参数应生成 /users
+	path, err := router.URL("users.show", nil)
+	if err != nil {
+		t.Fatalf("URL with nil params should not error: %v", err)
+	}
+	if path != "/users" {
+		t.Fatalf("URL = %q, want /users", path)
+	}
+
+	// 提供可选参数应生成 /users/42
+	path, err = router.URL("users.show", map[string]any{"id": 42})
+	if err != nil {
+		t.Fatalf("URL with id should not error: %v", err)
+	}
+	if path != "/users/42" {
+		t.Fatalf("URL = %q, want /users/42", path)
+	}
+}
+
+func TestFillURIHandlesParameterNamePrefixAmbiguity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：Medium #1 - 参数名前缀歧义。当参数名是另一个参数名的前缀时（如 id 和 id_extra），
+	// 替换 :id 不应破坏 :id_extra。
+	router := New()
+	router.Get("/users/:id/posts/:id_extra", func(c *gin.Context) {
+		c.String(http.StatusOK, c.Param("id")+":"+c.Param("id_extra"))
+	}).Name("users.posts")
+
+	// 只提供 id 参数，id_extra 应保持不变（但会报错因为缺少必填参数）
+	_, err := router.URL("users.posts", map[string]any{"id": "123"})
+	if err == nil {
+		t.Fatal("URL should error when required parameter id_extra is missing")
+	}
+
+	// 提供两个参数应正确替换
+	path, err := router.URL("users.posts", map[string]any{"id": "123", "id_extra": "abc"})
+	if err != nil {
+		t.Fatalf("URL should not error: %v", err)
+	}
+	if path != "/users/123/posts/abc" {
+		t.Fatalf("URL = %q, want /users/123/posts/abc", path)
+	}
+}
+
+func TestFillURIAllowsLiteralColonsInPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：Low #5 - fillURI 冒号检查过于保守。URI 中可能包含字面冒号（如 /api/v1:batch），
+	// 不应误报为缺少参数。
+	router := New()
+	router.Get("/api/v1:batch", func(c *gin.Context) {
+		c.String(http.StatusOK, "batch")
+	}).Name("api.batch")
+
+	// 路径包含字面冒号，但所有参数已提供（此例无参数），不应报错
+	path, err := router.URL("api.batch", nil)
+	if err != nil {
+		t.Fatalf("URL should not error for literal colon: %v", err)
+	}
+	if path != "/api/v1:batch" {
+		t.Fatalf("URL = %q, want /api/v1:batch", path)
+	}
+}
+
+func TestStaticRouteBlocksPathTraversal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：Medium #3 - Static 路由应显式验证路径不包含 ..，防止路径穿越攻击。
+	router := New()
+	router.Static("/assets", "./testdata")
+
+	engine := gin.New()
+	if err := router.Mount(engine); err != nil {
+		t.Fatalf("Mount failed: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		path string
+		want int
+	}{
+		{
+			name: "plain path traversal",
+			path: "/assets/../../../etc/passwd",
+			want: http.StatusNotFound,
+		},
+		{
+			name: "URL encoded path traversal",
+			path: "/assets/%2e%2e/%2e%2e/%2e%2e/etc/passwd",
+			want: http.StatusNotFound,
+		},
+		{
+			name: "mixed encoding traversal",
+			path: "/assets/..%2f..%2f..%2fetc/passwd",
+			want: http.StatusNotFound,
+		},
+		{
+			name: "double encoded traversal",
+			path: "/assets/%252e%252e/%252e%252e/etc/passwd",
+			want: http.StatusNotFound,
+		},
+		{
+			name: "valid filename with dots",
+			path: "/assets/file..name.txt",
+			want: http.StatusNotFound, // 文件不存在但不应被路径穿越检查阻止
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := perform(engine, http.MethodGet, tt.path)
+			if w.Code != tt.want {
+				t.Errorf("path %q: got %d, want %d", tt.path, w.Code, tt.want)
+			}
+		})
+	}
+}
+
+func TestRouterWithoutMiddlewareMethodExists(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：Low #6 - Router 应提供 WithoutMiddleware 方法以保持与 facade API 一致。
+	router := New()
+
+	// Router 应有 WithoutMiddleware 方法
+	router.WithoutMiddleware("auth").Get("/test", func(c *gin.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	engine := gin.New()
+	if err := router.Mount(engine); err != nil {
+		t.Fatalf("Mount failed: %v", err)
+	}
+
+	w := perform(engine, http.MethodGet, "/test")
+	if w.Code != http.StatusOK || w.Body.String() != "ok" {
+		t.Fatalf("response = %d %q, want 200 ok", w.Code, w.Body.String())
+	}
+}
+
+func TestRouterPatternPanicsWithInvalidRegex(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：Medium #3 - Router.Pattern() 应与 Route.Where() 保持一致的 fail-fast 语义，
+	// 在注册无效正则时立即 panic，而非静默忽略导致运行时约束不生效。
+	router := New()
+
+	assertPanicsWith(t, "invalid pattern", func() {
+		router.Pattern("id", "[invalid")
+	})
+}
+
+func TestHostMatchesEdgeCases(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：Low #7 - hostMatches 函数的多个边界条件缺少测试覆盖。
+	tests := []struct {
+		name    string
+		pattern string
+		host    string
+		want    bool
+	}{
+		{"empty host", "api.example.com", "", false},
+		{"empty pattern", "", "api.example.com", true},
+		{"exact match", "api.example.com", "api.example.com", true},
+		{"single wildcard", "{sub}.example.com", "api.example.com", true},
+		{"multiple wildcards", "{a}.{b}.com", "x.y.com", true},
+		{"segment count mismatch", "api.example.com", "example.com", false},
+		{"static segment mismatch", "api.example.com", "web.example.com", false},
+		{"host with port", "api.example.com", "api.example.com:8080", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hostMatches(tt.pattern, tt.host)
+			if got != tt.want {
+				t.Errorf("hostMatches(%q, %q) = %v, want %v", tt.pattern, tt.host, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestURLWithNilParams(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：Low #7 - Router.URL 方法对 params 为 nil 时的行为缺少测试覆盖。
+	router := New()
+	router.Get("/users", func(c *gin.Context) {
+		c.String(http.StatusOK, "users")
+	}).Name("users.index")
+
+	// params 为 nil 时应正常生成路径
+	path, err := router.URL("users.index", nil)
+	if err != nil {
+		t.Fatalf("URL with nil params should not error: %v", err)
+	}
+	if path != "/users" {
+		t.Fatalf("URL = %q, want /users", path)
+	}
+}
+
+func TestRemoveOptionalPlaceholders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：Medium #1 - removeOptionalPlaceholders 在处理路径中间或开头的可选参数时
+	// 会产生双斜杠（如 "/posts" 变成 "//posts"）。虽然 Laravel 只支持尾部可选参数，
+	// 但此函数应能正确处理各种边界情况以增强健壮性。
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"trailing optional", "/users/{id?}", "/users"},
+		{"multiple trailing optional", "/users/{id?}/{name?}", "/users"},
+		{"middle optional produces double slash", "/{lang?}/posts", "/posts"},
+		{"leading optional produces double slash", "/{lang?}/users/{id?}", "/users"},
+		{"root path", "/{lang?}", "/"},
+		{"no optional", "/users/{id}", "/users/{id}"},
+		{"empty path", "", ""},
+		{"root only", "/", "/"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := removeOptionalPlaceholders(tt.input)
+			if got != tt.want {
+				t.Errorf("removeOptionalPlaceholders(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReplaceParamPrefix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 需求背景：Medium #4 - replaceParamPrefix 是核心逻辑函数，需要直接测试其边界条件，
+	// 特别是参数名前缀歧义场景（如 :id vs :id_extra）。
+	tests := []struct {
+		name   string
+		path   string
+		prefix string
+		key    string
+		value  string
+		want   string
+	}{
+		{
+			name:   "exact match",
+			path:   "/users/:id",
+			prefix: ":",
+			key:    "id",
+			value:  "123",
+			want:   "/users/123",
+		},
+		{
+			name:   "prefix of longer name",
+			path:   "/users/:id/posts/:id_extra",
+			prefix: ":",
+			key:    "id",
+			value:  "123",
+			want:   "/users/123/posts/:id_extra",
+		},
+		{
+			name:   "longer name not affected",
+			path:   "/users/:id/posts/:id_extra",
+			prefix: ":",
+			key:    "id_extra",
+			value:  "456",
+			want:   "/users/:id/posts/456",
+		},
+		{
+			name:   "no match",
+			path:   "/users/:name",
+			prefix: ":",
+			key:    "id",
+			value:  "123",
+			want:   "/users/:name",
+		},
+		{
+			name:   "multiple occurrences",
+			path:   "/users/:id/posts/:id",
+			prefix: ":",
+			key:    "id",
+			value:  "123",
+			want:   "/users/123/posts/123",
+		},
+		{
+			name:   "wildcard prefix",
+			path:   "/files/*path",
+			prefix: "*",
+			key:    "path",
+			value:  "test.txt",
+			want:   "/files/test.txt",
+		},
+		{
+			name:   "prefix at end of path",
+			path:   "/users/:id",
+			prefix: ":",
+			key:    "id",
+			value:  "456",
+			want:   "/users/456",
+		},
+		{
+			name:   "prefix followed by slash",
+			path:   "/users/:id/posts",
+			prefix: ":",
+			key:    "id",
+			value:  "789",
+			want:   "/users/789/posts",
+		},
+		{
+			name:   "similar prefix with underscore",
+			path:   "/api/:id_v2/users/:id",
+			prefix: ":",
+			key:    "id",
+			value:  "100",
+			want:   "/api/:id_v2/users/100",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := replaceParamPrefix(tt.path, tt.prefix, tt.key, tt.value)
+			if got != tt.want {
+				t.Errorf("replaceParamPrefix(%q, %q, %q, %q) = %q, want %q",
+					tt.path, tt.prefix, tt.key, tt.value, got, tt.want)
+			}
+		})
+	}
 }

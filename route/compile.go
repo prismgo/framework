@@ -7,58 +7,116 @@ import (
 
 var paramPattern = regexp.MustCompile(`^\{([A-Za-z_][A-Za-z0-9_]*)(\?)?\}$`)
 
+// compilePaths 将 URI 模板编译为 Gin 路由路径列表。
+//
+// 设计说明：可选参数仅支持尾部省略。例如 /a/{b?}/{c?} 生成 /a、/a/:b、/a/:b/:c，
+// 不会生成跳过中间参数的组合（如 /a/:c）。这样可以避免语义不合理的路径匹配。
 func compilePaths(uri string, constraints map[string]string) []string {
 	uri = joinPaths("/", uri)
 	if uri == "/" {
 		return []string{"/"}
 	}
 	segments := strings.Split(strings.Trim(uri, "/"), "/")
-	paths := []string{""}
-	for index, segment := range segments {
+
+	// 找出尾部连续可选参数的起始位置
+	optionalStart := len(segments)
+	for i := len(segments) - 1; i >= 0; i-- {
+		matches := paramPattern.FindStringSubmatch(segments[i])
+		if matches == nil || matches[2] != "?" {
+			break
+		}
+		optionalStart = i
+	}
+
+	// 构建非可选部分的路径（必须全部包含）
+	basePaths := []string{""}
+	for i := 0; i < optionalStart; i++ {
+		segment := segments[i]
 		matches := paramPattern.FindStringSubmatch(segment)
 		if matches == nil {
-			for i := range paths {
-				paths[i] += "/" + segment
+			// 静态段
+			for j := range basePaths {
+				basePaths[j] = basePaths[j] + "/" + segment
 			}
-			continue
+		} else {
+			// 必选参数
+			name := matches[1]
+			compiled := ":" + name
+			if i == len(segments)-1 && constraints[name] == ".*" {
+				compiled = "*" + name
+			}
+			for j := range basePaths {
+				basePaths[j] = basePaths[j] + "/" + compiled
+			}
 		}
+	}
 
+	// 为尾部可选参数生成组合（仅支持尾部省略）
+	paths := make([]string, len(basePaths))
+	copy(paths, basePaths)
+	prevBatch := basePaths
+
+	for i := optionalStart; i < len(segments); i++ {
+		segment := segments[i]
+		matches := paramPattern.FindStringSubmatch(segment)
 		name := matches[1]
-		optional := matches[2] == "?"
 		compiled := ":" + name
-		if index == len(segments)-1 && constraints[name] == ".*" {
+		if i == len(segments)-1 && constraints[name] == ".*" {
 			compiled = "*" + name
 		}
 
-		next := make([]string, 0, len(paths)*2)
-		for _, path := range paths {
-			if optional {
-				next = append(next, path)
-			}
-			next = append(next, path+"/"+compiled)
+		var currentBatch []string
+		for _, path := range prevBatch {
+			currentBatch = append(currentBatch, path+"/"+compiled)
 		}
-		paths = next
+		paths = append(paths, currentBatch...)
+		prevBatch = currentBatch
 	}
+
+	// 处理空路径
 	for i, path := range paths {
 		if path == "" {
 			paths[i] = "/"
 		}
 	}
+
 	return paths
 }
 
-func matchesConstraint(expr, value string) bool {
-	if expr == "" || expr == ".*" {
-		return true
+// compileConstraints 预编译约束正则表达式
+func compileConstraints(constraints map[string]string) map[string]*regexp.Regexp {
+	if len(constraints) == 0 {
+		return nil
 	}
-	if !strings.HasPrefix(expr, "^") {
-		expr = "^" + expr
+	compiled := make(map[string]*regexp.Regexp, len(constraints))
+	for param, expr := range constraints {
+		if expr == "" || expr == ".*" {
+			continue
+		}
+		// 确保正则表达式有 ^ 和 $ 锚点
+		if !strings.HasPrefix(expr, "^") {
+			expr = "^" + expr
+		}
+		if !strings.HasSuffix(expr, "$") {
+			expr += "$"
+		}
+		if re, err := regexp.Compile(expr); err == nil {
+			compiled[param] = re
+		}
 	}
-	if !strings.HasSuffix(expr, "$") {
-		expr += "$"
+	return compiled
+}
+
+// cloneCompiledConstraints 深拷贝预编译的正则表达式映射
+func cloneCompiledConstraints(src map[string]*regexp.Regexp) map[string]*regexp.Regexp {
+	if len(src) == 0 {
+		return nil
 	}
-	ok, err := regexp.MatchString(expr, value)
-	return err == nil && ok
+	dst := make(map[string]*regexp.Regexp, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 func requireResourceParam(resource string) string {
