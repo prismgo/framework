@@ -223,6 +223,8 @@ Components are registered via **ServiceProvider** (implements `Register(app)`, `
 - **Container**: Use `container.Container` methods `Singleton`, `Instance`, `Bound`, `Make` for DI. Container key convention: `"<component>.default"`.
 - **Error handling**: Return errors to callers. Use panic only for unrecoverable misconfiguration (facade resolution, bootstrap).
 - **Configuration**: Via `config` package: `config.Get[T]("path")`, `config.GetString("app.name")`. Backed by Viper + `.env`.
+- **Code Location**: Before modifying any Go code, agents MUST first read `CODE_INDEX.md` to locate the relevant files, symbols, and package structure for the code being worked on.
+- **Code Index Maintenance**: When adding new packages, files, or exported symbols, update `CODE_INDEX.md` accordingly. Follow the three-layer index pattern (meta → Quick Lookup → per-package details → conventions) to preserve navigation efficiency. Avoid "etc." in table descriptions—list key symbols or reference the source file.
 
 ### Testing & Coverage
 
