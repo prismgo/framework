@@ -2,9 +2,11 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/prismgo/framework/container"
@@ -289,8 +291,17 @@ func TestRuntimeParsingHelpers(t *testing.T) {
 	if got := castEnvValue("abc", ""); got != "abc" {
 		t.Fatalf("castEnvValue string = %v", got)
 	}
-	if got := castEnvValue("42", int16(0)); got != int64(42) {
-		t.Fatalf("castEnvValue by kind = %v", got)
+	if got := castEnvValue("42", int16(0)); got != int16(42) {
+		t.Fatalf("castEnvValue int16 = %v", got)
+	}
+	if got := castEnvValue("42", int8(0)); got != int8(42) {
+		t.Fatalf("castEnvValue int8 = %v", got)
+	}
+	if got := castEnvValue("42", uint8(0)); got != uint8(42) {
+		t.Fatalf("castEnvValue uint8 = %v", got)
+	}
+	if got := castEnvValue("3.5", float32(0)); got != float32(3.5) {
+		t.Fatalf("castEnvValue float32 = %v", got)
 	}
 	if got := castByKind("true", reflect.Bool); got != true {
 		t.Fatalf("castByKind bool = %v", got)
@@ -315,6 +326,25 @@ func TestRuntimeParsingHelpers(t *testing.T) {
 	}
 }
 
+func TestValueOrDefaultReturnsDefaultForNilValue(t *testing.T) {
+	// 当配置项存在但值为 nil 时，valueOrDefault 应返回调用方提供的默认值，而非零值。
+	cfg := &Config{store: map[string]any{"key": nil}}
+	if got := cfg.Get("key", "fallback"); got != "fallback" {
+		t.Fatalf("Get with nil value should return default, got %q", got)
+	}
+}
+
+func TestNilConfigReloadDoesNotPanic(t *testing.T) {
+	// nil Config 上调用 Reload/ReloadFromFile 应直接返回 nil，不执行文件加载。
+	var nilCfg *Config
+	if err := nilCfg.Reload(); err != nil {
+		t.Fatalf("nil Reload should return nil, got %v", err)
+	}
+	if err := nilCfg.ReloadFromFile("/nonexistent/.env"); err != nil {
+		t.Fatalf("nil ReloadFromFile should return nil, got %v", err)
+	}
+}
+
 func TestReadEnvFileErrorsAndNormalizeValue(t *testing.T) {
 	dir := t.TempDir()
 	if err := readEnvFile(newViper(), filepath.Join(dir, "missing.env")); err != nil {
@@ -324,19 +354,103 @@ func TestReadEnvFileErrorsAndNormalizeValue(t *testing.T) {
 		t.Fatal("expected directory read to fail")
 	}
 
-	normalized := normalizeValue(map[any]any{"bad": "key"})
+	normalized := normalizeValue(map[any]any{"bad": "key"}, maxNormalizeDepth)
 	if _, ok := normalized.(map[any]any); !ok {
 		t.Fatalf("non-string map keys should be preserved, got %T", normalized)
 	}
-	if got := normalizeValue([]string{"a", "b"}); !reflect.DeepEqual(got, []any{"a", "b"}) {
+	if got := normalizeValue([]string{"a", "b"}, maxNormalizeDepth); !reflect.DeepEqual(got, []any{"a", "b"}) {
 		t.Fatalf("normalize slice = %#v", got)
 	}
-	if !isBlankValue(nil) || !isBlankValue("") || isBlankValue(false) || isBlankValue(1) {
-		t.Fatal("isBlankValue returned unexpected result")
+	type NamedPort int
+	if !isBlankValue(nil) || !isBlankValue("") || isBlankValue(false) || isBlankValue(1) || isBlankValue(NamedPort(0)) {
+		t.Fatal("isBlankValue returned unexpected result for nil/empty/named-zero")
+	}
+	if isBlankValue(NamedPort(80)) {
+		t.Fatal("isBlankValue should return false for non-zero named type")
 	}
 
 	var pathErr *os.PathError
 	if !errors.As(readEnvFile(newViper(), dir), &pathErr) {
 		t.Fatal("expected readEnvFile directory error to wrap *os.PathError")
 	}
+}
+
+func TestConfigConcurrentAccessWithLock(t *testing.T) {
+	cfg := &Config{store: map[string]any{
+		"app.name": "test",
+		"nested":   map[string]any{"a": map[string]any{"b": "c"}},
+		"count":    int64(99),
+	}}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				_ = cfg.Get("app.name")
+				_ = cfg.GetString("app.name")
+				_ = cfg.GetInt("nested.x")
+				_ = cfg.GetStringMap("nested")
+				_ = cfg.Clone()
+				_ = cfg.Empty()
+			}
+		}()
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var nilCfg *Config
+		for j := 0; j < 50; j++ {
+			nilCfg.Clone()
+			nilCfg.Empty()
+		}
+	}()
+
+	wg.Wait()
+}
+
+func TestConfigConcurrentReloadAndRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("VERSION=initial\n"), 0o644); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+
+	cfg, err := NewFromFile(path)
+	if err != nil {
+		t.Fatalf("NewFromFile: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 30; j++ {
+				_ = cfg.Get("VERSION")
+				_ = cfg.GetStringMapString("nested")
+				_ = cfg.Clone()
+				_ = cfg.Empty()
+			}
+		}()
+	}
+
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < 10; j++ {
+				data := fmt.Sprintf("VERSION=v%d_%d\n", id, j)
+				if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+					t.Logf("write: %v", err)
+				}
+				if err := cfg.ReloadFromFile(path); err != nil {
+					t.Logf("reload: %v", err)
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
 }

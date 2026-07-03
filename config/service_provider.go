@@ -23,10 +23,10 @@ func (ServiceProvider) Name() string { return "config" }
 // 化迁移覆盖调用方的手工装配。
 func (ServiceProvider) Register(app providerApplication) error {
 	c := app.Container()
-	if c.Bound("config.default") {
+	if c.Bound(serviceKey) {
 		return nil
 	}
-	return c.Singleton("config.default", func(containercontract.Resolver) (any, error) {
+	return c.Singleton(serviceKey, func(containercontract.Resolver) (any, error) {
 		cfg := New()
 		if err := cfg.Reload(); err != nil {
 			return nil, err

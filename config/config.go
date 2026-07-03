@@ -19,6 +19,8 @@ func New() *Config {
 	return &Config{store: make(map[string]any)}
 }
 
+const maxCloneDepth = 128
+
 // Clone 复制当前配置实例，返回持有独立仓库副本的新实例。
 func (c *Config) Clone() *Config {
 	if c == nil {
@@ -26,7 +28,7 @@ func (c *Config) Clone() *Config {
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return &Config{store: cloneStore(c.store)}
+	return &Config{store: cloneStore(c.store, maxCloneDepth)}
 }
 
 // Empty 返回当前配置实例是否尚未持有任何配置项。
@@ -41,12 +43,12 @@ func (c *Config) Empty() bool {
 
 // Reload 重新从默认 .env 文件加载当前配置实例。
 func (c *Config) Reload() error {
+	if c == nil {
+		return nil
+	}
 	fresh, err := NewFromDefaultFile()
 	if err != nil {
 		return err
-	}
-	if c == nil {
-		return nil
 	}
 	c.mu.Lock()
 	c.store = fresh.store
@@ -56,12 +58,12 @@ func (c *Config) Reload() error {
 
 // ReloadFromFile 从指定 .env 文件重载当前配置实例。
 func (c *Config) ReloadFromFile(path string) error {
+	if c == nil {
+		return nil
+	}
 	fresh, err := NewFromFile(path)
 	if err != nil {
 		return err
-	}
-	if c == nil {
-		return nil
 	}
 	c.mu.Lock()
 	c.store = fresh.store
@@ -123,9 +125,10 @@ func (c *Config) GetStringMap(path string) map[string]any {
 }
 
 // valueOrDefault 读取配置项，缺失时回退为调用方提供的默认值。
+// 当配置项存在但值为 nil 时，仍返回默认值而非 nil。
 func (c *Config) valueOrDefault(path string, defaultValue ...any) any {
 	value, ok := c.lookup(path)
-	if ok {
+	if ok && value != nil {
 		return value
 	}
 	if len(defaultValue) > 0 {
@@ -135,6 +138,7 @@ func (c *Config) valueOrDefault(path string, defaultValue ...any) any {
 }
 
 // lookup 按 Laravel 风格点路径从当前配置实例中查找配置值。
+// 读锁在整个遍历过程中保持，确保并发安全。
 func (c *Config) lookup(path string) (any, bool) {
 	if c == nil {
 		return nil, false
@@ -146,13 +150,12 @@ func (c *Config) lookup(path string) (any, bool) {
 	}
 
 	c.mu.RLock()
-	store := c.store
-	c.mu.RUnlock()
-	if len(store) == 0 {
+	defer c.mu.RUnlock()
+	if len(c.store) == 0 {
 		return nil, false
 	}
 
-	current := any(store)
+	current := any(c.store)
 	for _, segment := range strings.Split(path, ".") {
 		if strings.TrimSpace(segment) == "" {
 			return nil, false
@@ -173,7 +176,7 @@ func (c *Config) lookup(path string) (any, bool) {
 }
 
 func cloneAnyMap(input map[string]any) map[string]any {
-	return cloneStore(input)
+	return cloneStore(input, maxCloneDepth)
 }
 
 func cloneStringMap(input map[string]string) map[string]string {
@@ -187,25 +190,38 @@ func cloneStringMap(input map[string]string) map[string]string {
 	return result
 }
 
-func cloneStore(input map[string]any) map[string]any {
+// cloneStore 递归复制 map。depth 参数防止过深递归导致栈溢出。
+func cloneStore(input map[string]any, depth int) map[string]any {
+	if depth <= 0 {
+		// 达到最大深度时返回浅拷贝，避免栈溢出。
+		result := make(map[string]any, len(input))
+		for k, v := range input {
+			result[k] = v
+		}
+		return result
+	}
 	if len(input) == 0 {
 		return make(map[string]any)
 	}
 	result := make(map[string]any, len(input))
 	for key, value := range input {
-		result[key] = cloneValue(value)
+		result[key] = cloneValue(value, depth-1)
 	}
 	return result
 }
 
-func cloneValue(value any) any {
+// cloneValue 递归复制值。depth 用于限制 map/slice 的嵌套深度。
+func cloneValue(value any, depth int) any {
+	if depth <= 0 {
+		return value
+	}
 	switch typed := value.(type) {
 	case map[string]any:
-		return cloneStore(typed)
+		return cloneStore(typed, depth-1)
 	case []any:
 		result := make([]any, len(typed))
 		for i, item := range typed {
-			result[i] = cloneValue(item)
+			result[i] = cloneValue(item, depth-1)
 		}
 		return result
 	default:
