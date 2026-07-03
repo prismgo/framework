@@ -18,3 +18,4 @@ skills-lock.json
 storage/
 .serena/
 .reasonix
+reasonix.toml
