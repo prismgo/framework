@@ -646,13 +646,13 @@ func TestContainerCallUsesStrictTypeKey(t *testing.T) {
 	// 需求背景：Call 方法应使用完整的包路径+类型名作为服务 key，避免同名类型冲突。
 	// 逻辑说明：使用 PkgPath() + "." + Name() 构造 key，指针类型包含 "*" 前缀。
 	c := NewContainer()
-	
+
 	// 注册一个服务，使用完整路径作为 key（包括指针前缀）
 	probeType := reflect.TypeOf((*closeProbe)(nil))
 	pkgPath := probeType.Elem().PkgPath()
 	typeName := probeType.Elem().Name()
 	fullKey := "*" + pkgPath + "." + typeName
-	
+
 	if err := c.Instance(fullKey, &closeProbe{name: "strict"}); err != nil {
 		t.Fatalf("instance: %v", err)
 	}
@@ -739,7 +739,7 @@ func TestContainerSingletonRetryLimit(t *testing.T) {
 	// 需求背景：makeSingleton 在并发 Forget/Bind 导致 version 变化时应重试，但需限制最大重试次数。
 	// 逻辑说明：超过最大重试次数（3 次）后应返回错误，避免无限递归。
 	c := NewContainer()
-	
+
 	// 注册一个 singleton，factory 会返回新值
 	if err := c.Singleton("service", func(containercontract.Resolver) (any, error) {
 		return "value", nil
@@ -750,7 +750,7 @@ func TestContainerSingletonRetryLimit(t *testing.T) {
 	// 启动多个 goroutine 并发 Forget 和 Make，触发重试
 	var wg sync.WaitGroup
 	stopCh := make(chan struct{})
-	
+
 	// 并发 Forget
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
@@ -851,11 +851,11 @@ func TestContainerCloseContinuesAfterNonContextError(t *testing.T) {
 	<-factoryStarted
 
 	// 使用短超时 context 触发 closeItem 错误
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
 	// 等待 factory 阻塞 closeItem
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(1 * time.Millisecond)
 
 	err := c.Close(ctx)
 	if err == nil {
