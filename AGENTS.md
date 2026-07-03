@@ -144,51 +144,96 @@ Production code may change only when a failure proves a real production bug unde
 
 <project-guidelines>
 
-## Framework Project Rules
+## PrismGo Framework — Project Rules
 
-### Project Structure
+### Overview
 
-Framework packages live at the repository root, one directory per component, such as `foundation`, `route`, `cache`, `queue`, `database`, `filesystem`, `session`, and `console`. Shared helpers live in `internal/`, CLI commands in `cmd/`, Horizon dashboard assets in `horizon/dashboard/resources/`, automation in `.github/`, and colocated tests in `*_test.go`.
+**PrismGo** (`github.com/prismgo/framework`) is a Laravel-style Go web framework (Go 1.25). Stack: [Gin](https://github.com/gin-gonic/gin) (HTTP), [GORM](https://github.com/go-gorm/gorm) (ORM), [Cobra](https://github.com/spf13/cobra) (CLI), [Viper](https://github.com/spf13/viper) (config), [Logrus](https://github.com/sirupsen/logrus) (logging), [go-redis](https://github.com/redis/go-redis/v9) (Redis).
 
-#### Contracts
+### Component Packages
 
-`contracts` defines public component interfaces for inter-component communication and user input validation. It must not contain concrete implementations.
+Each component lives in a root-level package. Every component typically has a `service_provider.go` (registers into container), `facade.go` (public convenience API), `manager.go` / core logic, and a `config.go` / `types.go` for configuration.
 
-#### Facades
+| Package | Role |
+|---|---|
+| `foundation` | Application bootstrap, provider lifecycle, cleanup |
+| `container` | DI container (Singleton, Instance, Bind, Make) |
+| `config` | Dot-path config access via `config.GetString("app.name")`, Viper-backed |
+| `kernel` | Cobra-based CLI kernel, command registration & dispatch |
+| `route` | Gin-based routing: named routes, resource routes, groups |
+| `http` | HTTP server lifecycle, middleware, request ID, process management |
+| `cache` | Multi-driver cache (memory, Redis, file) with Remember/WithoutOverlapping/Funnel/Lock |
+| `queue` | Job dispatcher + worker, Redis / RabbitMQ / sync connectors |
+| `event` | Event dispatcher with listener/subscriber/queue support |
+| `console` | Artisan-style CLI command base & IO |
+| `database` | ORM integration, schema migrations, factories, seeders |
+| `filesystem` | Multi-disk filesystem abstraction (local, OSS, S3) |
+| `session` | Session driver, lifecycle, lock management |
+| `encryption` | Encrypter interface (AES, etc.) |
+| `encoding` | Codec interface (JSON, etc.) |
+| `cookie` | Cookie signing and management |
+| `logger` | Multi-channel logging, Logrus-backed |
+| `translation` | i18n: loader, translator, selector |
+| `redis` | Redis manager, connection pool |
+| `ratelimit` | Rate limiter |
+| `routine` | Goroutine task builder/runner |
+| `support` | Helpers: env, collection, etc. |
+| `storage` | Storage link management |
+| `process` | Process supervision & signals |
+| `responsekit` | Response builder helpers |
+| `exception` | Exception handler interface |
+| `timer` | Cron / scheduled task management |
+| `provider` | ServiceProvider contract + vendor publish support |
+| `horizon` | Horizon dashboard (queue monitoring) |
+| `contracts/` | Public component interfaces (no implementations) |
+| `facade/` | Generic facade: `facade.Resolve[T](key string) T` |
+| `cmd/` | CLI entry points: `serve`, `make`, `migration`, `queue`, `cron`, `storage:link`, `vendor:publish` |
+| `internal/` | Shared helpers: `fmtx/`, `optional/`, `path/`, `stackx/` |
 
-Facades expose simpler component APIs:
-- Component `facade.go` files must be implemented through the `facade` package.
-- Facade APIs should prefer returning interface types from `contracts`.
+### Three-Layer Pattern
 
-#### Service Providers
+Every capability follows three layers:
+1. **`contracts/<component>/`** — interfaces only, no state, no constructors.
+2. **`<component>/`** — concrete implementation + `service_provider.go` + `facade.go`.
+3. **`facade/`** — generic typed resolver `Resolve[T]` backed by `container.Make`.
 
-Service providers register components and lifecycle hooks. Component services must be registered through a service provider.
+Components are registered via **ServiceProvider** (implements `Register(app)`, `Boot(ap)`) and wired through the `foundation.Application` lifecycle.
 
 ### Commands
 
-- `go test ./...`: run the full Go test suite.
-- `make test`: run verbose tests with count coverage and write `coverage.out`.
-- `make covdata`: run `./.github/scripts/coverage.sh` with `PACKAGES` support and write `.coverage/` artifacts.
-- `make test-race`: run all tests with the race detector.
-- `make vet`: run `go vet ./...`.
-- `make fmt`: run `gofmt` on Go files, excluding `./tmp`.
-- `make fmt-check`: verify formatting without modifying files.
-- `make lint`: run `golangci-lint run`.
-- `make ci`: run the local CI gate.
+| Command | What it does |
+|---|---|
+| `go test ./...` | Run full test suite |
+| `make test` | Verbose tests with `-covermode=count -coverprofile=coverage.out` |
+| `make covdata` | Full coverage via `.github/scripts/coverage.sh` (uses `tmp/gocache`, writes `.coverage/`) |
+| `make covdata PACKAGES=./cache` | Narrow-scope coverage |
+| `make test-race` | Race detector via `.github/scripts/test_with_summary.sh` |
+| `make vet` | `go vet ./...` |
+| `make fmt` | `gofmt` excluding `./tmp` |
+| `make fmt-check` | Format diff check (CI gate) |
+| `make lint` | `golangci-lint run` (linters: govet, ineffassign, staticcheck, unused) |
+| `make ci` | CI gate: `fmt-check` → `vet` → `test` |
 
-### Testing
+### Coding Conventions
 
-Use focused unit tests for package contracts and integration-style tests for cross-component behavior such as queue, Redis, RabbitMQ, Horizon, or filesystem flows. Run `make test` before submitting; run `make test-race` for concurrency, worker, lifecycle, or connection-management changes. Final verification should not bypass `make test`, because CI uploads `coverage.out`.
+- **Comments**: Chinese preferred for explanatory comments; English for doc comments on exported symbols. Every non-trivial function/struct must have a doc comment.
+- **Tests**: Package-level `*_test.go` files. Test helpers always call `t.Helper()`. Use `t.Cleanup()` for resource teardown. Common patterns: `newTestManager()`, `useTestContainer()`, `bindXxxForTest()`.
+- **ServiceProvider**: Each component has a `ServiceProvider` struct with `Name() string`, `Register(providerApplication) error`, `Boot(providerApplication) error`.
+- **Facade**: Component `facade.go` files use `facade.Resolve[T](key)` from the `facade` package; returns typed instance or panics on resolution failure.
+- **Container**: Use `container.Container` methods `Singleton`, `Instance`, `Bound`, `Make` for DI. Container key convention: `"<component>.default"`.
+- **Error handling**: Return errors to callers. Use panic only for unrecoverable misconfiguration (facade resolution, bootstrap).
+- **Configuration**: Via `config` package: `config.Get[T]("path")`, `config.GetString("app.name")`. Backed by Viper + `.env`.
 
-### Coverage
+### Testing & Coverage
 
-- Any change to Go code, `go.mod`, `go.sum`, tests, or code generation must run tests and compute coverage.
-- Collect coverage through the project script:
-  - Linux/macOS/Git Bash: `make covdata`.
-  - Narrow scope: `make covdata PACKAGES=./cache` or `./.github/scripts/coverage.sh ./cache`.
-- Coverage output goes to `.coverage/`; the script uses `tmp/gocache` instead of the user's global Go cache.
-- Before final delivery, run the appropriate OS script for the changed scope.
-- Required coverage for the changed scope is over `90%`; add tests if it is lower.
-- If full `covdata` is blocked by existing flaky tests, rerun failing packages in isolation and explain which tests failed and whether they relate to the change. A failed full coverage run cannot be treated as passing.
+- Unit tests for package behavior; integration-style tests for cross-component flows (queue+Redis, Horizon, filesystem).
+- Every Go code change must run tests and report coverage.
+- Required coverage for changed scope: ≥90%.
+- Coverage command: `make covdata` (full) or `make covdata PACKAGES=./<pkg>` (narrow).
+  - Output: `.coverage/coverage.out`, `.coverage/coverage.percent.txt`, `.coverage/coverage.func.txt`.
+  - Uses `tmp/gocache` to isolate cache.
+- On flaky failures: rerun failing packages in isolation and explain.
+- Before final submission run `gofmt`, run `golangci-lint run --verbose ./<changed>/...`.
+- Create `docs/changes/devlogs/v{next}-{function-description}.md` after each feature change.
 
 </project-guidelines>
