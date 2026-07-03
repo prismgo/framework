@@ -82,15 +82,15 @@ func hitBefore(limiter *ratelimit.RateLimiter, c *gin.Context, limit ratelimit.L
 }
 
 func hitAfterLimits(limiter *ratelimit.RateLimiter, c *gin.Context, results []ratelimit.Result) {
-	for _, result := range results {
-		if result.Limit.AfterFunc == nil || !result.Limit.AfterFunc(c) {
+	for i := range results {
+		if results[i].Limit.AfterFunc == nil || !results[i].Limit.AfterFunc(c) {
 			continue
 		}
-		attempts, _ := limiter.Hit(c.Request.Context(), result.Key, result.Limit.Decay)
-		result.Attempts = attempts
-		result.Remaining = result.MaxAttempts - int(attempts)
-		if result.Remaining < 0 {
-			result.Remaining = 0
+		attempts, _ := limiter.Hit(c.Request.Context(), results[i].Key, results[i].Limit.Decay)
+		results[i].Attempts = attempts
+		results[i].Remaining = results[i].MaxAttempts - int(attempts)
+		if results[i].Remaining < 0 {
+			results[i].Remaining = 0
 		}
 	}
 }

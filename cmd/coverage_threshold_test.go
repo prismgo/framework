@@ -57,7 +57,7 @@ func (pm *errorProcessManager) RemovePID() error              { return nil }
 func (pm *errorProcessManager) ReadPID() (int, error)         { return pm.pid, nil }
 func (pm *errorProcessManager) Kill(int) error                { return pm.killErr }
 func (pm *errorProcessManager) Stop(int, time.Duration) error { return pm.stopErr }
-func (pm *errorProcessManager) Reload(int, string, []string, time.Duration) (int, error) {
+func (pm *errorProcessManager) Reload(int) (int, error) {
 	return 0, pm.reloadErr
 }
 func (pm *errorProcessManager) Restart(int, string, []string) (int, error) {

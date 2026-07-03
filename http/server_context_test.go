@@ -376,16 +376,6 @@ func TestShutdownServerReturnsServeError(t *testing.T) {
 	}
 }
 
-func TestFindProcessByPortPlaceholder(t *testing.T) {
-	pid, err := FindProcessByPort("8080")
-	if err != nil {
-		t.Fatalf("FindProcessByPort error = %v", err)
-	}
-	if pid != 0 {
-		t.Fatalf("pid = %d, want 0", pid)
-	}
-}
-
 func TestSendSignalAllowsSignalZero(t *testing.T) {
 	err := SendSignal(os.Getpid(), syscall.Signal(0))
 	if err != nil && err.Error() != "not supported by windows" {

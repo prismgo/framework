@@ -33,7 +33,7 @@ func TestProcessManagerReloadAndRestart(t *testing.T) {
 	truePath := trueExecutable(t)
 
 	reloadCmd := startSleepProcess(t)
-	newPID, err := manager.Reload(reloadCmd.Process.Pid, truePath, nil, time.Millisecond)
+	newPID, err := manager.Reload(reloadCmd.Process.Pid)
 	if err != nil {
 		t.Fatalf("Reload returned error: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestProcessManagerUnixSignalErrors(t *testing.T) {
 		t.Fatalf("Stop missing process error = %v, want error", err)
 	}
 
-	if _, err := manager.Reload(999999, trueExecutable(t), nil, time.Millisecond); err == nil || err.Error() == "" {
+	if _, err := manager.Reload(999999); err == nil || err.Error() == "" {
 		t.Fatalf("Reload missing process error = %v, want error", err)
 	}
 }

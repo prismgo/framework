@@ -97,9 +97,6 @@ func ginModeFromDebug(debug bool) string {
 }
 
 func applyServerConfigToEngine(engine *gin.Engine, cfg ServerConfig) error {
-	if engine == nil {
-		return nil
-	}
 	engine.MaxMultipartMemory = cfg.MaxMultipartMemory
 	if len(cfg.ClientIPHeaders) > 0 {
 		engine.RemoteIPHeaders = cfg.ClientIPHeaders

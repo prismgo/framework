@@ -112,7 +112,15 @@ func normalizeServerPort(port string) string {
 	if port == "" {
 		return defaultServerPort
 	}
-	return strings.TrimPrefix(port, ":")
+	return validPort(strings.TrimPrefix(port, ":"))
+}
+
+func validPort(port string) string {
+	p, err := strconv.Atoi(port)
+	if err != nil || p < 1 || p > 65535 {
+		return defaultServerPort
+	}
+	return port
 }
 
 func splitServerList(value string) []string {

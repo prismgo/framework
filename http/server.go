@@ -233,13 +233,6 @@ func errorString(err error) string {
 	return err.Error()
 }
 
-// FindProcessByPort 查找监听指定端口的进程 PID。
-func FindProcessByPort(port string) (int, error) {
-	// 这是一个占位符实现，实际的跨平台实现取决于 OS
-	// 在 Linux 上可以使用 netstat -tlnp，在 Windows 上可以使用 netstat -ano
-	return 0, nil
-}
-
 // SendSignal 向进程发送信号。
 func SendSignal(pid int, sig syscall.Signal) error {
 	process, err := os.FindProcess(pid)

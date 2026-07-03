@@ -190,9 +190,6 @@ func TestServerConfigHelpersCoverFallbackBranches(t *testing.T) {
 }
 
 func TestApplicationServerConfigErrorBranches(t *testing.T) {
-	if err := applyServerConfigToEngine(nil, ServerConfig{}); err != nil {
-		t.Fatalf("nil engine config error = %v, want nil", err)
-	}
 
 	bindHTTPApplicationServerServices(t, nil)
 	_, err := NewApplicationServer("", func(engine *gin.Engine, useInternalMiddlewares func(*gin.Engine)) error {

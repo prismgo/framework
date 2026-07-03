@@ -99,21 +99,31 @@ func (pm *ProcessManager) Stop(pid int, shutdownTimeout time.Duration) error {
 //
 // 设计说明：监听 FD 只存在于旧服务进程内，外部控制进程无法直接把该 FD 传给新进程，
 // 因此这里改为向旧进程发送用户态信号，由旧进程在自身上下文里 fork 子进程并完成监听接管。
-func (pm *ProcessManager) Reload(pid int, executable string, args []string, shutdownTimeout time.Duration) (int, error) {
+func (pm *ProcessManager) Reload(pid int) (int, error) {
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		return 0, fmt.Errorf("find process failed: %w", err)
 	}
-	if shutdownTimeout < 0 {
-		shutdownTimeout = 0
-	}
-	_ = executable
-	_ = args
-	_ = shutdownTimeout
 	if err := process.Signal(syscall.SIGUSR2); err != nil {
 		return 0, fmt.Errorf("send reload signal failed: %w", err)
 	}
-	return pid, nil
+	if pm.pidFile == "" {
+		return pid, nil
+	}
+	return pm.waitForNewPID(pid, 10*time.Second)
+}
+
+func (pm *ProcessManager) waitForNewPID(oldPID int, timeout time.Duration) (int, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		newPID, err := pm.ReadPID()
+		if err != nil || newPID == oldPID || newPID <= 0 {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		return newPID, nil
+	}
+	return 0, fmt.Errorf("reload: new process did not write pid file within %s", timeout)
 }
 
 // Restart 重启：强制杀死旧进程，然后启动新进程。
@@ -129,8 +139,11 @@ func (pm *ProcessManager) Restart(pid int, executable string, args []string) (in
 		return 0, fmt.Errorf("kill process failed: %w", err)
 	}
 
-	// 等待一下确保端口释放
-	time.Sleep(1 * time.Second)
+	// 轮询等待进程退出，确认端口释放
+	if err := waitProcessExit(process, 3*time.Second); err != nil {
+		// 轮询超时后短暂等待作为 fallback
+		time.Sleep(500 * time.Millisecond)
+	}
 
 	// 启动新进程
 	cmd := exec.Command(executable, args...)
@@ -139,6 +152,17 @@ func (pm *ProcessManager) Restart(pid int, executable string, args []string) (in
 	}
 
 	return cmd.Process.Pid, nil
+}
+
+func waitProcessExit(process *os.Process, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err := process.Signal(syscall.Signal(0)); err != nil {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("process still alive after %s", timeout)
 }
 
 // InheritedListener 返回由父进程传入的监听器；若当前进程不是 reload 子进程则返回 nil。
@@ -161,7 +185,12 @@ func InheritedListener() (net.Listener, error) {
 		return nil, fmt.Errorf("open inherited listener fd failed")
 	}
 	listener, err := net.FileListener(file)
-	_ = file.Close()
+	if closeErr := file.Close(); closeErr != nil {
+		exception.Report(context.Background(), closeErr, map[string]any{
+			"component": "http",
+			"operation": "inherited_listener_file_close",
+		})
+	}
 	if err != nil {
 		return nil, fmt.Errorf("inherit listener failed: %w", err)
 	}

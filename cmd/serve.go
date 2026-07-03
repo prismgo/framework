@@ -23,7 +23,7 @@ type processManager interface {
 	ReadPID() (int, error)
 	Kill(pid int) error
 	Stop(pid int, shutdownTimeout time.Duration) error
-	Reload(pid int, executable string, args []string, shutdownTimeout time.Duration) (int, error)
+	Reload(pid int) (int, error)
 	Restart(pid int, executable string, args []string) (int, error)
 }
 
@@ -179,8 +179,7 @@ func (c *ServeCommand) stopServer(pm processManager, pid int, timeout time.Durat
 
 // reloadServer gracefully starts a new server before stopping the old one.
 func (c *ServeCommand) reloadServer(pm processManager, port string, pid int, timeout time.Duration, io console.IO) error {
-	args := []string{"serve", "--port", port}
-	newPID, err := pm.Reload(pid, os.Args[0], args, timeout)
+	newPID, err := pm.Reload(pid)
 	if err != nil {
 		return fmt.Errorf("reload failed: %w", err)
 	}

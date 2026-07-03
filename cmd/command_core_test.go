@@ -440,7 +440,7 @@ func (pm *fakeProcessManager) Stop(pid int, _ time.Duration) error {
 	pm.stopped = pid == pm.pid
 	return nil
 }
-func (pm *fakeProcessManager) Reload(pid int, _ string, _ []string, _ time.Duration) (int, error) {
+func (pm *fakeProcessManager) Reload(pid int) (int, error) {
 	pm.reloaded = pid == pm.pid
 	return pm.reloadedPID, nil
 }
