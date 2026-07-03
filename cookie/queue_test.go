@@ -77,3 +77,28 @@ func TestQueueMakeForgetZeroValueAndFlushError(t *testing.T) {
 		t.Fatal("queue should remain intact when flush fails")
 	}
 }
+
+func TestQueueCookieScopeForNormalizesEmptyPath(t *testing.T) {
+	q := NewQueue()
+
+	q.Queue(New("emptyPath", "val", 0, Path("")))
+
+	c, ok := q.Queued("emptyPath")
+	if !ok || c.Value != "val" {
+		t.Fatalf("scopeFor should normalize empty path to DefaultPath; got %#v ok=%v", c, ok)
+	}
+
+	if !q.HasQueued("emptyPath") {
+		t.Fatal("HasQueued should find cookie with empty Path after normalization")
+	}
+
+	q.Unqueue("emptyPath")
+	if q.HasQueued("emptyPath") {
+		t.Fatal("Unqueue should remove cookie with empty Path after normalization")
+	}
+
+	q.Queue(Cookie{Name: "literalPath", Value: "lit", Path: ""})
+	if _, ok := q.Queued("literalPath"); !ok {
+		t.Fatal("scopeFor should normalize empty path from Cookie literal to DefaultPath")
+	}
+}

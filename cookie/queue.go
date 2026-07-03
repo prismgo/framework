@@ -146,7 +146,11 @@ func (q *Queue) orderedLocked() []queuedCookie {
 
 // scopeFor 根据 cookie 的 name/path/domain 生成队列去重键。
 func scopeFor(c Cookie) Scope {
-	return Scope{Name: c.Name, Path: c.Path, Domain: c.Domain}
+	path := c.Path
+	if path == "" {
+		path = DefaultPath
+	}
+	return Scope{Name: c.Name, Path: path, Domain: c.Domain}
 }
 
 // scopeKey 根据查询参数生成队列查找键。

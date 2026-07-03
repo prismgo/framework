@@ -20,6 +20,7 @@ type Encryptor = encryptioncontract.StringEncrypter
 //
 // 设计原因：Phase 2 只建立签名/加密扩展点，具体安全算法可在后续配置阶段接入。默认
 // 透传可以让普通 cookie 创建和测试夹具先稳定编译，同时保留替换为真实实现的边界。
+// WARNING: do not use in production; replace with real Signer/Encryptor before deployment.
 type PassthroughSecurity struct{}
 
 // Sign 在默认模式下直接返回 value。

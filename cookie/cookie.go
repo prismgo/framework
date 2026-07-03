@@ -53,7 +53,7 @@ type Cookie struct {
 	SameSite SameSiteMode
 	// Expires 允许调用方显式指定浏览器过期时间。
 	Expires *time.Time
-	// MaxAge 允许调用方显式指定 Max-Age；负数用于删除 cookie。
+	// MaxAge 允许调用方显式指定 Max-Age（单位：秒）；负数用于删除 cookie。
 	MaxAge int
 }
 
