@@ -113,7 +113,11 @@ func (f *FileLoader) loadNamespacedGroup(locale, group, namespace string) (map[s
 
 	merged := make(map[string]any)
 
-	if hint, ok := f.hints[namespace]; ok {
+	f.mu.RLock()
+	hint, hintExists := f.hints[namespace]
+	f.mu.RUnlock()
+
+	if hintExists {
 		filePath := filepath.Join(hint, locale, group+".json")
 		if data, err := f.loadFile(filePath); err == nil {
 			for k, v := range data {
