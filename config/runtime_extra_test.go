@@ -294,11 +294,20 @@ func TestRuntimeParsingHelpers(t *testing.T) {
 	if got := castEnvValue("42", int16(0)); got != int16(42) {
 		t.Fatalf("castEnvValue int16 = %v", got)
 	}
+	if got := castEnvValue("42", int32(0)); got != int32(42) {
+		t.Fatalf("castEnvValue int32 = %v", got)
+	}
 	if got := castEnvValue("42", int8(0)); got != int8(42) {
 		t.Fatalf("castEnvValue int8 = %v", got)
 	}
 	if got := castEnvValue("42", uint8(0)); got != uint8(42) {
 		t.Fatalf("castEnvValue uint8 = %v", got)
+	}
+	if got := castEnvValue("42", uint16(0)); got != uint16(42) {
+		t.Fatalf("castEnvValue uint16 = %v", got)
+	}
+	if got := castEnvValue("42", uint32(0)); got != uint32(42) {
+		t.Fatalf("castEnvValue uint32 = %v", got)
 	}
 	if got := castEnvValue("3.5", float32(0)); got != float32(3.5) {
 		t.Fatalf("castEnvValue float32 = %v", got)
@@ -453,4 +462,380 @@ func TestConfigConcurrentReloadAndRead(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// TestConcurrentNewFromFileEnvIsolation 验证并发 NewFromFile 的环境快照隔离性：
+// 两个 goroutine 各自使用不同的 .env 文件，每个读到的环境变量互不干扰。
+func TestConcurrentNewFromFileEnvIsolation(t *testing.T) {
+	dir := t.TempDir()
+
+	envA := filepath.Join(dir, "a.env")
+	if err := os.WriteFile(envA, []byte("DB_HOST=host_a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	envB := filepath.Join(dir, "b.env")
+	if err := os.WriteFile(envB, []byte("DB_HOST=host_b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	results := make([]string, 2)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		Add("iso_a", func() map[string]any {
+			return map[string]any{"host": Env("DB_HOST", "none")}
+		})
+		cfg, err := NewFromFile(envA)
+		if err != nil {
+			t.Errorf("NewFromFile(a): %v", err)
+			return
+		}
+		results[0] = cfg.GetString("iso_a.host")
+		registryMu.Lock()
+		delete(registry, "iso_a")
+		registryMu.Unlock()
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		Add("iso_b", func() map[string]any {
+			return map[string]any{"host": Env("DB_HOST", "none")}
+		})
+		cfg, err := NewFromFile(envB)
+		if err != nil {
+			t.Errorf("NewFromFile(b): %v", err)
+			return
+		}
+		results[1] = cfg.GetString("iso_b.host")
+		registryMu.Lock()
+		delete(registry, "iso_b")
+		registryMu.Unlock()
+	}()
+
+	wg.Wait()
+
+	if results[0] != "host_a" {
+		t.Errorf("goroutine A: got %q, want host_a", results[0])
+	}
+	if results[1] != "host_b" {
+		t.Errorf("goroutine B: got %q, want host_b", results[1])
+	}
+}
+
+// TestCloneDeepNestingBoundary 验证深度嵌套的配置在 Clone 时不会栈溢出，
+// 达到 maxCloneDepth 后退化为浅拷贝但不会 panic。
+func TestCloneDeepNestingBoundary(t *testing.T) {
+	nested := make(map[string]any)
+	current := nested
+	for i := 0; i < maxCloneDepth+50; i++ {
+		child := make(map[string]any)
+		current["level"] = child
+		current = child
+	}
+	current["val"] = "bottom"
+
+	cfg := &Config{store: map[string]any{"nested": nested}}
+	cloned := cfg.Clone()
+	if cloned.store == nil {
+		t.Fatal("Clone 返回了 nil store")
+	}
+}
+
+// TestEnvSnapshotCleanedAfterNewFromFile 验证 NewFromFile 完成后快照被清理，
+// 后续 Env() 不会读到过期的快照值。
+func TestEnvSnapshotCleanedAfterNewFromFile(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, ".env")
+	if err := os.WriteFile(envFile, []byte("TEMP_VAR=snapshot_value\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	Add("cleanup_test", func() map[string]any {
+		return map[string]any{"read": Env("TEMP_VAR", "fallback")}
+	})
+
+	cfg, err := NewFromFile(envFile)
+	if err != nil {
+		t.Fatalf("NewFromFile: %v", err)
+	}
+	if got := cfg.GetString("cleanup_test.read"); got != "snapshot_value" {
+		t.Fatalf("during loading should see snapshot: got %q, want snapshot_value", got)
+	}
+
+	registryMu.Lock()
+	delete(registry, "cleanup_test")
+	registryMu.Unlock()
+
+	t.Setenv("TEMP_VAR", "system_value")
+	got := Env("TEMP_VAR", "fallback")
+	if got == "snapshot_value" {
+		t.Errorf("Env after NewFromFile should not see old snapshot, got %q", got)
+	}
+}
+
+// TestGetStringMapWithNilNestedValue 验证当 map 中存在 nil 值时不会 panic。
+func TestGetStringMapWithNilNestedValue(t *testing.T) {
+	cfg := &Config{store: map[string]any{
+		"items": map[string]any{
+			"a": "va1",
+			"b": nil,
+			"c": "va3",
+		},
+	}}
+	got := cfg.GetStringMap("items")
+	if got["a"] != "va1" {
+		t.Errorf("GetStringMap items.a = %v, want va1", got["a"])
+	}
+	_ = cfg.GetStringMapString("items")
+	_ = cfg.GetString("items.a")
+	_ = cfg.GetString("items.b")
+}
+
+// TestNewFromFileRecursiveEnvIsolation 验证递归调用 NewFromFile 的环境快照隔离性：
+// loader 内部递归 NewFromFile 不应破坏外层后续 loader 的环境读取。
+func TestNewFromFileRecursiveEnvIsolation(t *testing.T) {
+	dir := t.TempDir()
+
+	envOuter := filepath.Join(dir, "outer.env")
+	if err := os.WriteFile(envOuter, []byte("VAR=outer\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	envInner := filepath.Join(dir, "inner.env")
+	if err := os.WriteFile(envInner, []byte("VAR=inner\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 将递归 loader 定义为变量，以便在回调中引用自身来恢复注册表。
+	var recursiveLoader Func
+	recursiveLoader = func() map[string]any {
+		// 临时从注册表中删除自己，防止内层 snapshotRegistry 包含自身导致无限递归。
+		registryMu.Lock()
+		delete(registry, "recursive_first")
+		registryMu.Unlock()
+
+		Add("recursive_child", func() map[string]any {
+			return map[string]any{"val": Env("VAR", "fallback")}
+		})
+		childCfg, err := NewFromFile(envInner)
+		if err != nil {
+			// panic 安全：此处运行在外层 NewFromFile 的 loader 循环中，同 goroutine，
+			// panic 会被测试框架 recover。
+			panic(fmt.Sprintf("recursive NewFromFile: %v", err))
+		}
+
+		// 恢复自己在注册表中的位置，保持注册表状态一致。
+		registryMu.Lock()
+		registry["recursive_first"] = recursiveLoader
+		registryMu.Unlock()
+
+		return map[string]any{
+			"child_val": childCfg.GetString("recursive_child.val"),
+		}
+	}
+	Add("recursive_first", recursiveLoader)
+
+	Add("recursive_second", func() map[string]any {
+		return map[string]any{"val": Env("VAR", "fallback")}
+	})
+
+	cfg, err := NewFromFile(envOuter)
+	if err != nil {
+		t.Fatalf("NewFromFile: %v", err)
+	}
+
+	// recursive_first 的子配置应读到 inner.env 的 VAR
+	if got := cfg.GetString("recursive_first.child_val"); got != "inner" {
+		t.Errorf("recursive_first.child_val = %q, want inner", got)
+	}
+	// recursive_second 应读到 outer.env 的 VAR，而非被内层 NewFromFile 污染
+	if got := cfg.GetString("recursive_second.val"); got != "outer" {
+		t.Errorf("recursive_second.val = %q, want outer", got)
+	}
+
+	registryMu.Lock()
+	delete(registry, "recursive_first")
+	delete(registry, "recursive_second")
+	delete(registry, "recursive_child")
+	registryMu.Unlock()
+}
+
+// TestNewFromFileMultiLevelRecursion 验证多层递归（超过 2 层）的快照隔离性。
+// 场景：level1 -> level2 -> level3，每层使用不同的 .env 文件，验证各层读到正确的环境变量。
+func TestNewFromFileMultiLevelRecursion(t *testing.T) {
+	dir := t.TempDir()
+
+	env1 := filepath.Join(dir, "level1.env")
+	if err := os.WriteFile(env1, []byte("VAR=level1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env2 := filepath.Join(dir, "level2.env")
+	if err := os.WriteFile(env2, []byte("VAR=level2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env3 := filepath.Join(dir, "level3.env")
+	if err := os.WriteFile(env3, []byte("VAR=level3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// level3 loader：最内层，直接读取 VAR
+	Add("level3", func() map[string]any {
+		return map[string]any{"val": Env("VAR", "fallback")}
+	})
+
+	// level2 loader：调用 NewFromFile 加载 level3
+	var level2Loader Func
+	level2Loader = func() map[string]any {
+		registryMu.Lock()
+		delete(registry, "level2")
+		registryMu.Unlock()
+
+		cfg, err := NewFromFile(env3)
+		if err != nil {
+			panic(fmt.Sprintf("level2 recursive NewFromFile: %v", err))
+		}
+
+		registryMu.Lock()
+		registry["level2"] = level2Loader
+		registryMu.Unlock()
+
+		return map[string]any{
+			"level3_val": cfg.GetString("level3.val"),
+			"self_val":   Env("VAR", "fallback"),
+		}
+	}
+	Add("level2", level2Loader)
+
+	// level1 loader：调用 NewFromFile 加载 level2
+	var level1Loader Func
+	level1Loader = func() map[string]any {
+		registryMu.Lock()
+		delete(registry, "level1")
+		registryMu.Unlock()
+
+		cfg, err := NewFromFile(env2)
+		if err != nil {
+			panic(fmt.Sprintf("level1 recursive NewFromFile: %v", err))
+		}
+
+		registryMu.Lock()
+		registry["level1"] = level1Loader
+		registryMu.Unlock()
+
+		return map[string]any{
+			"level2_val": cfg.GetString("level2.self_val"),
+			"level3_val": cfg.GetString("level2.level3_val"),
+			"self_val":   Env("VAR", "fallback"),
+		}
+	}
+	Add("level1", level1Loader)
+
+	cfg, err := NewFromFile(env1)
+	if err != nil {
+		t.Fatalf("NewFromFile: %v", err)
+	}
+
+	// 验证各层读到正确的环境变量
+	if got := cfg.GetString("level1.self_val"); got != "level1" {
+		t.Errorf("level1.self_val = %q, want level1", got)
+	}
+	if got := cfg.GetString("level1.level2_val"); got != "level2" {
+		t.Errorf("level1.level2_val = %q, want level2", got)
+	}
+	if got := cfg.GetString("level1.level3_val"); got != "level3" {
+		t.Errorf("level1.level3_val = %q, want level3", got)
+	}
+
+	registryMu.Lock()
+	delete(registry, "level1")
+	delete(registry, "level2")
+	delete(registry, "level3")
+	registryMu.Unlock()
+}
+
+// TestNewFromFilePanicCleanup 验证递归过程中 panic 时的快照清理。
+// 场景：loader panic 时，defer clearCurrentEnvSnapshot 应该清理快照，
+// 后续 Env 调用不应该读到过期的快照值。
+func TestNewFromFilePanicCleanup(t *testing.T) {
+	dir := t.TempDir()
+
+	envFile := filepath.Join(dir, "test.env")
+	if err := os.WriteFile(envFile, []byte("VAR=test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// loader：故意 panic
+	Add("panic_loader", func() map[string]any {
+		panic("intentional panic in loader")
+	})
+
+	// NewFromFile 应该 panic
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic from NewFromFile, but it didn't panic")
+		}
+		// panic 被 recover 捕获，验证快照已清理
+		if got := Env("VAR", "fallback"); got != "fallback" {
+			t.Errorf("Env after panic = %q, want fallback (snapshot should be cleaned)", got)
+		}
+
+		registryMu.Lock()
+		delete(registry, "panic_loader")
+		registryMu.Unlock()
+	}()
+
+	_, _ = NewFromFile(envFile)
+}
+
+// TestSnapshotStackConcurrentSafety 验证多个 goroutine 同时使用 GoroutineID=0 时
+// snapshotStack 的互斥锁能够防止数据竞争。
+func TestSnapshotStackConcurrentSafety(t *testing.T) {
+	// 模拟 GoroutineID 返回 0 的场景：多个 goroutine 共享同一个 snapshotStack
+	stack := &snapshotStack{}
+
+	var wg sync.WaitGroup
+	concurrency := 10
+	iterations := 100
+
+	// 并发 Push
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				snap := map[string]any{"goroutine": id, "iteration": j}
+				stack.Push(snap)
+			}
+		}(i)
+	}
+
+	// 并发 Pop
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				stack.Pop()
+			}
+		}()
+	}
+
+	// 并发 Peek
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_ = stack.Peek()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// 验证栈状态一致：由于并发执行顺序不确定，栈可能不为空
+	// 但 Peek 不应该 panic，说明互斥锁工作正常
+	_ = stack.Peek()
 }

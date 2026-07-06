@@ -122,6 +122,10 @@ func (a *Application) Boot() error {
 	}()
 
 	start := time.Now()
+	a.mu.Lock()
+	a.startedAt = start
+	a.mu.Unlock()
+
 	for _, entry := range a.providerSnapshot() {
 		if a.deferredProviderPending(entry.identity) {
 			continue

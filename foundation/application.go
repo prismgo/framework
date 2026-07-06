@@ -3,6 +3,7 @@ package foundation
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
@@ -62,6 +63,8 @@ type Application struct {
 	closeBus eventcontract.Dispatcher
 	// signalsRegistered 标记是否已注册信号监听，避免重复注册
 	signalsRegistered bool
+	// startedAt 记录应用启动时间，用于计算生命周期总时长
+	startedAt time.Time
 }
 
 // NewApplication 创建应用实例，并注册默认通用资源工厂。

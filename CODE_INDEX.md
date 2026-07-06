@@ -605,6 +605,7 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 | `internal/fmtx/` | Extended formatting utilities |
 | `internal/optional/` | Optional value type |
 | `internal/path/` | Path resolution helpers |
+| `internal/runtimex/` | Runtime introspection (GoroutineID) |
 | `internal/stackx/` | Stack trace utilities |
 
 ---

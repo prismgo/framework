@@ -22,6 +22,8 @@ func New() *Config {
 const maxCloneDepth = 128
 
 // Clone 复制当前配置实例，返回持有独立仓库副本的新实例。
+// 嵌套 map/slice 被深度复制（最大深度 maxCloneDepth 层）；超过深度上限时退化为浅拷贝，
+// 但生产配置嵌套深度通常远低于此阈值。
 func (c *Config) Clone() *Config {
 	if c == nil {
 		return New()

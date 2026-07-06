@@ -63,9 +63,13 @@ type AppTerminating struct {
 func (AppTerminating) Name() string { return EventAppTerminating }
 
 // AppTerminated 表示应用已经执行完 cleanup 与 facade 资源释放。
+//
+// Duration 表示应用从启动到终止的总生命周期时长。
+// CloseDuration 表示关闭流程（从 Close 调用到所有 cleanup 完成）的耗时。
 type AppTerminated struct {
-	Duration time.Duration
-	Error    string
+	Duration      time.Duration
+	CloseDuration time.Duration
+	Error         string
 }
 
 // Name 实现 Event 接口。

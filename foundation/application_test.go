@@ -22,6 +22,38 @@ import (
 	"github.com/prismgo/framework/logger"
 )
 
+// mockEventDispatcher 是用于测试的简单事件分发器
+type mockEventDispatcher struct {
+	handlers map[string]func(any)
+}
+
+func (m *mockEventDispatcher) Dispatch(ctx context.Context, ev event.Event) {
+	if h, ok := m.handlers[ev.Name()]; ok {
+		h(ev)
+	}
+}
+
+func (m *mockEventDispatcher) Listen(eventName string, l event.Listener) {
+	// 简化实现，测试中不使用
+}
+
+func (m *mockEventDispatcher) ListenFunc(eventName string, fn func(context.Context, event.Event) error) {
+	// 简化实现，测试中不使用
+}
+
+func (m *mockEventDispatcher) Subscribe(s event.Subscriber) {
+	// 简化实现，测试中不使用
+}
+
+func (m *mockEventDispatcher) Forget(eventName string) {
+	// 简化实现，测试中不使用
+}
+
+func (m *mockEventDispatcher) Has(eventName string) bool {
+	_, ok := m.handlers[eventName]
+	return ok
+}
+
 func bindApplicationCloseReporterForTest(t *testing.T, app *Application) {
 	t.Helper()
 	if err := app.Container().Instance("exception.handler", goexception.New(goexception.WithPanicStack(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
@@ -530,6 +562,57 @@ func TestFoundationConfigAndEventNames(t *testing.T) {
 	}
 	if (event.AppTerminated{}).Name() != event.EventAppTerminated {
 		t.Fatal("unexpected AppTerminated event name")
+	}
+}
+
+// TestAppTerminatedDurationFields 验证 AppTerminated 事件的 Duration 和 CloseDuration 字段语义正确
+func TestAppTerminatedDurationFields(t *testing.T) {
+	app := NewApplication()
+	bindApplicationCloseReporterForTest(t, app)
+
+	// 订阅 AppTerminated 事件
+	var capturedEvent *event.AppTerminated
+	bus := &mockEventDispatcher{handlers: make(map[string]func(any))}
+	bus.handlers[event.EventAppTerminated] = func(payload any) {
+		if e, ok := payload.(event.AppTerminated); ok {
+			capturedEvent = &e
+		}
+	}
+	if err := app.Container().Instance("event.dispatcher", bus); err != nil {
+		t.Fatalf("bind event bus: %v", err)
+	}
+
+	// Boot 应用，记录启动时间
+	if err := app.Boot(); err != nil {
+		t.Fatalf("Boot failed: %v", err)
+	}
+
+	// 等待一小段时间，确保 Duration > 0
+	time.Sleep(10 * time.Millisecond)
+
+	// 关闭应用
+	if err := app.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 验证事件被捕获
+	if capturedEvent == nil {
+		t.Fatal("AppTerminated event not dispatched")
+	}
+
+	// Duration 应该 >= 10ms（应用生命周期总时长，包含了 sleep 的 10ms）
+	if capturedEvent.Duration < 10*time.Millisecond {
+		t.Errorf("Duration = %v, want >= 10ms (application lifetime)", capturedEvent.Duration)
+	}
+
+	// CloseDuration 应该 > 0（关闭流程实际执行了工作）
+	if capturedEvent.CloseDuration <= 0 {
+		t.Errorf("CloseDuration = %v, want > 0", capturedEvent.CloseDuration)
+	}
+
+	// Duration 应该 >= CloseDuration（总时长包含关闭时长）
+	if capturedEvent.Duration < capturedEvent.CloseDuration {
+		t.Errorf("Duration (%v) should be >= CloseDuration (%v)", capturedEvent.Duration, capturedEvent.CloseDuration)
 	}
 }
 

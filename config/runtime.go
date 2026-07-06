@@ -3,10 +3,13 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"reflect"
 	"strings"
 	"sync"
+
+	"github.com/prismgo/framework/internal/runtimex"
 
 	"github.com/spf13/cast"
 	"github.com/spf13/viper"
@@ -31,11 +34,8 @@ var (
 	// initMu 确保配置文件加载过程串行执行，避免多个构建过程共享环境读取上下文。
 	initMu sync.Mutex
 
-	// envSnapshotMu 保护当前构建阶段使用的环境只读快照。
-	envSnapshotMu sync.RWMutex
-	// currentEnvSnapshot 是 viper 环境中所有键值对的不可变快照，
-	// 仅供 Env 在配置注册函数中读取 .env 与系统环境变量。
-	currentEnvSnapshot map[string]any
+	// envSnapshots 按 goroutine ID 存储当前构造中的环境快照，使并发 NewFromFile 调用互不干扰。
+	envSnapshots sync.Map
 )
 
 // Add 注册一个配置命名空间，通常由 config 目录下的配置文件在 init 中调用。
@@ -54,22 +54,32 @@ func NewFromDefaultFile() (*Config, error) {
 // 先读取 .env 文件并在 initMu 保护下快照注册表，然后释放锁再执行加载函数，
 // 避免加载函数中递归调用 NewFromFile 时死锁。
 func NewFromFile(path string) (*Config, error) {
-	initMu.Lock()
-	v := newViper()
-	if err := readEnvFile(v, path); err != nil {
-		initMu.Unlock()
+	v, loaders, err := prepareNewFromFile(path)
+	if err != nil {
 		return nil, err
 	}
-	loaders := snapshotRegistry()
-	initMu.Unlock()
 
 	store := make(map[string]any, len(loaders))
 	setCurrentEnvSnapshot(v)
+	defer clearCurrentEnvSnapshot()
+
 	for name, loader := range loaders {
 		store[name] = normalizeValue(loader(), maxNormalizeDepth)
 	}
-	clearCurrentEnvSnapshot()
 	return &Config{store: store}, nil
+}
+
+// prepareNewFromFile 在 initMu 保护下创建 viper 实例、读取 .env 文件并快照注册表。
+// 使用 defer 确保即使在 panic 场景下 initMu 也能释放。
+func prepareNewFromFile(path string) (*viper.Viper, map[string]Func, error) {
+	initMu.Lock()
+	defer initMu.Unlock()
+
+	v := newViper()
+	if err := readEnvFile(v, path); err != nil {
+		return nil, nil, err
+	}
+	return v, snapshotRegistry(), nil
 }
 
 // Env 读取单个环境变量，并在缺失时返回给定默认值。
@@ -96,31 +106,92 @@ func snapshotRegistry() map[string]Func {
 	return loaders
 }
 
-// setCurrentEnvSnapshot 从 viper 实例创建环境键值对快照并设为当前环境。
+// snapshotStack 是 per-goroutine 环境快照的 LIFO 栈，支持递归 NewFromFile 场景。
+// 每个 goroutine 通过 envSnapshots (sync.Map) 持有自己的栈实例。
+// 添加互斥锁保护，防止 GoroutineID() 返回 0 时多个 goroutine 共享同一栈导致数据竞争。
+type snapshotStack struct {
+	mu    sync.Mutex
+	stack []map[string]any
+}
+
+func (s *snapshotStack) Push(snap map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stack = append(s.stack, snap)
+}
+
+func (s *snapshotStack) Pop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.stack) > 0 {
+		s.stack = s.stack[:len(s.stack)-1]
+	}
+}
+
+func (s *snapshotStack) Peek() map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.stack) == 0 {
+		return nil
+	}
+	return s.stack[len(s.stack)-1]
+}
+
+// getSnapshotStack 安全地从 envSnapshots 获取 snapshotStack 实例。
+// 返回栈实例和是否成功获取的布尔值，避免直接类型断言导致的 panic。
+func getSnapshotStack(gid uint64) (*snapshotStack, bool) {
+	vRaw, ok := envSnapshots.Load(gid)
+	if !ok {
+		return nil, false
+	}
+	stk, ok := vRaw.(*snapshotStack)
+	if !ok {
+		log.Printf("ERROR: envSnapshots contains non-snapshotStack for gid %d", gid)
+		return nil, false
+	}
+	return stk, true
+}
+
+// setCurrentEnvSnapshot 从 viper 实例创建环境键值对快照并推入当前 goroutine 的栈。
 // 快照是一次性构建的不可变 map，消除共享 *viper.Viper 带来的并发安全问题。
 // 键统一转换为小写以匹配 viper 的大小写不敏感行为。
+// 每个 goroutine 持有自己的快照，并发 NewFromFile 调用互不干扰。
 func setCurrentEnvSnapshot(v *viper.Viper) {
-	envSnapshotMu.Lock()
-	defer envSnapshotMu.Unlock()
-	snap := make(map[string]any, len(v.AllKeys()))
-	for _, key := range v.AllKeys() {
+	keys := v.AllKeys()
+	snap := make(map[string]any, len(keys))
+	for _, key := range keys {
 		snap[strings.ToLower(key)] = v.Get(key)
 	}
-	currentEnvSnapshot = snap
+	gid := runtimex.GoroutineID()
+	vRaw, _ := envSnapshots.LoadOrStore(gid, &snapshotStack{})
+	if stk, ok := vRaw.(*snapshotStack); ok {
+		stk.Push(snap)
+	} else {
+		log.Printf("ERROR: envSnapshots contains non-snapshotStack for gid %d", gid)
+	}
 }
 
-// clearCurrentEnvSnapshot 在配置仓库构建结束后清空临时快照。
+// clearCurrentEnvSnapshot 弹出当前 goroutine 的快照栈顶，栈空时删除 sync.Map 条目。
 func clearCurrentEnvSnapshot() {
-	envSnapshotMu.Lock()
-	defer envSnapshotMu.Unlock()
-	currentEnvSnapshot = nil
+	gid := runtimex.GoroutineID()
+	stk, ok := getSnapshotStack(gid)
+	if !ok {
+		return
+	}
+	stk.Pop()
+	if stk.Peek() == nil {
+		envSnapshots.Delete(gid)
+	}
 }
 
-// activeEnvSnapshot 返回当前用于 Env 读取的环境键值对快照。
+// activeEnvSnapshot 返回当前 goroutine 快照栈顶的环境键值对快照。
 func activeEnvSnapshot() map[string]any {
-	envSnapshotMu.RLock()
-	defer envSnapshotMu.RUnlock()
-	return currentEnvSnapshot
+	gid := runtimex.GoroutineID()
+	stk, ok := getSnapshotStack(gid)
+	if !ok {
+		return nil
+	}
+	return stk.Peek()
 }
 
 // readEnvValue 从环境快照或系统环境中读取值，并尽量按默认值类型做转换。
@@ -240,14 +311,11 @@ func newViper() *viper.Viper {
 func readEnvFile(v *viper.Viper, path string) error {
 	v.SetConfigFile(path)
 	if err := v.ReadInConfig(); err != nil {
+		// .env 文件不存在的两种报告方式（ConfigFileNotFoundError / os.PathError）统一处理。
 		var notFound viper.ConfigFileNotFoundError
-		if errors.As(err, &notFound) {
-			fmt.Fprintf(os.Stderr, "WARNING: .env file not found at %s, using system environment only\n", path)
-			return nil
-		}
 		var pathErr *os.PathError
-		if errors.As(err, &pathErr) && os.IsNotExist(pathErr) {
-			fmt.Fprintf(os.Stderr, "WARNING: .env file not found at %s, using system environment only\n", path)
+		if errors.As(err, &notFound) || (errors.As(err, &pathErr) && os.IsNotExist(pathErr)) {
+			log.Printf("WARNING: .env file not found at %s, using system environment only", path)
 			return nil
 		}
 		return fmt.Errorf("read config file %s: %w", path, err)

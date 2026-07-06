@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/prismgo/framework/container"
@@ -14,6 +11,7 @@ import (
 	providerpkg "github.com/prismgo/framework/contracts/provider"
 	"github.com/prismgo/framework/event"
 	"github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/internal/runtimex"
 )
 
 // DefaultCloseTimeout 是 Close 兼容入口使用的默认资源释放上限。
@@ -90,43 +88,51 @@ func (a *Application) CloseContext(ctx context.Context) (err error) {
 // 返回值：
 //   - (false, nil): 成功获取权限，可以继续执行关闭
 //   - (true, nil): owner 在生命周期回调中重入，应直接返回 nil
-//   - (false, error): 无法执行关闭（正在启动）
+//   - (false, error): 无法执行关闭（正在启动或 context 取消）
 func (a *Application) acquireCloseSlot(ctx context.Context) (reentrant bool, err error) {
-	gid := currentGoroutineID()
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	gid := runtimex.GoroutineID()
 
-	if a.terminated {
-		return false, nil
-	}
-	if a.booting {
-		return false, fmt.Errorf("application boot is in progress")
-	}
-	if a.closeActive {
+	for {
+		a.mu.Lock()
+
+		if a.terminated {
+			a.mu.Unlock()
+			return false, nil
+		}
+
+		if a.booting {
+			a.mu.Unlock()
+			return false, fmt.Errorf("application boot is in progress")
+		}
+
+		if !a.closeActive {
+			a.mu.Unlock()
+			return false, nil
+		}
+
+		// closeActive 为 true，检查是否为 owner 重入
 		if a.closeOwner == gid {
-			// owner 在生命周期回调中重入：直接返回，避免重复执行关闭逻辑
+			a.mu.Unlock()
 			return true, nil
 		}
+
 		// 非 owner 等待当前关闭完成
 		done := a.closeDone
 		a.mu.Unlock()
-		if done != nil {
-			<-done
+
+		// 等待 closeDone 或 context 取消
+		select {
+		case <-done:
+			// 关闭完成，继续循环重试获取权限
+		case <-ctx.Done():
+			return false, ctx.Err()
 		}
-		a.mu.Lock()
-		if a.terminated {
-			return false, nil
-		}
-		// 关闭未完成，重试获取权限
-		a.mu.Unlock()
-		return a.acquireCloseSlot(ctx)
 	}
-	return false, nil
 }
 
 // runCloseAttempt 执行单次关闭尝试，协调并发并管理状态。
 func (a *Application) runCloseAttempt(ctx context.Context) (err error) {
-	gid := currentGoroutineID()
+	gid := runtimex.GoroutineID()
 
 	// closing 一旦置位，说明关闭副作用已经执行过，后续调用只能推进 container remaining resources。
 	firstAttempt := !a.closing
@@ -199,6 +205,8 @@ func (a *Application) runFirstCloseAttempt(eventCtx, closeCtx context.Context, c
 
 // drainContainerResources 关闭容器资源并派发终止事件。
 func (a *Application) drainContainerResources(ctx, eventCtx, closeCtx context.Context, firstAttempt bool, firstErr error, bus eventcontract.Dispatcher) error {
+	closeStartedAt := time.Now()
+
 	if closeCtx.Err() != nil {
 		closeCtx = eventCtx
 	}
@@ -231,12 +239,14 @@ func (a *Application) drainContainerResources(ctx, eventCtx, closeCtx context.Co
 		return firstErr
 	}
 	a.terminated = true
+	startedAt := a.startedAt
 	a.mu.Unlock()
 
 	if bus != nil {
 		bus.Dispatch(eventCtx, event.AppTerminated{
-			Duration: time.Since(time.Now()),
-			Error:    errorString(firstErr),
+			Duration:      time.Since(startedAt),
+			CloseDuration: time.Since(closeStartedAt),
+			Error:         errorString(firstErr),
 		})
 	}
 	if App == a {
@@ -316,25 +326,4 @@ func errorString(err error) string {
 		return ""
 	}
 	return err.Error()
-}
-
-// currentGoroutineID 返回当前 goroutine 的运行期编号，仅用于区分 CloseContext 的内部重入与外部并发调用。
-//
-// 需求背景：AppTerminating、AppTerminated 和 cleanup 回调允许在同一调用栈内重入 CloseContext；
-// 如果所有 closeActive 调用都等待 closeDone，内部重入会等待自己完成而死锁。Go 标准库没有公开
-// goroutine id，这里从 runtime.Stack 头部解析，作用范围限定在 foundation 关闭期并发协调。
-func currentGoroutineID() uint64 {
-	// 使用 256 字节缓冲区，避免极端情况下 goroutine ID 过大导致截断
-	var buf [256]byte
-	n := runtime.Stack(buf[:], false)
-	header := strings.TrimPrefix(string(buf[:n]), "goroutine ")
-	idText := header
-	if index := strings.IndexByte(header, ' '); index >= 0 {
-		idText = header[:index]
-	}
-	id, err := strconv.ParseUint(idText, 10, 64)
-	if err != nil {
-		return 0
-	}
-	return id
 }

@@ -428,73 +428,97 @@ func TestApplicationCloseSerializesConcurrentCalls(t *testing.T) {
 func TestApplicationConcurrentCloseWaitsForActiveCloseAttempt(t *testing.T) {
 	// 需求背景：两个外部 goroutine 同时关闭同一个 Application 时，第二个调用方不能提前观察到半关闭状态。
 	// 逻辑说明：第一个 CloseContext 在 cleanup 中阻塞；第二个 CloseContext 必须等 release 后才能返回。
-	tests := []struct {
-		name         string
-		secondCtx    func(*testing.T) context.Context
-		waitBeforeOk time.Duration
-	}{
-		{
-			name: "background context",
-			secondCtx: func(*testing.T) context.Context {
-				return context.Background()
-			},
-			waitBeforeOk: 50 * time.Millisecond,
-		},
-		{
-			name: "canceled context",
-			secondCtx: func(t *testing.T) context.Context {
-				ctx, cancel := context.WithCancel(context.Background())
-				cancel()
-				t.Cleanup(cancel)
-				return ctx
-			},
-			waitBeforeOk: 50 * time.Millisecond,
-		},
-		{
-			name: "deadline exceeded context",
-			secondCtx: func(t *testing.T) context.Context {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-				t.Cleanup(cancel)
-				return ctx
-			},
-			waitBeforeOk: 50 * time.Millisecond,
-		},
-	}
+	// 注意：如果第二个 CloseContext 的 context 已取消，会立即返回 context 错误。
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			withBaseProvidersForTest(t)
-			app := NewApplication()
-			entered := make(chan struct{})
-			release := make(chan struct{})
-			secondDone := make(chan error, 1)
-			firstDone := make(chan error, 1)
+	t.Run("background context waits for completion", func(t *testing.T) {
+		withBaseProvidersForTest(t)
+		app := NewApplication()
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		secondDone := make(chan error, 1)
+		firstDone := make(chan error, 1)
 
-			app.RegisterCleanup(func(*Application) error {
-				close(entered)
-				<-release
-				return nil
-			})
-
-			go func() { firstDone <- app.CloseContext(context.Background()) }()
-			<-entered
-			go func() { secondDone <- app.CloseContext(tt.secondCtx(t)) }()
-
-			select {
-			case err := <-secondDone:
-				t.Fatalf("second CloseContext returned before active close finished: %v", err)
-			case <-time.After(tt.waitBeforeOk):
-			}
-
-			close(release)
-			if err := <-firstDone; err != nil {
-				t.Fatalf("first CloseContext error = %v", err)
-			}
-			if err := <-secondDone; err != nil {
-				t.Fatalf("second CloseContext error = %v", err)
-			}
+		app.RegisterCleanup(func(*Application) error {
+			close(entered)
+			<-release
+			return nil
 		})
-	}
+
+		go func() { firstDone <- app.CloseContext(context.Background()) }()
+		<-entered
+		go func() { secondDone <- app.CloseContext(context.Background()) }()
+
+		select {
+		case err := <-secondDone:
+			t.Fatalf("second CloseContext returned before active close finished: %v", err)
+		case <-time.After(50 * time.Millisecond):
+		}
+
+		close(release)
+		if err := <-firstDone; err != nil {
+			t.Fatalf("first CloseContext error = %v", err)
+		}
+		if err := <-secondDone; err != nil {
+			t.Fatalf("second CloseContext error = %v", err)
+		}
+	})
+
+	t.Run("canceled context returns immediately", func(t *testing.T) {
+		withBaseProvidersForTest(t)
+		app := NewApplication()
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		firstDone := make(chan error, 1)
+
+		app.RegisterCleanup(func(*Application) error {
+			close(entered)
+			<-release
+			return nil
+		})
+
+		go func() { firstDone <- app.CloseContext(context.Background()) }()
+		<-entered
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // 立即取消
+
+		err := app.CloseContext(ctx)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+
+		close(release)
+		<-firstDone // 等待第一个 goroutine 完成，避免竞态
+	})
+
+	t.Run("deadline exceeded context returns immediately", func(t *testing.T) {
+		withBaseProvidersForTest(t)
+		app := NewApplication()
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		firstDone := make(chan error, 1)
+
+		app.RegisterCleanup(func(*Application) error {
+			close(entered)
+			<-release
+			return nil
+		})
+
+		go func() { firstDone <- app.CloseContext(context.Background()) }()
+		<-entered
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		defer cancel()
+		time.Sleep(1 * time.Millisecond) // 等待超时
+
+		err := app.CloseContext(ctx)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+		}
+
+		close(release)
+		<-firstDone // 等待第一个 goroutine 完成，避免竞态
+	})
 }
 
 func TestApplicationRegisterCleanupDuringCloseIsIgnored(t *testing.T) {
@@ -847,4 +871,54 @@ type terminableDeferredProvider struct {
 func (p *terminableDeferredProvider) Terminate(context.Context) error {
 	p.terminated++
 	return nil
+}
+
+// TestAppTerminatedEventDurationAndCloseDuration 验证 AppTerminated 事件的 Duration 和 CloseDuration 字段正确计算
+func TestAppTerminatedEventDurationAndCloseDuration(t *testing.T) {
+	app := NewApplication()
+
+	// 注册事件监听器捕获 AppTerminated 事件
+	bus := event.Resolve()
+
+	var capturedEvent *event.AppTerminated
+	bus.Listen(event.EventAppTerminated, event.ListenerFunc(func(ctx context.Context, e event.Event) error {
+		if terminated, ok := e.(event.AppTerminated); ok {
+			capturedEvent = &terminated
+		}
+		return nil
+	}))
+
+	// Boot 应用，设置 startedAt
+	if err := app.Boot(); err != nil {
+		t.Fatalf("boot app: %v", err)
+	}
+
+	// 等待一段时间，确保 Duration 可测量
+	time.Sleep(50 * time.Millisecond)
+
+	// 关闭应用，触发 AppTerminated 事件
+	if err := app.CloseContext(context.Background()); err != nil {
+		t.Fatalf("close app: %v", err)
+	}
+
+	// 验证事件被捕获
+	if capturedEvent == nil {
+		t.Fatal("AppTerminated event was not dispatched")
+	}
+
+	// 验证 Duration >= 50ms（从 Boot 到 Close 的时间）
+	if capturedEvent.Duration < 50*time.Millisecond {
+		t.Errorf("Duration = %v, want >= 50ms", capturedEvent.Duration)
+	}
+
+	// 验证 CloseDuration > 0（关闭流程耗时）
+	if capturedEvent.CloseDuration <= 0 {
+		t.Errorf("CloseDuration = %v, want > 0", capturedEvent.CloseDuration)
+	}
+
+	// 验证 Duration >= CloseDuration（总时长应该 >= 关闭时长）
+	if capturedEvent.Duration < capturedEvent.CloseDuration {
+		t.Errorf("Duration (%v) < CloseDuration (%v), which is impossible",
+			capturedEvent.Duration, capturedEvent.CloseDuration)
+	}
 }
