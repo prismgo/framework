@@ -7,19 +7,20 @@ import (
 	"gorm.io/gorm"
 )
 
-// mysqlTableOptions 是 MySQL 建表时统一追加的选项，保证 UTF8 与 InnoDB 一致。
-const mysqlTableOptions = "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
-
 // quoteIdentifier 转义 SQL 标识符（表名、列名等），防止 SQL 注入
 func quoteIdentifier(name string) string {
 	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }
 
 // TableOptions 返回指定 GORM dialect 的建表选项，未知 dialect 返回空串。
+// engine 为空时默认使用 InnoDB。
 // 在 AutoMigrate 之前可通过 db.Set("gorm:table_options", opts) 注入。
-func TableOptions(dialect string) string {
+func TableOptions(dialect, engine string) string {
 	if strings.EqualFold(strings.TrimSpace(dialect), "mysql") {
-		return mysqlTableOptions
+		if engine == "" {
+			engine = "InnoDB"
+		}
+		return fmt.Sprintf("ENGINE=%s DEFAULT CHARSET=utf8mb4", engine)
 	}
 	return ""
 }
@@ -41,7 +42,7 @@ func ManagedTableNames(db *gorm.DB, models []any) ([]string, error) {
 // EnsureInnoDB 将所有受管 MySQL 表强制切换为 InnoDB 引擎。非 MySQL dialect 直接跳过。
 // GORM AutoMigrate 无法改变已有表的 ENGINE，因此需要此辅助完成引擎切换。
 func EnsureInnoDB(db *gorm.DB, models []any) error {
-	if TableOptions(db.Name()) == "" {
+	if TableOptions(db.Name(), "InnoDB") == "" {
 		return nil
 	}
 	names, err := ManagedTableNames(db, models)
@@ -175,7 +176,7 @@ type DropIndex struct {
 
 // DropObsoleteIndexes 删除废弃索引（幂等）。仅在 MySQL 下执行，SQLite 跳过（测试库每次重建无需清理）。
 func DropObsoleteIndexes(db *gorm.DB, indexes []DropIndex) error {
-	if TableOptions(db.Name()) == "" {
+	if TableOptions(db.Name(), "InnoDB") == "" {
 		return nil
 	}
 	for _, idx := range indexes {

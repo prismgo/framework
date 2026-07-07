@@ -255,7 +255,7 @@ func (b *Builder) SyncModels(models ...any) error {
 	if err != nil {
 		return err
 	}
-	if opts := database.TableOptions(db.Name()); opts != "" {
+	if opts := database.TableOptions(db.Name(), "InnoDB"); opts != "" {
 		db = db.Set("gorm:table_options", opts)
 	}
 	migrator := db.Migrator()

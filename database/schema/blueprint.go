@@ -227,7 +227,7 @@ func (b *Blueprint) compileMySQL(db *gorm.DB) ([]string, error) {
 			return nil, fmt.Errorf("schema: create table %s has no columns", b.table)
 		}
 		query := fmt.Sprintf("CREATE TABLE `%s` (%s)", b.table, strings.Join(parts, ", "))
-		if opts := database.TableOptions(db.Name()); opts != "" {
+		if opts := database.TableOptions(db.Name(), "InnoDB"); opts != "" {
 			query += " " + opts
 		}
 		sqls = append(sqls, query)

@@ -2,22 +2,27 @@ package database
 
 import "testing"
 
-func TestTableOptionsUsesInnoDBForMySQL(t *testing.T) {
-	want := "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
-	if got := TableOptions("mysql"); got != want {
-		t.Fatalf("expected %q, got %q", want, got)
+func TestTableOptionsWithEngine(t *testing.T) {
+	tests := []struct {
+		name    string
+		dialect string
+		engine  string
+		want    string
+	}{
+		{"mysql with InnoDB", "mysql", "InnoDB", "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"},
+		{"mysql with MyISAM", "mysql", "MyISAM", "ENGINE=MyISAM DEFAULT CHARSET=utf8mb4"},
+		{"mysql with empty engine defaults to InnoDB", "mysql", "", "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"},
+		{"mysql case insensitive", " MySQL ", "innodb", "ENGINE=innodb DEFAULT CHARSET=utf8mb4"},
+		{"sqlite returns empty", "sqlite", "InnoDB", ""},
+		{"empty dialect return empty", "", "InnoDB", ""},
 	}
-	if got := TableOptions(" MySQL "); got != want {
-		t.Fatalf("expected trimmed %q, got %q", want, got)
-	}
-}
 
-func TestTableOptionsSkipsNonMySQL(t *testing.T) {
-	if got := TableOptions("sqlite"); got != "" {
-		t.Fatalf("expected empty for sqlite, got %q", got)
-	}
-	if got := TableOptions(""); got != "" {
-		t.Fatalf("expected empty for empty dialect, got %q", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := TableOptions(tt.dialect, tt.engine); got != tt.want {
+				t.Fatalf("TableOptions(%q, %q) = %q, want %q", tt.dialect, tt.engine, got, tt.want)
+			}
+		})
 	}
 }
 
