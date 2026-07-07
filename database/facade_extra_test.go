@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/glebarez/sqlite"
 	configpkg "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"

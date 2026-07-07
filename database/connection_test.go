@@ -270,7 +270,7 @@ func TestConfigureConnectionSkipsWhenCollationEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -301,7 +301,7 @@ func TestOpenPassesTablePrefixToGORM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -345,7 +345,7 @@ func TestConfigureConnectionExecutesSetNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -382,7 +382,7 @@ func TestConfigureConnectionUsesDefaultCharset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -418,7 +418,7 @@ func TestConfigureConnectionReturnsErrorOnFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -453,7 +453,7 @@ func TestGetMySQLVersion_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -483,7 +483,7 @@ func TestGetMySQLVersion_Failure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -512,7 +512,7 @@ func TestGetSqlMode_ModesPriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -545,7 +545,7 @@ func TestGetSqlMode_StrictFalse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -573,7 +573,7 @@ func TestGetSqlMode_StrictTrue_NewVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -609,7 +609,7 @@ func TestGetSqlMode_StrictTrue_OldVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -644,7 +644,7 @@ func TestConfigureConnection_SetsSqlMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -679,7 +679,7 @@ func TestConfigureConnection_SetsTimezone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -718,7 +718,7 @@ func TestConfigureConnection_SetsIsolationLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -753,12 +753,89 @@ func TestConfigureConnection_SetsIsolationLevel(t *testing.T) {
 	}
 }
 
+func TestConfigureConnection_RejectsInvalidIsolationLevel(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// Strict=false 时会执行 SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'
+	mock.ExpectExec("SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	// 非法隔离级别应在执行隔离级别 SQL 之前被拒绝
+	err = configureConnection(gormDB, MySQLConfig{
+		Strict:         false,
+		IsolationLevel: "INVALID LEVEL",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid isolation level, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid isolation level") {
+		t.Fatalf("expected 'invalid isolation level' error, got: %v", err)
+	}
+}
+
+func TestConfigureConnection_AcceptsValidIsolationLevels(t *testing.T) {
+	validLevels := []string{
+		"READ UNCOMMITTED",
+		"READ COMMITTED",
+		"REPEATABLE READ",
+		"SERIALIZABLE",
+		"read committed",
+	}
+	for _, level := range validLevels {
+		t.Run(level, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("open sqlmock: %v", err)
+			}
+			t.Cleanup(func() { _ = db.Close() })
+
+			gormDB, err := gorm.Open(mysql.New(mysql.Config{
+				Conn:                      db,
+				SkipInitializeWithVersion: true,
+			}), &gorm.Config{})
+			if err != nil {
+				t.Fatalf("open gorm: %v", err)
+			}
+
+			// Strict=false 时会执行 SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'
+			mock.ExpectExec("SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'").
+				WillReturnResult(sqlmock.NewResult(0, 0))
+
+			mock.ExpectExec("SET SESSION TRANSACTION ISOLATION LEVEL " + strings.ToUpper(level)).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+
+			err = configureConnection(gormDB, MySQLConfig{
+				Strict:         false,
+				IsolationLevel: level,
+			})
+			if err != nil {
+				t.Fatalf("expected no error for valid isolation level %q, got: %v", level, err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatalf("unfulfilled expectations: %v", err)
+			}
+		})
+	}
+}
+
 func TestConfigureConnection_SetsAll(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
@@ -807,7 +884,7 @@ func TestConfigureConnection_FailureClosesConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() { _ = db.Close() })
 
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      db,
