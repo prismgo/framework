@@ -69,22 +69,91 @@ func Open(driver, dsn string, cfg MySQLConfig) (*gorm.DB, error) {
 	}
 }
 
-// configureConnection 在连接建立后执行连接级配置（如 SET NAMES COLLATE）。
+// configureConnection 在连接建立后执行连接级配置（字符集、SQL 模式、时区、事务隔离级别）。
 // 如果配置失败，返回错误并关闭底层 SQL 连接。
 func configureConnection(db *gorm.DB, cfg MySQLConfig) error {
+	// 1. 设置字符集和排序规则
 	collation := strings.TrimSpace(cfg.Collation)
-	if collation == "" {
-		return nil
-	}
-	charset := defaultIfBlank(cfg.Charset, "utf8mb4")
-	stmt := fmt.Sprintf("SET NAMES '%s' COLLATE '%s'", charset, collation)
-	if err := db.Exec(stmt).Error; err != nil {
-		if sqlDB, closeErr := db.DB(); closeErr == nil {
-			_ = sqlDB.Close()
+	if collation != "" {
+		charset := defaultIfBlank(cfg.Charset, "utf8mb4")
+		stmt := fmt.Sprintf("SET NAMES '%s' COLLATE '%s'", charset, collation)
+		if err := db.Exec(stmt).Error; err != nil {
+			if sqlDB, closeErr := db.DB(); closeErr == nil {
+				_ = sqlDB.Close()
+			}
+			return fmt.Errorf("set collation failed: %w", err)
 		}
-		return fmt.Errorf("set collation failed: %w", err)
 	}
+
+	// 2. 设置 SQL 模式
+	if sqlMode := getSqlMode(cfg, db); sqlMode != "" {
+		stmt := fmt.Sprintf("SET SESSION sql_mode='%s'", sqlMode)
+		if err := db.Exec(stmt).Error; err != nil {
+			if sqlDB, closeErr := db.DB(); closeErr == nil {
+				_ = sqlDB.Close()
+			}
+			return fmt.Errorf("set sql_mode failed: %w", err)
+		}
+	}
+
+	// 3. 设置时区
+	if timezone := strings.TrimSpace(cfg.Timezone); timezone != "" {
+		stmt := fmt.Sprintf("SET time_zone='%s'", timezone)
+		if err := db.Exec(stmt).Error; err != nil {
+			if sqlDB, closeErr := db.DB(); closeErr == nil {
+				_ = sqlDB.Close()
+			}
+			return fmt.Errorf("set timezone failed: %w", err)
+		}
+	}
+
+	// 4. 设置事务隔离级别
+	if isolation := strings.TrimSpace(cfg.IsolationLevel); isolation != "" {
+		stmt := fmt.Sprintf("SET SESSION TRANSACTION ISOLATION LEVEL %s", isolation)
+		if err := db.Exec(stmt).Error; err != nil {
+			if sqlDB, closeErr := db.DB(); closeErr == nil {
+				_ = sqlDB.Close()
+			}
+			return fmt.Errorf("set isolation level failed: %w", err)
+		}
+	}
+
 	return nil
+}
+
+// getMySQLVersion 查询 MySQL 版本号。
+// 查询失败时返回 "8.0.11" 作为安全默认值（MySQL 8.0.11+ 移除了 NO_AUTO_CREATE_USER）。
+func getMySQLVersion(db *gorm.DB) string {
+	var version string
+	if err := db.Raw("SELECT VERSION()").Scan(&version).Error; err != nil {
+		return "8.0.11"
+	}
+	return version
+}
+
+// getSqlMode 根据配置计算 MySQL 的 sql_mode。
+// 优先级：Modes > Strict > 版本检测默认值。
+// - Modes 非空时直接拼接返回
+// - Strict=false 时返回 NO_ENGINE_SUBSTITUTION
+// - Strict=true 时根据 MySQL 版本生成默认模式（8.0.11+ 不含 NO_AUTO_CREATE_USER）
+func getSqlMode(cfg MySQLConfig, db *gorm.DB) string {
+	// 优先使用自定义模式
+	if len(cfg.Modes) > 0 {
+		return strings.Join(cfg.Modes, ",")
+	}
+
+	// 非严格模式
+	if !cfg.Strict {
+		return "NO_ENGINE_SUBSTITUTION"
+	}
+
+	// 严格模式：根据 MySQL 版本生成默认模式
+	// MySQL 8.0.11+ 移除了 NO_AUTO_CREATE_USER
+	version := getMySQLVersion(db)
+	if version >= "8.0.11" {
+		return "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
+	}
+	return "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION"
 }
 
 func gormLoggerFromDebug(debug bool) logger.Interface {
@@ -213,18 +282,28 @@ func OpenConnection(connection string) (*gorm.DB, error) {
 	prefix := "database.connections." + connection
 	driver := configpkg.GetString(prefix+".driver", "mysql")
 	mysqlCfg := MySQLConfig{
-		DSN:         configpkg.GetString(prefix+".dsn", ""),
-		Host:        configpkg.GetString(prefix+".host", "127.0.0.1"),
-		Port:        configpkg.GetString(prefix+".port", "3306"),
-		Username:    configpkg.GetString(prefix+".username", "root"),
-		Password:    configpkg.GetString(prefix+".password", ""),
-		Database:    configpkg.GetString(prefix+".database", "prismgo"),
-		Charset:     configpkg.GetString(prefix+".charset", "utf8mb4"),
-		ParseTime:   configpkg.GetString(prefix+".parse_time", "true"),
-		Loc:         configpkg.GetString(prefix+".loc", "Local"),
-		UnixSocket:  configpkg.GetString(prefix+".unix_socket", ""),
-		Collation:   configpkg.GetString(prefix+".collation", ""),
-		TablePrefix: configpkg.GetString(prefix+".prefix", ""),
+		DSN:            configpkg.GetString(prefix+".dsn", ""),
+		Host:           configpkg.GetString(prefix+".host", "127.0.0.1"),
+		Port:           configpkg.GetString(prefix+".port", "3306"),
+		Username:       configpkg.GetString(prefix+".username", "root"),
+		Password:       configpkg.GetString(prefix+".password", ""),
+		Database:       configpkg.GetString(prefix+".database", "prismgo"),
+		Charset:        configpkg.GetString(prefix+".charset", "utf8mb4"),
+		ParseTime:      configpkg.GetString(prefix+".parse_time", "true"),
+		Loc:            configpkg.GetString(prefix+".loc", "Local"),
+		UnixSocket:     configpkg.GetString(prefix+".unix_socket", ""),
+		Collation:      configpkg.GetString(prefix+".collation", ""),
+		TablePrefix:    configpkg.GetString(prefix+".prefix", ""),
+		Strict:         configpkg.GetBool(prefix+".strict", true),
+		Timezone:       configpkg.GetString(prefix+".timezone", ""),
+		IsolationLevel: configpkg.GetString(prefix+".isolation_level", ""),
+	}
+	// 读取 modes 配置（逗号分隔的字符串数组）
+	if modesStr := configpkg.GetString(prefix+".modes", ""); modesStr != "" {
+		mysqlCfg.Modes = strings.Split(modesStr, ",")
+		for i := range mysqlCfg.Modes {
+			mysqlCfg.Modes[i] = strings.TrimSpace(mysqlCfg.Modes[i])
+		}
 	}
 	dsn := buildDSNByDriver(driver, mysqlCfg)
 
