@@ -197,6 +197,23 @@ func TestBuildMySQLDSNWithTCPIfNoSocket(t *testing.T) {
 	}
 }
 
+func TestBuildMySQLDSNSocketPriority(t *testing.T) {
+	// 验证 UnixSocket 优先级高于 Host/Port
+	dsn := BuildMySQLDSN(MySQLConfig{
+		UnixSocket: "/tmp/mysql.sock",
+		Host:       "192.168.1.1",
+		Port:       "3307",
+		Username:   "root",
+		Database:   "app",
+	})
+	if !strings.Contains(dsn, "unix(/tmp/mysql.sock)") {
+		t.Fatalf("expected unix socket in DSN, got: %s", dsn)
+	}
+	if strings.Contains(dsn, "192.168.1.1:3307") {
+		t.Fatalf("unix socket DSN should not contain host:port, got: %s", dsn)
+	}
+}
+
 func TestBuildDSNByDriver(t *testing.T) {
 	cases := []struct {
 		name   string
