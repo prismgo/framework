@@ -166,6 +166,34 @@ func TestParseDurationSecondsOrText(t *testing.T) {
 	}
 }
 
+func TestBuildMySQLDSNWithUnixSocket(t *testing.T) {
+	dsn := BuildMySQLDSN(MySQLConfig{
+		UnixSocket: "/var/run/mysqld/mysqld.sock",
+		Username:   "root",
+		Password:   "secret",
+		Database:   "app",
+	})
+	if !strings.Contains(dsn, "unix(/var/run/mysqld/mysqld.sock)") {
+		t.Fatalf("expected unix socket in DSN, got: %s", dsn)
+	}
+	// socket 模式下不应包含 tcp
+	if strings.Contains(dsn, "tcp(") {
+		t.Fatalf("unix socket DSN should not contain tcp, got: %s", dsn)
+	}
+}
+
+func TestBuildMySQLDSNWithTCPIfNoSocket(t *testing.T) {
+	dsn := BuildMySQLDSN(MySQLConfig{
+		Host:     "127.0.0.1",
+		Port:     "3306",
+		Username: "root",
+		Database: "app",
+	})
+	if !strings.Contains(dsn, "tcp(127.0.0.1:3306)") {
+		t.Fatalf("expected tcp in DSN when no socket, got: %s", dsn)
+	}
+}
+
 func TestBuildDSNByDriver(t *testing.T) {
 	cases := []struct {
 		name   string

@@ -79,11 +79,19 @@ func BuildMySQLDSN(cfg MySQLConfig) string {
 	parseTime := defaultIfBlank(cfg.ParseTime, "true")
 	loc := defaultIfBlank(cfg.Loc, "Local")
 
+	// 默认使用 TCP 协议；若指定了 UNIX socket 路径，则切换到 unix 协议并忽略 Host/Port。
+	netProto := "tcp"
+	addr := net.JoinHostPort(host, port)
+	if socket := strings.TrimSpace(cfg.UnixSocket); socket != "" {
+		netProto = "unix"
+		addr = socket
+	}
+
 	return (&mysqldriver.Config{
 		User:   username,
 		Passwd: cfg.Password,
-		Net:    "tcp",
-		Addr:   net.JoinHostPort(host, port),
+		Net:    netProto,
+		Addr:   addr,
 		DBName: database,
 		Params: map[string]string{
 			"charset":   charset,
