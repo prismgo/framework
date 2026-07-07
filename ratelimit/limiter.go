@@ -2,10 +2,11 @@ package ratelimit
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/prismgo/framework/cache"
 	cachecontract "github.com/prismgo/framework/contracts/cache"
+	"github.com/prismgo/framework/exception"
 )
 
 const defaultDecay = time.Minute
@@ -104,7 +106,8 @@ func (r *RateLimiter) TooManyAttempts(ctx context.Context, key string, maxAttemp
 	if maxAttempts <= 0 {
 		return false, nil
 	}
-	attempts, err := r.Attempts(ctx, key)
+	key = CleanRateLimiterKey(key)
+	attempts, err := r.repo.Increment(ctx, key, 0)
 	if err != nil {
 		return false, err
 	}
@@ -118,7 +121,7 @@ func (r *RateLimiter) TooManyAttempts(ctx context.Context, key string, maxAttemp
 	if hasTimer {
 		return true, nil
 	}
-	return false, r.ResetAttempts(ctx, key)
+	return false, r.repo.Forget(ctx, key)
 }
 
 // Hit 记录一次尝试，默认步长为 1。
@@ -127,6 +130,9 @@ func (r *RateLimiter) Hit(ctx context.Context, key string, decay time.Duration) 
 }
 
 // Increment 按指定步长递增尝试次数，并保证计数器拥有与 timer 一致的 TTL。
+//
+// 参数 amount 是可选的步长参数，只使用第一个值；多余值会被忽略。
+// 设计原因：模拟 Laravel 的可选参数语义，避免强制调用方传入固定值。
 func (r *RateLimiter) Increment(ctx context.Context, key string, decay time.Duration, amount ...int64) (int64, error) {
 	delta := int64(1)
 	if len(amount) > 0 {
@@ -147,15 +153,20 @@ func (r *RateLimiter) Increment(ctx context.Context, key string, decay time.Dura
 	// 因此不会把 counter bytes 转回 Payload Encoding value。
 	current, err := r.repo.Increment(ctx, key, delta)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("ratelimit: failed to increment counter for key %s: %w", key, err)
 	}
 	if _, err := r.repo.Touch(ctx, key, decay); err != nil {
-		return 0, err
+		// Touch 失败时，计数器已成功递增，不应返回错误。
+		// 使用 exception.Report 记录错误，便于后续排查 TTL 未延长的问题。
+		exception.Report(ctx, fmt.Errorf("ratelimit: failed to touch TTL for key %s: %w", key, err), nil)
 	}
 	return current, nil
 }
 
 // Decrement 按指定步长递减尝试次数。
+//
+// 参数 amount 是可选的步长参数，只使用第一个值；多余值会被忽略。
+// 设计原因：模拟 Laravel 的可选参数语义，避免强制调用方传入固定值。
 func (r *RateLimiter) Decrement(ctx context.Context, key string, amount ...int64) (int64, error) {
 	delta := int64(1)
 	if len(amount) > 0 {
@@ -165,12 +176,11 @@ func (r *RateLimiter) Decrement(ctx context.Context, key string, amount ...int64
 }
 
 // Attempts 返回当前 key 已记录的尝试次数。
+//
+// 设计决策：通过 Increment(delta=0) 而非 Get 读取，原因是 cache 底层使用 msgpack 编码，
+// Get 会将 counter bytes 解码为 Payload 结构，导致后续 Increment 失败。此方法保证计数器
+// 语义一致性，详见 cache 包 msgpack 迁移文档。
 func (r *RateLimiter) Attempts(ctx context.Context, key string) (int64, error) {
-	// 尝试次数只能通过 counter 路径读取，避免走 Payload Encoding 的 Get。
-	//
-	// 参数说明：key 是业务限流 key，CleanRateLimiterKey 会统一清理不可见字符。
-	// 设计原因：Increment(delta=0) 返回当前 counter 值；缺失 key 会得到 0，符合 Attempts
-	// 的业务语义，同时避免 msgpack/json 对 counter bytes 的差异影响限流判断。
 	return r.repo.Increment(ctx, CleanRateLimiterKey(key), 0)
 }
 
@@ -185,14 +195,13 @@ func (r *RateLimiter) Remaining(ctx context.Context, key string, maxAttempts int
 	if err != nil {
 		return 0, err
 	}
-	remaining := maxAttempts - int(attempts)
-	if remaining < 0 {
-		return 0, nil
-	}
-	return remaining, nil
+	return max(0, maxAttempts-int(attempts)), nil
 }
 
-// RetriesLeft 是 Remaining 的语义化别名。
+// RetriesLeft 返回当前窗口内剩余可用次数（含重试次数）。
+//
+// 设计原因：这是 Remaining 的语义化别名，用于明确表达"剩余重试次数"的业务场景。
+// 两者功能完全相同，选择使用哪个取决于代码上下文的语义清晰度。
 func (r *RateLimiter) RetriesLeft(ctx context.Context, key string, maxAttempts int) (int, error) {
 	return r.Remaining(ctx, key, maxAttempts)
 }
@@ -208,6 +217,7 @@ func (r *RateLimiter) Clear(ctx context.Context, key string) error {
 
 // AvailableIn 返回当前 key 距离恢复可用还需要等待的秒数。
 func (r *RateLimiter) AvailableIn(ctx context.Context, key string) (int, error) {
+	key = CleanRateLimiterKey(key)
 	value, err := r.repo.Get(ctx, r.timerKey(key), int64(0))
 	if err != nil {
 		return 0, err
@@ -223,6 +233,7 @@ func (r *RateLimiter) AvailableIn(ctx context.Context, key string) (int, error) 
 	return wait, nil
 }
 
+// asInt64 将任意类型转换为 int64，浮点数使用四舍五入。
 func asInt64(value any) (int64, error) {
 	switch v := value.(type) {
 	case int64:
@@ -232,9 +243,9 @@ func asInt64(value any) (int64, error) {
 	case int32:
 		return int64(v), nil
 	case float64:
-		return int64(v), nil
+		return int64(math.Round(v)), nil
 	case float32:
-		return int64(v), nil
+		return int64(math.Round(float64(v))), nil
 	case string:
 		var out int64
 		_, err := fmt.Sscan(strings.TrimSpace(v), &out)
@@ -244,8 +255,13 @@ func asInt64(value any) (int64, error) {
 	}
 }
 
+// timerKey 构造 timer 专用 key，使用 "timer:" 前缀避免与用户 key 命名空间碰撞。
+//
+// 设计原因：如果采用后缀 ":timer"，用户 key "user:123:timer" 的 counter key 会与
+// "user:123" 的 timer key 碰撞。前缀方案确保两者完全分离。
+// 调用方必须在入口处先调用 CleanRateLimiterKey，此处不再重复清理。
 func (r *RateLimiter) timerKey(key string) string {
-	return CleanRateLimiterKey(key) + ":timer"
+	return "timer:" + key
 }
 
 func (r *RateLimiter) MiddlewareKey(name, key string) string {
@@ -254,7 +270,7 @@ func (r *RateLimiter) MiddlewareKey(name, key string) string {
 	hash := r.hashKeys
 	r.mu.RUnlock()
 	if hash {
-		sum := sha1.Sum([]byte(key))
+		sum := sha256.Sum256([]byte(key))
 		key = hex.EncodeToString(sum[:])
 	}
 	return "ratelimit:" + strings.TrimSpace(name) + ":" + key

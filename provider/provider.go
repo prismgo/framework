@@ -18,6 +18,7 @@ import (
 	filesystempkg "github.com/prismgo/framework/filesystem"
 	"github.com/prismgo/framework/kernel"
 	queuepkg "github.com/prismgo/framework/queue"
+	ratelimitpkg "github.com/prismgo/framework/ratelimit"
 	redispkg "github.com/prismgo/framework/redis"
 	routepkg "github.com/prismgo/framework/route"
 	sessionpkg "github.com/prismgo/framework/session"
@@ -38,7 +39,7 @@ type TerminableProvider = contractprovider.TerminableProvider
 // DefaultProviders 返回框架 default provider 清单。
 //
 // 设计说明：顺序对应基础设施依赖关系，redis -> cache -> queue -> cookie -> session ->
-// filesystem -> database -> schema。返回值每次都是新切片，调用方可以安全追加。
+// filesystem -> database -> schema -> ratelimit。返回值每次都是新切片，调用方可以安全追加。
 func DefaultProviders() []ServiceProvider {
 	return []ServiceProvider{
 		redispkg.ServiceProvider{},
@@ -49,6 +50,7 @@ func DefaultProviders() []ServiceProvider {
 		filesystempkg.ServiceProvider{},
 		databasepkg.ServiceProvider{},
 		schemapkg.ServiceProvider{},
+		ratelimitpkg.ServiceProvider{},
 		routepkg.ServiceProvider{},
 	}
 }

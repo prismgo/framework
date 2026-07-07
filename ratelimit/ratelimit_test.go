@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +17,11 @@ import (
 	"github.com/prismgo/framework/cache"
 	configpkg "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
+	cachecontract "github.com/prismgo/framework/contracts/cache"
+	containercontract "github.com/prismgo/framework/contracts/container"
+	providercontract "github.com/prismgo/framework/contracts/provider"
+	"github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 )
 
 func newTestLimiter(t *testing.T) *RateLimiter {
@@ -36,27 +43,26 @@ func newTestLimiter(t *testing.T) *RateLimiter {
 
 func setTestLimiter(t *testing.T, limiter *RateLimiter) {
 	t.Helper()
-	defaultLimiter.mu.Lock()
-	previous := defaultLimiter.current
-	defaultLimiter.current = limiter
-	defaultLimiter.mu.Unlock()
-	t.Cleanup(func() {
-		defaultLimiter.mu.Lock()
-		defaultLimiter.current = previous
-		defaultLimiter.mu.Unlock()
-	})
+	registry := useRatelimitTestContainer(t)
+	if err := registry.Instance("ratelimit.default", limiter); err != nil {
+		t.Fatalf("bind ratelimit.default: %v", err)
+	}
 }
 
-func clearTestLimiter(t *testing.T) {
+func clearTestLimiter(t *testing.T) *container.Container {
 	t.Helper()
-	defaultLimiter.mu.Lock()
-	defaultLimiter.current = nil
-	defaultLimiter.mu.Unlock()
-	t.Cleanup(func() {
-		defaultLimiter.mu.Lock()
-		defaultLimiter.current = nil
-		defaultLimiter.mu.Unlock()
-	})
+	registry := useRatelimitTestContainer(t)
+	// 绑定默认 config，让 configuredRepository() 能解析配置
+	if err := registry.Instance("config.default", configpkg.New()); err != nil {
+		t.Fatalf("bind config.default: %v", err)
+	}
+	// 注册 ServiceProvider，让 Resolve() 调用时按需创建实例
+	provider := &ServiceProvider{}
+	app := &mockProviderApplication{container: registry}
+	if err := provider.Register(app); err != nil {
+		t.Fatalf("register provider: %v", err)
+	}
+	return registry
 }
 
 func useRatelimitTestContainer(t *testing.T) *container.Container {
@@ -209,8 +215,8 @@ func TestFacadeUsesExplicitLimiterInstance(t *testing.T) {
 	if Limiter("api") == nil {
 		t.Fatal("expected named limiter from explicit facade instance")
 	}
-	if got := Resolve().MiddlewareKey("api", "tenant:1"); len(got) != len("ratelimit:api:")+40 {
-		t.Fatalf("hashed middleware key = %q, want sha1 suffix", got)
+	if got := Resolve().MiddlewareKey("api", "tenant:1"); len(got) != len("ratelimit:api:")+64 {
+		t.Fatalf("hashed middleware key = %q, want sha256 suffix", got)
 	}
 }
 
@@ -329,8 +335,7 @@ func TestFacadeUsesConfiguredLimiter(t *testing.T) {
 }
 
 func TestFacadeCurrentUsesLimiterCacheDriver(t *testing.T) {
-	clearTestLimiter(t)
-	registry := useRatelimitTestContainer(t)
+	registry := clearTestLimiter(t)
 
 	manager, err := cache.NewManager(cache.Config{
 		Default: "memory",
@@ -367,8 +372,7 @@ func TestFacadeCurrentUsesLimiterCacheDriver(t *testing.T) {
 }
 
 func TestFacadeCurrentFallsBackToDefaultCacheStore(t *testing.T) {
-	clearTestLimiter(t)
-	registry := useRatelimitTestContainer(t)
+	registry := clearTestLimiter(t)
 
 	manager, err := cache.NewManager(cache.Config{
 		Default: "shared",
@@ -460,7 +464,12 @@ func TestFacadeWrappersAndFallbackCurrent(t *testing.T) {
 	if err := registry.Instance("config.default", configpkg.New()); err != nil {
 		t.Fatalf("bind fallback config: %v", err)
 	}
-	clearTestLimiter(t)
+	// 在已绑定 cache.manager 和 config.default 的容器上注册 ServiceProvider
+	provider := &ServiceProvider{}
+	app := &mockProviderApplication{container: registry}
+	if err := provider.Register(app); err != nil {
+		t.Fatalf("register fallback provider: %v", err)
+	}
 	if Resolve() == nil {
 		t.Fatal("expected fallback current limiter")
 	}
@@ -516,6 +525,25 @@ func TestIntegerCoercionBranches(t *testing.T) {
 	}
 }
 
+// TestAsInt64FloatRounding 验证浮点数转换为 int64 时四舍五入而非截断。
+func TestAsInt64FloatRounding(t *testing.T) {
+	// float64: 3.9 应该四舍五入为 4
+	got, err := asInt64(float64(3.9))
+	if err != nil || got != 4 {
+		t.Fatalf("asInt64(float64(3.9)) = %d err=%v, want 4 nil", got, err)
+	}
+	// float32: 3.4 应该四舍五入为 3
+	got, err = asInt64(float32(3.4))
+	if err != nil || got != 3 {
+		t.Fatalf("asInt64(float32(3.4)) = %d err=%v, want 3 nil", got, err)
+	}
+	// 负数: -3.6 应该四舍五入为 -4
+	got, err = asInt64(float64(-3.6))
+	if err != nil || got != -4 {
+		t.Fatalf("asInt64(float64(-3.6)) = %d err=%v, want -4 nil", got, err)
+	}
+}
+
 func perform(engine *gin.Engine, path string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	w := httptest.NewRecorder()
@@ -532,4 +560,195 @@ func strconvAtoi(value string) (int, error) {
 		n = n*10 + int(r-'0')
 	}
 	return n, nil
+}
+
+// TestConcurrentForAndLimiter 验证并发注册和查询命名限流器的线程安全性。
+func TestConcurrentForAndLimiter(t *testing.T) {
+	limiter := newTestLimiter(t)
+	var wg sync.WaitGroup
+
+	// 并发注册 100 个命名限流器
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			name := "api-" + strconv.Itoa(n)
+			limiter.For(name, func(*gin.Context) []Limit {
+				return []Limit{PerMinute(1)}
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	// 验证所有注册成功
+	for i := 0; i < 100; i++ {
+		name := "api-" + strconv.Itoa(i)
+		if limiter.Limiter(name) == nil {
+			t.Fatalf("missing limiter %s", name)
+		}
+	}
+}
+
+// TestIncrementCacheError 验证缓存 Add 失败时返回错误。
+func TestIncrementCacheError(t *testing.T) {
+	mockRepo := &mockRepository{addError: errors.New("cache down")}
+	limiter := New(mockRepo)
+
+	_, err := limiter.Increment(context.Background(), "key", time.Minute, 1)
+	if err == nil {
+		t.Fatal("expected error from cache.Add")
+	}
+}
+
+// TestTouchFailureDoesNotReturnError 验证 Touch 失败时不返回错误，只记录日志。
+func TestTouchFailureDoesNotReturnError(t *testing.T) {
+	// 设置容器、异常处理器和日志管理器
+	registry := useRatelimitTestContainer(t)
+	handler := exception.New()
+	if err := registry.Instance("exception.handler", handler); err != nil {
+		t.Fatalf("bind exception handler: %v", err)
+	}
+	if err := registry.Instance("config.default", configpkg.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+	manager, err := logger.NewManager(logger.Config{
+		Default:  "null",
+		Channels: map[string]logger.ChannelOptions{"null": {Driver: "null", Level: "debug"}},
+	})
+	if err != nil {
+		t.Fatalf("new logger manager: %v", err)
+	}
+	if err := registry.Instance("logger.manager", manager); err != nil {
+		t.Fatalf("bind logger manager: %v", err)
+	}
+
+	mockRepo := &mockRepository{touchError: errors.New("touch failed")}
+	limiter := New(mockRepo)
+
+	// Touch 失败时，Increment 应该仍然成功返回计数值
+	count, err := limiter.Increment(context.Background(), "key", time.Minute, 1)
+	if err != nil {
+		t.Fatalf("Increment should not return error when Touch fails, got: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected count 1, got %d", count)
+	}
+}
+
+// mockRepository 实现 cachecontract.Repository 接口用于测试
+type mockRepository struct {
+	cachecontract.Repository
+	addError   error
+	touchError error
+}
+
+func (m *mockRepository) Add(ctx context.Context, key string, value any, ttl time.Duration) (bool, error) {
+	if m.addError != nil {
+		return false, m.addError
+	}
+	return true, nil
+}
+
+func (m *mockRepository) Increment(ctx context.Context, key string, delta ...int64) (int64, error) {
+	return 1, nil
+}
+
+func (m *mockRepository) Touch(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	if m.touchError != nil {
+		return false, m.touchError
+	}
+	return true, nil
+}
+
+// TestServiceProviderRegistration 验证 ServiceProvider 可以正确注册到容器。
+func TestServiceProviderRegistration(t *testing.T) {
+	registry := useRatelimitTestContainer(t)
+	manager, err := cache.NewManager(cache.Config{
+		Default: "memory",
+		Stores:  map[string]cache.StoreConfig{"memory": {Driver: "memory", CleanupInterval: time.Millisecond}},
+	})
+	if err != nil {
+		t.Fatalf("new cache manager: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	if err := registry.Instance("cache.manager", manager); err != nil {
+		t.Fatalf("bind cache manager: %v", err)
+	}
+
+	// 设置 config 以便 Resolve() 可以正常工作
+	if err := registry.Instance("config.default", configpkg.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+
+	// 创建并注册 ServiceProvider
+	provider := &ServiceProvider{}
+	if provider.Name() != "ratelimit" {
+		t.Fatalf("provider name = %q, want ratelimit", provider.Name())
+	}
+
+	// 创建 mock application
+	app := &mockProviderApplication{container: registry}
+	if err := provider.Register(app); err != nil {
+		t.Fatalf("register provider: %v", err)
+	}
+
+	// 验证 ratelimit.default 已绑定
+	if !registry.Bound("ratelimit.default") {
+		t.Fatal("expected ratelimit.default to be bound")
+	}
+
+	// 验证 Boot 返回 nil
+	if err := provider.Boot(app); err != nil {
+		t.Fatalf("boot provider: %v", err)
+	}
+
+	// 重复注册应该直接返回 nil
+	if err := provider.Register(app); err != nil {
+		t.Fatalf("duplicate register should succeed: %v", err)
+	}
+}
+
+// mockProviderApplication 实现 providercontract.Application 的最小接口
+type mockProviderApplication struct {
+	providercontract.Application
+	container *container.Container
+}
+
+func (m *mockProviderApplication) Container() containercontract.Container {
+	return m.container
+}
+
+// TestTooManyRequestsErrorMethods 验证 tooManyRequestsError 的所有方法。
+func TestTooManyRequestsErrorMethods(t *testing.T) {
+	err := tooManyRequestsError{}
+	if err.Error() != "too many requests" {
+		t.Fatalf("Error() = %q, want 'too many requests'", err.Error())
+	}
+	if err.StatusCode() != 429 {
+		t.Fatalf("StatusCode() = %d, want 429", err.StatusCode())
+	}
+	if err.PublicMessage() != "too many requests" {
+		t.Fatalf("PublicMessage() = %q, want 'too many requests'", err.PublicMessage())
+	}
+}
+
+// TestLimitKeyMethod 验证 Limit.key() 方法的所有分支。
+func TestLimitKeyMethod(t *testing.T) {
+	// 有 Key 时返回 Key
+	limit := Limit{Key: "primary"}
+	if got := limit.key("fallback"); got != "primary" {
+		t.Fatalf("key with primary = %q, want primary", got)
+	}
+
+	// 无 Key 有 Fallback 时返回 Fallback
+	limit = Limit{Fallback: "fallback"}
+	if got := limit.key("default"); got != "fallback" {
+		t.Fatalf("key with fallback = %q, want fallback", got)
+	}
+
+	// 都无时返回 fallback 参数
+	limit = Limit{}
+	if got := limit.key("default"); got != "default" {
+		t.Fatalf("key with default = %q, want default", got)
+	}
 }

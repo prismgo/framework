@@ -22,6 +22,11 @@ type ResponseFunc func(*gin.Context, Result)
 //
 // MaxAttempts 是窗口内允许的最大尝试次数，Decay 是窗口长度，Key/Fallback 用于生成缓存 key。
 // After 和 Response 分别对应 Laravel 的 after 与 response 自定义能力。
+//
+// 使用方式：
+//   - 推荐使用构造函数：PerMinute(10)、PerHour(100) 等
+//   - 使用 Builder 方法链式配置：PerMinute(10).By("user:123").After(fn).Response(fn)
+//   - 直接初始化结构体也是合法的，但 Builder 方法提供更好的可读性
 type Limit struct {
 	MaxAttempts  int
 	Decay        time.Duration
