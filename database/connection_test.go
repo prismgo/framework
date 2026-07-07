@@ -77,7 +77,7 @@ func TestBuildMySQLDSNRoundTripsSpecialCharacters(t *testing.T) {
 }
 
 func TestOpenRejectsUnknownDriver(t *testing.T) {
-	_, err := Open("sqlite", "file::memory:?cache=shared")
+	_, err := Open("sqlite", "file::memory:?cache=shared", MySQLConfig{})
 	if err == nil {
 		t.Fatalf("expected unsupported driver error")
 	}

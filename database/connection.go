@@ -15,6 +15,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 )
 
 // MySQLConfig 描述 MySQL 连接所需的全部参数。
@@ -37,7 +38,8 @@ type MySQLConfig struct {
 
 // Open 根据 driver 字符串打开 GORM 数据库连接。
 // 目前仅支持 driver == "mysql"；其他 driver 立即返回错误，避免隐式回退到 MySQL 造成困惑。
-func Open(driver, dsn string) (*gorm.DB, error) {
+// cfg 用于传递 TablePrefix 等连接级配置到 GORM。
+func Open(driver, dsn string, cfg MySQLConfig) (*gorm.DB, error) {
 	driver = strings.ToLower(strings.TrimSpace(driver))
 	switch driver {
 	case "", "mysql":
@@ -47,6 +49,9 @@ func Open(driver, dsn string) (*gorm.DB, error) {
 		}), &gorm.Config{
 			DisableAutomaticPing: true,
 			Logger:               gormLoggerFromDebug(configpkg.GetBool("app.debug", false)),
+			NamingStrategy: schema.NamingStrategy{
+				TablePrefix: cfg.TablePrefix,
+			},
 		})
 	default:
 		return nil, fmt.Errorf("database: unsupported driver: %s", driver)
@@ -178,19 +183,23 @@ func OpenConnection(connection string) (*gorm.DB, error) {
 	}
 	prefix := "database.connections." + connection
 	driver := configpkg.GetString(prefix+".driver", "mysql")
-	dsn := buildDSNByDriver(driver, MySQLConfig{
-		DSN:       configpkg.GetString(prefix+".dsn", ""),
-		Host:      configpkg.GetString(prefix+".host", "127.0.0.1"),
-		Port:      configpkg.GetString(prefix+".port", "3306"),
-		Username:  configpkg.GetString(prefix+".username", "root"),
-		Password:  configpkg.GetString(prefix+".password", ""),
-		Database:  configpkg.GetString(prefix+".database", "prismgo"),
-		Charset:   configpkg.GetString(prefix+".charset", "utf8mb4"),
-		ParseTime: configpkg.GetString(prefix+".parse_time", "true"),
-		Loc:       configpkg.GetString(prefix+".loc", "Local"),
-	})
+	mysqlCfg := MySQLConfig{
+		DSN:         configpkg.GetString(prefix+".dsn", ""),
+		Host:        configpkg.GetString(prefix+".host", "127.0.0.1"),
+		Port:        configpkg.GetString(prefix+".port", "3306"),
+		Username:    configpkg.GetString(prefix+".username", "root"),
+		Password:    configpkg.GetString(prefix+".password", ""),
+		Database:    configpkg.GetString(prefix+".database", "prismgo"),
+		Charset:     configpkg.GetString(prefix+".charset", "utf8mb4"),
+		ParseTime:   configpkg.GetString(prefix+".parse_time", "true"),
+		Loc:         configpkg.GetString(prefix+".loc", "Local"),
+		UnixSocket:  configpkg.GetString(prefix+".unix_socket", ""),
+		Collation:   configpkg.GetString(prefix+".collation", ""),
+		TablePrefix: configpkg.GetString(prefix+".prefix", ""),
+	}
+	dsn := buildDSNByDriver(driver, mysqlCfg)
 
-	db, err := Open(driver, dsn)
+	db, err := Open(driver, dsn, mysqlCfg)
 	if err != nil {
 		return nil, err
 	}
