@@ -21,15 +21,18 @@ import (
 // 留空的字段会在 BuildMySQLDSN 中回退为常见默认值。
 // 若 DSN 非空，则直接作为最终连接串，其余字段被忽略。
 type MySQLConfig struct {
-	DSN       string
-	Host      string
-	Port      string
-	Username  string
-	Password  string
-	Database  string
-	Charset   string
-	ParseTime string
-	Loc       string
+	DSN         string
+	Host        string
+	Port        string
+	Username    string
+	Password    string
+	Database    string
+	Charset     string
+	ParseTime   string
+	Loc         string
+	UnixSocket  string // UNIX socket 路径，非空时覆盖 Host/Port
+	Collation   string // 字符集排序规则，连接后通过 SET NAMES 应用
+	TablePrefix string // 表名前缀，通过 GORM NamingStrategy 应用
 }
 
 // Open 根据 driver 字符串打开 GORM 数据库连接。
