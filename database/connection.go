@@ -74,9 +74,10 @@ type MySQLConfig struct {
 	IsolationLevel string   // 事务隔离级别，空值跳过设置
 
 	// Phase 3 新增字段
-	Engine  string            // 默认存储引擎，空值使用 InnoDB
-	SSL     SSLConfig         // SSL/TLS 配置
-	Options map[string]string // 通用 DSN 参数，优先级高于默认值
+	Engine        string            // 默认存储引擎，空值使用 InnoDB
+	PrefixIndexes bool              // 是否前缀索引名
+	SSL           SSLConfig         // SSL/TLS 配置
+	Options       map[string]string // 通用 DSN 参数，优先级高于默认值
 }
 
 // Open 根据 driver 字符串打开 GORM 数据库连接。
@@ -350,6 +351,7 @@ func OpenConnection(connection string) (*gorm.DB, error) {
 		Timezone:       configpkg.GetString(prefix+".timezone", ""),
 		IsolationLevel: configpkg.GetString(prefix+".isolation_level", ""),
 		Engine:         configpkg.GetString(prefix+".engine", ""),
+		PrefixIndexes:  configpkg.GetBool(prefix+".prefix_indexes", false),
 	}
 	// 读取 modes 配置（逗号分隔的字符串数组）
 	if modesStr := configpkg.GetString(prefix+".modes", ""); modesStr != "" {
