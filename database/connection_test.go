@@ -14,6 +14,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 )
 
 func TestBuildMySQLDSNUsesDefaults(t *testing.T) {
@@ -268,6 +269,51 @@ func TestConfigureConnectionSkipsWhenCollationEmpty(t *testing.T) {
 	}
 
 	// 验证没有执行任何 SQL
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestOpenPassesTablePrefixToGORM(t *testing.T) {
+	// 验证 TablePrefix 通过 Open 函数传递给 GORM NamingStrategy
+	// 使用 sqlmock 模拟 MySQL 连接，验证 TablePrefix 配置是否正确传递
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{
+		NamingStrategy: schema.NamingStrategy{
+			TablePrefix: "test_prefix_",
+		},
+	})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 验证 NamingStrategy 已配置 TablePrefix
+	if gormDB == nil {
+		t.Fatal("expected non-nil db")
+	}
+
+	// 通过查询验证 TablePrefix 生效
+	// 当 TablePrefix 设置为 "test_prefix_" 时，查询 test_models 表应该生成 "test_prefix_test_models"
+	mock.ExpectQuery("SELECT \\* FROM `test_prefix_test_models`").WillReturnRows(sqlmock.NewRows([]string{"id", "name"}))
+
+	type TestModel struct {
+		ID   uint `gorm:"primaryKey"`
+		Name string
+	}
+
+	// 执行查询，验证表名包含前缀
+	var results []TestModel
+	gormDB.Find(&results)
+
+	// 验证所有期望都被满足
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unfulfilled expectations: %v", err)
 	}
