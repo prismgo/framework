@@ -839,3 +839,112 @@ func TestConfigureConnection_FailureClosesConnection(t *testing.T) {
 		t.Fatalf("unfulfilled expectations: %v", err)
 	}
 }
+
+func TestSSLConfigToDSNParams(t *testing.T) {
+	t.Run("empty config returns empty map", func(t *testing.T) {
+		ssl := SSLConfig{}
+		params := ssl.toDSNParams()
+		if len(params) != 0 {
+			t.Fatalf("expected empty map, got %v", params)
+		}
+	})
+
+	t.Run("full config returns correct DSN params", func(t *testing.T) {
+		ssl := SSLConfig{
+			CA:                 "/path/to/ca.pem",
+			Cert:               "/path/to/client-cert.pem",
+			Key:                "/path/to/client-key.pem",
+			InsecureSkipVerify: true,
+		}
+		params := ssl.toDSNParams()
+
+		if params["tls-ca"] != "/path/to/ca.pem" {
+			t.Fatalf("expected tls-ca=/path/to/ca.pem, got %s", params["tls-ca"])
+		}
+		if params["tls-cert"] != "/path/to/client-cert.pem" {
+			t.Fatalf("expected tls-cert=/path/to/client-cert.pem, got %s", params["tls-cert"])
+		}
+		if params["tls-key"] != "/path/to/client-key.pem" {
+			t.Fatalf("expected tls-key=/path/to/client-key.pem, got %s", params["tls-key"])
+		}
+		if params["tls-skip-verify"] != "true" {
+			t.Fatalf("expected tls-skip-verify=true, got %s", params["tls-skip-verify"])
+		}
+		if params["tls"] != "true" {
+			t.Fatalf("expected tls=true, got %s", params["tls"])
+		}
+	})
+
+	t.Run("tls auto-enabled when any TLS param present", func(t *testing.T) {
+		// 只有 CA 时应该自动启用 tls
+		ssl := SSLConfig{CA: "/path/to/ca.pem"}
+		params := ssl.toDSNParams()
+
+		if params["tls"] != "true" {
+			t.Fatalf("expected tls=true when TLS params present, got %s", params["tls"])
+		}
+		if len(params) != 2 { // tls-ca + tls
+			t.Fatalf("expected 2 params, got %d: %v", len(params), params)
+		}
+
+		// 只有 InsecureSkipVerify 时应该自动启用 tls
+		ssl = SSLConfig{InsecureSkipVerify: true}
+		params = ssl.toDSNParams()
+
+		if params["tls"] != "true" {
+			t.Fatalf("expected tls=true when InsecureSkipVerify=true, got %s", params["tls"])
+		}
+		if params["tls-skip-verify"] != "true" {
+			t.Fatalf("expected tls-skip-verify=true, got %s", params["tls-skip-verify"])
+		}
+	})
+}
+
+func TestMySQLConfigPhase3Fields(t *testing.T) {
+	t.Run("new fields can be set and read", func(t *testing.T) {
+		cfg := MySQLConfig{
+			Engine: "MyISAM",
+			SSL: SSLConfig{
+				CA:   "/path/to/ca.pem",
+				Cert: "/path/to/cert.pem",
+				Key:  "/path/to/key.pem",
+			},
+			Options: map[string]string{
+				"timeout":     "10s",
+				"readTimeout": "30s",
+			},
+		}
+
+		if cfg.Engine != "MyISAM" {
+			t.Fatalf("expected Engine=MyISAM, got %s", cfg.Engine)
+		}
+		if cfg.SSL.CA != "/path/to/ca.pem" {
+			t.Fatalf("expected SSL.CA=/path/to/ca.pem, got %s", cfg.SSL.CA)
+		}
+		if cfg.Options["timeout"] != "10s" {
+			t.Fatalf("expected Options[timeout]=10s, got %s", cfg.Options["timeout"])
+		}
+	})
+
+	t.Run("zero value behavior", func(t *testing.T) {
+		cfg := MySQLConfig{}
+
+		// Engine 零值为空字符串
+		if cfg.Engine != "" {
+			t.Fatalf("expected Engine zero value to be empty, got %s", cfg.Engine)
+		}
+
+		// SSL 零值为空结构体
+		if cfg.SSL.CA != "" || cfg.SSL.Cert != "" || cfg.SSL.Key != "" {
+			t.Fatalf("expected SSL zero value to be empty, got %+v", cfg.SSL)
+		}
+		if cfg.SSL.InsecureSkipVerify != false {
+			t.Fatalf("expected SSL.InsecureSkipVerify zero value to be false")
+		}
+
+		// Options 零值为 nil map
+		if cfg.Options != nil {
+			t.Fatalf("expected Options zero value to be nil, got %v", cfg.Options)
+		}
+	})
+}

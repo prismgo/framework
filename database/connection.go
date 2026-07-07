@@ -18,6 +18,40 @@ import (
 	"gorm.io/gorm/schema"
 )
 
+// SSLConfig 描述 SSL/TLS 连接配置。
+type SSLConfig struct {
+	CA                 string // CA 证书路径
+	Cert               string // 客户端证书路径
+	Key                string // 客户端密钥路径
+	InsecureSkipVerify bool   // 是否跳过证书验证
+}
+
+// toDSNParams 将 SSLConfig 转换为 DSN 参数。
+// 如果有任何 TLS 参数，自动启用 tls。
+func (s SSLConfig) toDSNParams() map[string]string {
+	params := make(map[string]string)
+
+	if s.CA != "" {
+		params["tls-ca"] = s.CA
+	}
+	if s.Cert != "" {
+		params["tls-cert"] = s.Cert
+	}
+	if s.Key != "" {
+		params["tls-key"] = s.Key
+	}
+	if s.InsecureSkipVerify {
+		params["tls-skip-verify"] = "true"
+	}
+
+	// 如果有任何 TLS 参数，启用 tls
+	if len(params) > 0 {
+		params["tls"] = "true"
+	}
+
+	return params
+}
+
 // MySQLConfig 描述 MySQL 连接所需的全部参数。
 // 留空的字段会在 BuildMySQLDSN 中回退为常见默认值。
 // 若 DSN 非空，则直接作为最终连接串，其余字段被忽略。
@@ -38,6 +72,11 @@ type MySQLConfig struct {
 	Modes          []string // 自定义 SQL 模式列表，优先级高于 Strict，非空时使用此列表
 	Timezone       string   // 会话时区，空值跳过设置
 	IsolationLevel string   // 事务隔离级别，空值跳过设置
+
+	// Phase 3 新增字段
+	Engine  string            // 默认存储引擎，空值使用 InnoDB
+	SSL     SSLConfig         // SSL/TLS 配置
+	Options map[string]string // 通用 DSN 参数，优先级高于默认值
 }
 
 // Open 根据 driver 字符串打开 GORM 数据库连接。
