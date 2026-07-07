@@ -7,9 +7,11 @@ import (
 	"testing"
 	"time"
 
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -241,5 +243,132 @@ func TestBuildDSNByDriver(t *testing.T) {
 				t.Fatalf("driver %s DSN check failed, got %q", tc.driver, dsn)
 			}
 		})
+	}
+}
+
+func TestConfigureConnectionSkipsWhenCollationEmpty(t *testing.T) {
+	// Collation 为空时 configureConnection 应直接返回 nil，不执行任何 SQL
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	err = configureConnection(gormDB, MySQLConfig{Collation: ""})
+	if err != nil {
+		t.Fatalf("expected nil error for empty collation, got: %v", err)
+	}
+
+	// 验证没有执行任何 SQL
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestConfigureConnectionExecutesSetNames(t *testing.T) {
+	// Collation 非空时应执行 SET NAMES 语句
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 期望执行 SET NAMES 语句
+	mock.ExpectExec("SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci'").WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err = configureConnection(gormDB, MySQLConfig{
+		Charset:   "utf8mb4",
+		Collation: "utf8mb4_unicode_ci",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	// 验证所有期望都被满足
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestConfigureConnectionUsesDefaultCharset(t *testing.T) {
+	// Charset 为空时应默认使用 utf8mb4
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 期望执行 SET NAMES 语句，charset 默认为 utf8mb4
+	mock.ExpectExec("SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci'").WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err = configureConnection(gormDB, MySQLConfig{
+		Charset:   "", // 空 charset
+		Collation: "utf8mb4_unicode_ci",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestConfigureConnectionReturnsErrorOnFailure(t *testing.T) {
+	// SET NAMES 执行失败时应返回错误并关闭连接
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 模拟 SET NAMES 执行失败
+	mock.ExpectExec("SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci'").WillReturnError(errors.New("mock error"))
+
+	err = configureConnection(gormDB, MySQLConfig{
+		Charset:   "utf8mb4",
+		Collation: "utf8mb4_unicode_ci",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "set collation failed") {
+		t.Fatalf("expected 'set collation failed' error, got: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
 	}
 }

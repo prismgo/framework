@@ -43,7 +43,7 @@ func Open(driver, dsn string, cfg MySQLConfig) (*gorm.DB, error) {
 	driver = strings.ToLower(strings.TrimSpace(driver))
 	switch driver {
 	case "", "mysql":
-		return gorm.Open(mysql.New(mysql.Config{
+		db, err := gorm.Open(mysql.New(mysql.Config{
 			DSN:                       dsn,
 			SkipInitializeWithVersion: true,
 		}), &gorm.Config{
@@ -53,9 +53,34 @@ func Open(driver, dsn string, cfg MySQLConfig) (*gorm.DB, error) {
 				TablePrefix: cfg.TablePrefix,
 			},
 		})
+		if err != nil {
+			return nil, err
+		}
+		if err := configureConnection(db, cfg); err != nil {
+			return nil, err
+		}
+		return db, nil
 	default:
 		return nil, fmt.Errorf("database: unsupported driver: %s", driver)
 	}
+}
+
+// configureConnection 在连接建立后执行连接级配置（如 SET NAMES COLLATE）。
+// 如果配置失败，返回错误并关闭底层 SQL 连接。
+func configureConnection(db *gorm.DB, cfg MySQLConfig) error {
+	collation := strings.TrimSpace(cfg.Collation)
+	if collation == "" {
+		return nil
+	}
+	charset := defaultIfBlank(cfg.Charset, "utf8mb4")
+	stmt := fmt.Sprintf("SET NAMES '%s' COLLATE '%s'", charset, collation)
+	if err := db.Exec(stmt).Error; err != nil {
+		if sqlDB, closeErr := db.DB(); closeErr == nil {
+			_ = sqlDB.Close()
+		}
+		return fmt.Errorf("set collation failed: %w", err)
+	}
+	return nil
 }
 
 func gormLoggerFromDebug(debug bool) logger.Interface {
