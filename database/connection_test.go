@@ -948,3 +948,92 @@ func TestMySQLConfigPhase3Fields(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildMySQLDSNWithSSL(t *testing.T) {
+	dsn := BuildMySQLDSN(MySQLConfig{
+		Username: "root",
+		Password: "secret",
+		Database: "app",
+		SSL: SSLConfig{
+			CA:                 "/path/to/ca.pem",
+			Cert:               "/path/to/cert.pem",
+			Key:                "/path/to/key.pem",
+			InsecureSkipVerify: true,
+		},
+	})
+	if !strings.Contains(dsn, "tls=true") {
+		t.Fatalf("expected tls=true in DSN, got: %s", dsn)
+	}
+	if !strings.Contains(dsn, "tls-ca=%2Fpath%2Fto%2Fca.pem") && !strings.Contains(dsn, "tls-ca=/path/to/ca.pem") {
+		t.Fatalf("expected tls-ca in DSN, got: %s", dsn)
+	}
+	if !strings.Contains(dsn, "tls-skip-verify=true") {
+		t.Fatalf("expected tls-skip-verify=true in DSN, got: %s", dsn)
+	}
+}
+
+func TestBuildMySQLDSNWithOptions(t *testing.T) {
+	dsn := BuildMySQLDSN(MySQLConfig{
+		Username: "root",
+		Password: "secret",
+		Database: "app",
+		Options: map[string]string{
+			"timeout": "10s",
+		},
+	})
+	if !strings.Contains(dsn, "timeout=10s") {
+		t.Fatalf("expected timeout=10s in DSN, got: %s", dsn)
+	}
+	// 默认参数仍然存在
+	if !strings.Contains(dsn, "charset=utf8mb4") {
+		t.Fatalf("expected charset=utf8mb4 in DSN, got: %s", dsn)
+	}
+}
+
+func TestBuildMySQLDSNOptionsOverrideDefaults(t *testing.T) {
+	dsn := BuildMySQLDSN(MySQLConfig{
+		Username: "root",
+		Password: "secret",
+		Database: "app",
+		Charset:  "utf8mb4",
+		Options: map[string]string{
+			"charset": "latin1",
+		},
+	})
+	// Options 优先级高于默认值
+	if !strings.Contains(dsn, "charset=latin1") {
+		t.Fatalf("expected charset=latin1 in DSN (Options override), got: %s", dsn)
+	}
+	if strings.Contains(dsn, "charset=utf8mb4") {
+		t.Fatalf("Options should override default charset, got: %s", dsn)
+	}
+}
+
+func TestBuildMySQLDSNSSLAndOptionsCombined(t *testing.T) {
+	dsn := BuildMySQLDSN(MySQLConfig{
+		Username: "root",
+		Password: "secret",
+		Database: "app",
+		SSL: SSLConfig{
+			CA: "/path/to/ca.pem",
+		},
+		Options: map[string]string{
+			"timeout": "5s",
+		},
+	})
+	// SSL 参数存在
+	if !strings.Contains(dsn, "tls=true") {
+		t.Fatalf("expected tls=true in DSN, got: %s", dsn)
+	}
+	if !strings.Contains(dsn, "tls-ca=") {
+		t.Fatalf("expected tls-ca in DSN, got: %s", dsn)
+	}
+	// Options 参数存在
+	if !strings.Contains(dsn, "timeout=5s") {
+		t.Fatalf("expected timeout=5s in DSN, got: %s", dsn)
+	}
+	// 默认参数仍然存在
+	if !strings.Contains(dsn, "charset=utf8mb4") {
+		t.Fatalf("expected charset=utf8mb4 in DSN, got: %s", dsn)
+	}
+}

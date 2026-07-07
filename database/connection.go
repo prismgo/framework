@@ -229,17 +229,30 @@ func BuildMySQLDSN(cfg MySQLConfig) string {
 		addr = socket
 	}
 
+	// 构建参数：默认值
+	params := map[string]string{
+		"charset":   charset,
+		"parseTime": parseTime,
+		"loc":       loc,
+	}
+
+	// 合并 SSL 参数（优先级高于默认值）
+	for k, v := range cfg.SSL.toDSNParams() {
+		params[k] = v
+	}
+
+	// 合并 Options（优先级最高）
+	for k, v := range cfg.Options {
+		params[k] = v
+	}
+
 	return (&mysqldriver.Config{
 		User:   username,
 		Passwd: cfg.Password,
 		Net:    netProto,
 		Addr:   addr,
 		DBName: database,
-		Params: map[string]string{
-			"charset":   charset,
-			"parseTime": parseTime,
-			"loc":       loc,
-		},
+		Params: params,
 	}).FormatDSN()
 }
 
