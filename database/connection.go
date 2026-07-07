@@ -349,6 +349,7 @@ func OpenConnection(connection string) (*gorm.DB, error) {
 		Strict:         configpkg.GetBool(prefix+".strict", true),
 		Timezone:       configpkg.GetString(prefix+".timezone", ""),
 		IsolationLevel: configpkg.GetString(prefix+".isolation_level", ""),
+		Engine:         configpkg.GetString(prefix+".engine", ""),
 	}
 	// 读取 modes 配置（逗号分隔的字符串数组）
 	if modesStr := configpkg.GetString(prefix+".modes", ""); modesStr != "" {
@@ -357,6 +358,37 @@ func OpenConnection(connection string) (*gorm.DB, error) {
 			mysqlCfg.Modes[i] = strings.TrimSpace(mysqlCfg.Modes[i])
 		}
 	}
+
+	// 读取 SSL 配置
+	mysqlCfg.SSL = SSLConfig{
+		CA:                 configpkg.GetString(prefix+".ssl.ca", ""),
+		Cert:               configpkg.GetString(prefix+".ssl.cert", ""),
+		Key:                configpkg.GetString(prefix+".ssl.key", ""),
+		InsecureSkipVerify: configpkg.GetBool(prefix+".ssl.insecure_skip_verify", false),
+	}
+
+	// 读取 Options 配置（通用 DSN 参数）
+	// 注意：configpkg 不支持 map[string]string，需要通过 JSON 或其他方式读取
+	// 当前实现：从 options 前缀读取常见参数
+	if timeout := configpkg.GetString(prefix+".options.timeout", ""); timeout != "" {
+		if mysqlCfg.Options == nil {
+			mysqlCfg.Options = make(map[string]string)
+		}
+		mysqlCfg.Options["timeout"] = timeout
+	}
+	if readTimeout := configpkg.GetString(prefix+".options.read_timeout", ""); readTimeout != "" {
+		if mysqlCfg.Options == nil {
+			mysqlCfg.Options = make(map[string]string)
+		}
+		mysqlCfg.Options["readTimeout"] = readTimeout
+	}
+	if writeTimeout := configpkg.GetString(prefix+".options.write_timeout", ""); writeTimeout != "" {
+		if mysqlCfg.Options == nil {
+			mysqlCfg.Options = make(map[string]string)
+		}
+		mysqlCfg.Options["writeTimeout"] = writeTimeout
+	}
+
 	dsn := buildDSNByDriver(driver, mysqlCfg)
 
 	db, err := Open(driver, dsn, mysqlCfg)
