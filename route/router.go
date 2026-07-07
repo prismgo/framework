@@ -48,22 +48,22 @@ type RouteInfo struct {
 // 这样做的原因是 Route.Name 支持重复调用覆盖后缀。如果不把前缀和后缀拆开保存，
 // 二次命名时只能拿到上一次的完整名字，无法在保留分组前缀的同时安全替换路由后缀。
 type routeEntry struct {
-	methods         []string
-	uri             string
-	name            string
-	namePrefix      string
-	nameSuffix      string
-	domain          string
-	action          HandlerFunc
-	middleware      []HandlerFunc
-	middlewareIDs   []string
-	where           map[string]string
+	methods             []string
+	uri                 string
+	name                string
+	namePrefix          string
+	nameSuffix          string
+	domain              string
+	action              HandlerFunc
+	middleware          []HandlerFunc
+	middlewareIDs       []string
+	where               map[string]string
 	compiledConstraints map[string]*regexp.Regexp // 预编译的约束正则，避免每次请求重新编译
-	missing         HandlerFunc
-	controller      any
-	handlerName     string
-	sourcePath      string
-	compiledPaths   []string // 缓存编译后的 Gin 路径，避免 List/Mount 重复计算
+	missing             HandlerFunc
+	controller          any
+	handlerName         string
+	sourcePath          string
+	compiledPaths       []string // 缓存编译后的 Gin 路径，避免 List/Mount 重复计算
 }
 
 type groupAttributes struct {

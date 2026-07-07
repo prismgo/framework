@@ -31,11 +31,10 @@ func TestOpenDatabaseSessionBranches(t *testing.T) {
 		t.Fatalf("bind config: %v", err)
 	}
 	_ = cfg.ReloadFromFile(filepath.Join(t.TempDir(), ".env"))
-	named, err := openDatabaseSession("missing")
-	if err != nil {
-		t.Fatalf("open named session failed: %v", err)
+	_, err = openDatabaseSession("missing")
+	if err == nil {
+		t.Fatal("expected error when opening missing connection without config")
 	}
-	named.Close()
 }
 
 func TestCommandEnvironmentFallbacks(t *testing.T) {

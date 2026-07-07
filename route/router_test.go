@@ -14,6 +14,7 @@ import (
 	"github.com/prismgo/framework/cache"
 	"github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
+	"github.com/prismgo/framework/ratelimit"
 )
 
 func useRouteMemoryCache(t *testing.T) {
@@ -32,6 +33,10 @@ func useRouteMemoryCache(t *testing.T) {
 	}
 	if err := registry.Instance("config.default", config.New()); err != nil {
 		t.Fatalf("bind config: %v", err)
+	}
+	limiter := ratelimit.New(manager.Default())
+	if err := registry.Instance("ratelimit.default", limiter); err != nil {
+		t.Fatalf("bind ratelimit: %v", err)
 	}
 	if err := (ServiceProvider{}).Register(providerTestApp{registry: registry}); err != nil {
 		t.Fatalf("register route provider: %v", err)
@@ -452,8 +457,8 @@ func TestCompilePathsOptionalParametersOnlyOmitFromTrailing(t *testing.T) {
 	// 例如 /a/{b?}/{c?} 应生成 /a、/a/:b、/a/:b/:c，而不应生成 /a/:c。
 	paths := compilePaths("/a/{b?}/{c?}", nil)
 	expected := map[string]bool{
-		"/a":      true,
-		"/a/:b":   true,
+		"/a":       true,
+		"/a/:b":    true,
 		"/a/:b/:c": true,
 	}
 	if len(paths) != len(expected) {

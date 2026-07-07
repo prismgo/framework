@@ -505,6 +505,10 @@ func TestThrottleUsesDefaultLimiterAndFallbackKeys(t *testing.T) {
 	if err := registry.Instance("config.default", config.New()); err != nil {
 		t.Fatalf("bind config: %v", err)
 	}
+	limiter := ratelimit.New(manager.Default())
+	if err := registry.Instance("ratelimit.default", limiter); err != nil {
+		t.Fatalf("bind ratelimit: %v", err)
+	}
 
 	ratelimit.For("default", func(*gin.Context) []ratelimit.Limit {
 		return []ratelimit.Limit{

@@ -15,7 +15,7 @@ import (
 
 func TestDefaultProvidersOrderAndFreshSlice(t *testing.T) {
 	got := DefaultProviders()
-	want := []string{"redis", "cache", "queue", "cookie", "session", "filesystem", "database", "database.schema", "route"}
+	want := []string{"redis", "cache", "queue", "cookie", "session", "filesystem", "database", "database.schema", "ratelimit", "route"}
 	if len(got) != len(want) {
 		t.Fatalf("DefaultProviders length = %d, want %d", len(got), len(want))
 	}

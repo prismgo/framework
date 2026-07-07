@@ -103,7 +103,7 @@ func TestCompileConstraints(t *testing.T) {
 		{
 			name: "invalid regex is silently skipped",
 			constraints: map[string]string{
-				"id":    "[0-9]+",
+				"id":      "[0-9]+",
 				"invalid": "[unclosed",
 			},
 			wantNil:  false,
