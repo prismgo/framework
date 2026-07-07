@@ -265,7 +265,7 @@ func TestBuildDSNByDriver(t *testing.T) {
 }
 
 func TestConfigureConnectionSkipsWhenCollationEmpty(t *testing.T) {
-	// Collation 为空时 configureConnection 应直接返回 nil，不执行任何 SQL
+	// Collation 为空时 configureConnection 应跳过 SET NAMES，但仍执行 SQL 模式设置
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("open sqlmock: %v", err)
@@ -280,12 +280,15 @@ func TestConfigureConnectionSkipsWhenCollationEmpty(t *testing.T) {
 		t.Fatalf("open gorm: %v", err)
 	}
 
-	err = configureConnection(gormDB, MySQLConfig{Collation: ""})
+	// Strict=false 时 SQL 模式为 NO_ENGINE_SUBSTITUTION
+	mock.ExpectExec("SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'").WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err = configureConnection(gormDB, MySQLConfig{Collation: "", Strict: false})
 	if err != nil {
 		t.Fatalf("expected nil error for empty collation, got: %v", err)
 	}
 
-	// 验证没有执行任何 SQL
+	// 验证所有期望都被满足
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unfulfilled expectations: %v", err)
 	}
@@ -355,9 +358,13 @@ func TestConfigureConnectionExecutesSetNames(t *testing.T) {
 	// 期望执行 SET NAMES 语句
 	mock.ExpectExec("SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci'").WillReturnResult(sqlmock.NewResult(0, 0))
 
+	// Strict=false 时 SQL 模式为 NO_ENGINE_SUBSTITUTION
+	mock.ExpectExec("SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'").WillReturnResult(sqlmock.NewResult(0, 0))
+
 	err = configureConnection(gormDB, MySQLConfig{
 		Charset:   "utf8mb4",
 		Collation: "utf8mb4_unicode_ci",
+		Strict:    false,
 	})
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
@@ -388,9 +395,13 @@ func TestConfigureConnectionUsesDefaultCharset(t *testing.T) {
 	// 期望执行 SET NAMES 语句，charset 默认为 utf8mb4
 	mock.ExpectExec("SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci'").WillReturnResult(sqlmock.NewResult(0, 0))
 
+	// Strict=false 时 SQL 模式为 NO_ENGINE_SUBSTITUTION
+	mock.ExpectExec("SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'").WillReturnResult(sqlmock.NewResult(0, 0))
+
 	err = configureConnection(gormDB, MySQLConfig{
 		Charset:   "", // 空 charset
 		Collation: "utf8mb4_unicode_ci",
+		Strict:    false,
 	})
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
@@ -429,6 +440,399 @@ func TestConfigureConnectionReturnsErrorOnFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "set collation failed") {
 		t.Fatalf("expected 'set collation failed' error, got: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestGetMySQLVersion_Success(t *testing.T) {
+	// 成功查询时应返回版本号
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 模拟 SELECT VERSION() 返回 8.0.32
+	rows := sqlmock.NewRows([]string{"VERSION()"}).AddRow("8.0.32")
+	mock.ExpectQuery("SELECT VERSION\\(\\)").WillReturnRows(rows)
+
+	version := getMySQLVersion(gormDB)
+	if version != "8.0.32" {
+		t.Fatalf("expected version 8.0.32, got %s", version)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestGetMySQLVersion_Failure(t *testing.T) {
+	// 查询失败时应返回默认版本 8.0.11
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 模拟 SELECT VERSION() 失败
+	mock.ExpectQuery("SELECT VERSION\\(\\)").WillReturnError(errors.New("mock error"))
+
+	version := getMySQLVersion(gormDB)
+	if version != "8.0.11" {
+		t.Fatalf("expected default version 8.0.11, got %s", version)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestGetSqlMode_ModesPriority(t *testing.T) {
+	// Modes 非空时应优先使用，忽略 Strict 和版本检测
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	cfg := MySQLConfig{
+		Strict: true,
+		Modes:  []string{"STRICT_TRANS_TABLES", "NO_ZERO_DATE"},
+	}
+
+	mode := getSqlMode(cfg, gormDB)
+	expected := "STRICT_TRANS_TABLES,NO_ZERO_DATE"
+	if mode != expected {
+		t.Fatalf("expected mode %q, got %q", expected, mode)
+	}
+
+	// 验证没有执行版本查询（因为 Modes 非空）
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestGetSqlMode_StrictFalse(t *testing.T) {
+	// Strict=false 且 Modes 为空时应返回 NO_ENGINE_SUBSTITUTION
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	cfg := MySQLConfig{
+		Strict: false,
+		Modes:  nil,
+	}
+
+	mode := getSqlMode(cfg, gormDB)
+	expected := "NO_ENGINE_SUBSTITUTION"
+	if mode != expected {
+		t.Fatalf("expected mode %q, got %q", expected, mode)
+	}
+}
+
+func TestGetSqlMode_StrictTrue_NewVersion(t *testing.T) {
+	// Strict=true 且 MySQL 8.0.11+ 时应返回 6 个标准模式（不含 NO_AUTO_CREATE_USER）
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 模拟 MySQL 8.0.32
+	rows := sqlmock.NewRows([]string{"VERSION()"}).AddRow("8.0.32")
+	mock.ExpectQuery("SELECT VERSION\\(\\)").WillReturnRows(rows)
+
+	cfg := MySQLConfig{
+		Strict: true,
+		Modes:  nil,
+	}
+
+	mode := getSqlMode(cfg, gormDB)
+	expected := "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
+	if mode != expected {
+		t.Fatalf("expected mode %q, got %q", expected, mode)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestGetSqlMode_StrictTrue_OldVersion(t *testing.T) {
+	// Strict=true 且 MySQL < 8.0.11 时应返回 7 个模式（含 NO_AUTO_CREATE_USER）
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 模拟 MySQL 5.7.40
+	rows := sqlmock.NewRows([]string{"VERSION()"}).AddRow("5.7.40")
+	mock.ExpectQuery("SELECT VERSION\\(\\)").WillReturnRows(rows)
+
+	cfg := MySQLConfig{
+		Strict: true,
+		Modes:  nil,
+	}
+
+	mode := getSqlMode(cfg, gormDB)
+	expected := "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION"
+	if mode != expected {
+		t.Fatalf("expected mode %q, got %q", expected, mode)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestConfigureConnection_SetsSqlMode(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 模拟版本查询
+	rows := sqlmock.NewRows([]string{"VERSION()"}).AddRow("8.0.32")
+	mock.ExpectQuery("SELECT VERSION\\(\\)").WillReturnRows(rows)
+
+	// 期望执行 SET SESSION sql_mode
+	mock.ExpectExec("SET SESSION sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err = configureConnection(gormDB, MySQLConfig{
+		Strict: true,
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestConfigureConnection_SetsTimezone(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 模拟版本查询
+	rows := sqlmock.NewRows([]string{"VERSION()"}).AddRow("8.0.32")
+	mock.ExpectQuery("SELECT VERSION\\(\\)").WillReturnRows(rows)
+
+	// 期望执行 SET SESSION sql_mode
+	mock.ExpectExec("SET SESSION sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	// 期望执行 SET time_zone
+	mock.ExpectExec("SET time_zone='\\+08:00'").WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err = configureConnection(gormDB, MySQLConfig{
+		Strict:   true,
+		Timezone: "+08:00",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestConfigureConnection_SetsIsolationLevel(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 模拟版本查询
+	rows := sqlmock.NewRows([]string{"VERSION()"}).AddRow("8.0.32")
+	mock.ExpectQuery("SELECT VERSION\\(\\)").WillReturnRows(rows)
+
+	// 期望执行 SET SESSION sql_mode
+	mock.ExpectExec("SET SESSION sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	// 期望执行 SET SESSION TRANSACTION ISOLATION LEVEL
+	mock.ExpectExec("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err = configureConnection(gormDB, MySQLConfig{
+		Strict:         true,
+		IsolationLevel: "READ COMMITTED",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestConfigureConnection_SetsAll(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 期望执行 SET NAMES
+	mock.ExpectExec("SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci'").WillReturnResult(sqlmock.NewResult(0, 0))
+
+	// 模拟版本查询
+	rows := sqlmock.NewRows([]string{"VERSION()"}).AddRow("8.0.32")
+	mock.ExpectQuery("SELECT VERSION\\(\\)").WillReturnRows(rows)
+
+	// 期望执行 SET SESSION sql_mode
+	mock.ExpectExec("SET SESSION sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	// 期望执行 SET time_zone
+	mock.ExpectExec("SET time_zone='\\+08:00'").WillReturnResult(sqlmock.NewResult(0, 0))
+
+	// 期望执行 SET SESSION TRANSACTION ISOLATION LEVEL
+	mock.ExpectExec("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err = configureConnection(gormDB, MySQLConfig{
+		Charset:        "utf8mb4",
+		Collation:      "utf8mb4_unicode_ci",
+		Strict:         true,
+		Timezone:       "+08:00",
+		IsolationLevel: "READ COMMITTED",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestConfigureConnection_FailureClosesConnection(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	// 模拟版本查询
+	rows := sqlmock.NewRows([]string{"VERSION()"}).AddRow("8.0.32")
+	mock.ExpectQuery("SELECT VERSION\\(\\)").WillReturnRows(rows)
+
+	// 模拟 SET SESSION sql_mode 失败
+	mock.ExpectExec("SET SESSION sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'").
+		WillReturnError(errors.New("mock sql_mode error"))
+
+	err = configureConnection(gormDB, MySQLConfig{
+		Strict: true,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "set sql_mode failed") {
+		t.Fatalf("expected 'set sql_mode failed' error, got: %v", err)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
