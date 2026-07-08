@@ -1973,10 +1973,20 @@ func waitProcessesWithHeartbeatStartup(ctx context.Context, processes []ManagedP
 			if result.err != nil && startupState.active {
 				startupState.record(result)
 				if active == 0 {
-					if err := startupState.failure(ctx, masterLogFields); err != nil {
-						return err
+					// 修复 race condition：在判定启动失败前，先检查启动窗口是否已过期。
+					// 如果窗口已过期但仍有进程存活（刚刚退出），应走长期运行路径。
+					now := time.Now().UTC()
+					if now.Before(startupState.deadline) {
+						// 窗口未过期，所有进程都已退出 → 启动失败
+						if err := startupState.failure(ctx, masterLogFields); err != nil {
+							return err
+						}
+						startupState.active = false
+					} else {
+						// 窗口已过期，最后一个进程刚退出 → 启动成功，错误走长期运行路径
+						startupState.started(ctx, masterLogFields)
+						startupState.active = false
 					}
-					startupState.active = false
 				}
 				continue
 			}
