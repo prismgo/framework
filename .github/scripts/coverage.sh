@@ -119,6 +119,7 @@ GO_TEST_CMD+=("${TEST_PATTERNS[@]}" \
 
 if ! "${GO_TEST_CMD[@]}" >"$TEST_LOG" 2>&1; then
   cat "$TEST_LOG" >&2
+  "$SCRIPT_DIR/summarize_test_failures.sh" "$TEST_LOG" >&2 || true
   exit 1
 fi
 
