@@ -139,7 +139,7 @@ func (contractContext) Arguments(string) []string     { return nil }
 func (contractContext) Option(string) string          { return "" }
 func (contractContext) OptionStrings(string) []string { return nil }
 func (contractContext) OptionBool(string) bool        { return false }
-func (contractContext) OptionInt(string) int          { return 0 }
+func (contractContext) OptionInt(string) (int, error) { return 0, nil }
 func (contractContext) HasOption(string) bool         { return false }
 
 type contractCaller struct{}

@@ -609,7 +609,9 @@ func (i makeInput) OptionStrings(name string) []string {
 	return []string{value}
 }
 func (i makeInput) OptionBool(name string) bool { return i.bools[name] }
-func (i makeInput) OptionInt(name string) int   { return 0 }
+func (i makeInput) OptionInt(name string) (int, error) {
+	return 0, nil
+}
 func (i makeInput) HasOption(name string) bool {
 	if _, ok := i.options[name]; ok {
 		return true

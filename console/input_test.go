@@ -151,3 +151,50 @@ func TestInputCoversNilCommandAndStringSliceBranches(t *testing.T) {
 		t.Fatalf("blank option strings = %#v, want nil", got)
 	}
 }
+
+func TestOptionIntReturnsErrorOnInvalidValue(t *testing.T) {
+	definition := Definition{
+		Name:    "sample:run",
+		Options: []Option{{Name: "count", ValueMode: OptionValueRequired}},
+	}
+	cmd := &cobra.Command{Use: "sample:run"}
+	if err := BindDefinitionFlags(cmd, definition); err != nil {
+		t.Fatalf("BindDefinitionFlags returned error: %v", err)
+	}
+
+	// 测试有效值
+	if err := cmd.Flags().Set("count", "42"); err != nil {
+		t.Fatalf("set count flag failed: %v", err)
+	}
+	input := NewInput(definition, cmd, nil)
+	value, err := input.OptionInt("count")
+	if err != nil {
+		t.Fatalf("OptionInt(valid) returned error: %v", err)
+	}
+	if value != 42 {
+		t.Fatalf("OptionInt(valid) = %d, want 42", value)
+	}
+
+	// 测试无效值
+	if err := cmd.Flags().Set("count", "not-a-number"); err != nil {
+		t.Fatalf("set count flag failed: %v", err)
+	}
+	input = NewInput(definition, cmd, nil)
+	_, err = input.OptionInt("count")
+	if err == nil {
+		t.Fatal("OptionInt(invalid) should return error")
+	}
+
+	// 测试空值
+	if err := cmd.Flags().Set("count", ""); err != nil {
+		t.Fatalf("set count flag failed: %v", err)
+	}
+	input = NewInput(definition, cmd, nil)
+	value, err = input.OptionInt("count")
+	if err != nil {
+		t.Fatalf("OptionInt(empty) returned error: %v", err)
+	}
+	if value != 0 {
+		t.Fatalf("OptionInt(empty) = %d, want 0", value)
+	}
+}

@@ -404,5 +404,5 @@ func (i queueInput) OptionStrings(name string) []string {
 	return []string{value}
 }
 func (i queueInput) OptionBool(name string) bool { return i.bools[name] }
-func (i queueInput) OptionInt(name string) int   { return 0 }
+func (i queueInput) OptionInt(name string) (int, error) { return 0, nil }
 func (i queueInput) HasOption(name string) bool  { return i.options[name] != "" || i.bools[name] }

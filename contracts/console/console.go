@@ -81,7 +81,8 @@ type Input interface {
 	Option(name string) string
 	OptionStrings(name string) []string
 	OptionBool(name string) bool
-	OptionInt(name string) int
+	// OptionInt 读取整数型命令行选项，解析失败时返回错误。
+	OptionInt(name string) (int, error)
 	// HasOption 判断当前命令定义中是否存在该选项。
 	HasOption(name string) bool
 }
@@ -126,10 +127,31 @@ type Isolatable interface {
 	IsolationKey(ctx CommandContext) string
 }
 
-// CommandContext 是命令运行期上下文的简约接口。
+// CommandContext 是命令运行期统一上下文。
 //
-// 用途：让 contracts 层可以表达“命令执行上下文”而不依赖 prismgo/console 的具体实现。
-// prismgo/console.NewCommandContext 返回此接口的运行时实现。
+// 用途：把原始 Cobra 命令、解析后的输入、统一 IO 与命令互调能力收敛到一个对象里，
+// 供新风格命令直接消费。
+//
+// 主要能力：
+//   - 参数读取：Argument/Option/OptionBool/OptionInt/HasOption
+//   - IO 操作：IO() 返回统一 IO 接口
+//   - 命令互调：Call/CallSilently 调用其他命令
+//   - 信号处理：Trap 注册命令级信号处理器
+//   - 错误处理：Fail 主动失败并返回可识别的错误
+//
+// 设计原因：减少命令实现对 Cobra 细节的直接依赖，提升复用性、可测试性与后续扩展性。
+//
+// 使用示例：
+//
+//	func (c *MyCommand) Handle(ctx console.CommandContext) error {
+//	    name := ctx.Argument("name")
+//	    count, err := ctx.OptionInt("count")
+//	    if err != nil {
+//	        return ctx.Fail("invalid count:", err)
+//	    }
+//	    ctx.IO().Info("Processing " + name)
+//	    return nil
+//	}
 type CommandContext interface {
 	// Context 返回标准 Go context。
 	Context() context.Context
@@ -173,8 +195,8 @@ type CommandContext interface {
 	// OptionBool 读取布尔型命令行选项。
 	OptionBool(name string) bool
 
-	// OptionInt 读取整数型命令行选项。
-	OptionInt(name string) int
+	// OptionInt 读取整数型命令行选项，解析失败时返回错误。
+	OptionInt(name string) (int, error)
 
 	// HasOption 判断当前命令定义中是否存在该选项。
 	HasOption(name string) bool
@@ -237,7 +259,17 @@ type IO interface {
 	// ChoiceWithOptions 让用户选择单个或多个选项，并支持默认值和最大尝试次数。
 	ChoiceWithOptions(question string, options []string, config ChoiceOptions) ([]string, error)
 
-	// Anticipate 询问文本输入；TTY 下可提供最小补全，非 TTY 降级为 Ask。
+	// Anticipate 询问文本输入，设计意图是提供基于 choices 的自动补全。
+	//
+	// 当前实现限制：
+	//   - TTY 和非 TTY 环境下降级为 Ask 行为，不实际提供自动补全 UI。
+	//   - choices 参数在当前版本中未使用，仅为保持接口语义预留。
+	//   - 未来可能引入 readline 或 prompt 依赖实现真正的交互式补全。
+	//
+	// 使用建议：
+	//   - 如果需要严格的选项选择，请使用 Choice 或 ChoiceWithOptions。
+	//   - 如果仅需文本输入，直接使用 Ask。
+	//   - Anticipate 适合"提示性输入"场景，用户可输入任意值但期望特定格式。
 	Anticipate(question string, choices []string, defaultValue ...string) (string, error)
 
 	// NewLine 输出空行，count 省略时输出 1 行。

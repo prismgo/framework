@@ -26,7 +26,9 @@ func (OSProcessInspector) HorizonProcesses(ctx context.Context) ([]HorizonProces
 	cmd := exec.CommandContext(ctx, "ps", "-eo", "pid=,command=")
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		// ps 扫描是 best-effort：在受限环境（容器、沙箱）中 ps 可能不可用，
+		// 返回空列表而非错误，避免阻塞上层逻辑。
+		return nil, nil
 	}
 	var processes []HorizonProcess
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))

@@ -3211,7 +3211,7 @@ func (i runtimeInput) Arguments(name string) []string { return append([]string(n
 func (i runtimeInput) Option(name string) string      { return i.options[name] }
 func (i runtimeInput) OptionStrings(string) []string  { return nil }
 func (i runtimeInput) OptionBool(string) bool         { return false }
-func (i runtimeInput) OptionInt(string) int           { return 0 }
+func (i runtimeInput) OptionInt(string) (int, error)  { return 0, nil }
 func (i runtimeInput) HasOption(string) bool          { return false }
 
 type staticStoreResolver struct {

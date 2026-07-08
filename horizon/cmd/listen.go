@@ -28,7 +28,10 @@ func runListenCommand(ctx console.CommandContext, runtime Runtime) error {
 	if environment == "" {
 		environment = "local"
 	}
-	poll := ctx.Input().OptionInt("poll")
+	poll, err := ctx.Input().OptionInt("poll")
+	if err != nil {
+		return err
+	}
 	if poll <= 0 {
 		poll = 1000
 	}

@@ -471,15 +471,15 @@ func (i fakeInput) OptionStrings(name string) []string {
 	return []string{value}
 }
 func (i fakeInput) OptionBool(name string) bool { return i.bools[name] }
-func (i fakeInput) OptionInt(name string) int {
+func (i fakeInput) OptionInt(name string) (int, error) {
 	value := i.options[name]
 	if value == "" {
-		return 0
+		return 0, nil
 	}
 	if value == "7001" {
-		return 7001
+		return 7001, nil
 	}
-	return 0
+	return 0, nil
 }
 func (i fakeInput) HasOption(name string) bool {
 	_, ok := i.options[name]

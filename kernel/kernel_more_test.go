@@ -325,11 +325,12 @@ func (c *legacyIsolationCommand) IsolationKey(_ console.CommandContext) string {
 type dynamicIsolationCommand struct{ key string }
 
 func (c *dynamicIsolationCommand) IsolationKey(ctx console.IsolationContext) string {
+	take, _ := ctx.OptionInt("take")
 	c.key = strings.Join([]string{
 		ctx.Argument("tenant"),
 		ctx.Option("queue"),
 		boolString(ctx.OptionBool("force")),
-		strconv.Itoa(ctx.OptionInt("take")),
+		strconv.Itoa(take),
 		strings.Join(ctx.Arguments("ids"), ","),
 	}, ":")
 	return c.key
@@ -372,9 +373,8 @@ func (i isolationInput) OptionStrings(name string) []string {
 
 func (i isolationInput) OptionBool(name string) bool { return i.bools[name] }
 
-func (i isolationInput) OptionInt(name string) int {
-	value, _ := strconv.Atoi(i.options[name])
-	return value
+func (i isolationInput) OptionInt(name string) (int, error) {
+	return strconv.Atoi(i.options[name])
 }
 
 func (i isolationInput) HasOption(name string) bool {

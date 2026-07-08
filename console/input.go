@@ -95,9 +95,12 @@ func (i *cobraInput) OptionBool(name string) bool {
 	return value
 }
 
-func (i *cobraInput) OptionInt(name string) int {
-	value, _ := strconv.Atoi(i.Option(name))
-	return value
+func (i *cobraInput) OptionInt(name string) (int, error) {
+	value := i.Option(name)
+	if value == "" {
+		return 0, nil
+	}
+	return strconv.Atoi(value)
 }
 
 func (i *cobraInput) HasOption(name string) bool {

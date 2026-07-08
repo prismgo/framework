@@ -148,16 +148,19 @@ func (c *runtimeCommandContext) Trap(signals []os.Signal, callback func(os.Signa
 	release := func() {
 		once.Do(func() {
 			signal.Stop(ch)
+			close(ch)
 			close(done)
 		})
 	}
-	routine.Task(c.Context(), func(context.Context) error {
+	routine.Task(c.Context(), func(ctx context.Context) error {
 		for {
 			select {
 			case sig := <-ch:
 				callback(sig)
 			case <-done:
 				return nil
+			case <-ctx.Done():
+				return ctx.Err()
 			}
 		}
 	}).
@@ -271,9 +274,9 @@ func (c *runtimeCommandContext) OptionBool(name string) bool {
 	return c.input.OptionBool(name)
 }
 
-func (c *runtimeCommandContext) OptionInt(name string) int {
+func (c *runtimeCommandContext) OptionInt(name string) (int, error) {
 	if c == nil || c.input == nil {
-		return 0
+		return 0, nil
 	}
 	return c.input.OptionInt(name)
 }

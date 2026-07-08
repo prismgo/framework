@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -197,6 +199,41 @@ func TestCommandContextTrapReleaseIsIdempotent(t *testing.T) {
 	ReleaseTraps(commandCtx)
 }
 
+func TestCommandContextTrapExitsOnContextCancel(t *testing.T) {
+	captureConsoleReports(t) // 设置 exception handler
+	ctx, cancel := context.WithCancel(context.Background())
+	commandCtx := NewCommandContext(ctx, nil, Definition{Name: "trap:ctx"}, nil, NewIO(strings.NewReader(""), io.Discard, io.Discard), nil, &cobra.Command{Use: "trap:ctx"})
+
+	// 记录 goroutine 数量
+	initialGoroutines := runtime.NumGoroutine()
+
+	// 创建 trap，不保存 release
+	_, err := commandCtx.Trap([]os.Signal{syscall.SIGUSR1}, func(os.Signal) {})
+	if err != nil {
+		t.Fatalf("Trap returned error: %v", err)
+	}
+
+	// 等待 goroutine 启动
+	time.Sleep(50 * time.Millisecond)
+	afterTrapGoroutines := runtime.NumGoroutine()
+
+	if afterTrapGoroutines <= initialGoroutines {
+		t.Fatalf("trap goroutine did not start: initial=%d, after=%d", initialGoroutines, afterTrapGoroutines)
+	}
+
+	// 取消 context，goroutine 应该通过 ctx.Done() 退出
+	cancel()
+
+	// 等待 goroutine 退出
+	time.Sleep(100 * time.Millisecond)
+	afterCancelGoroutines := runtime.NumGoroutine()
+
+	// goroutine 数量应该恢复到接近初始值
+	if afterCancelGoroutines >= afterTrapGoroutines {
+		t.Fatalf("trap goroutine did not exit after context cancel: afterTrap=%d, afterCancel=%d", afterTrapGoroutines, afterCancelGoroutines)
+	}
+}
+
 func TestConsoleFailErrorBranches(t *testing.T) {
 	base := io.ErrUnexpectedEOF
 	err := Fail("wrapped", base)
@@ -210,6 +247,99 @@ func TestConsoleFailErrorBranches(t *testing.T) {
 	if (&ManuallyFailedError{Err: base}).Error() != base.Error() {
 		t.Fatalf("wrapped-only manual failure mismatch")
 	}
+}
+
+func TestFailWithOnlyNil(t *testing.T) {
+	err := Fail(nil)
+	if err == nil || err.Error() != "command failed" {
+		t.Fatalf("Fail(nil) = %v, want 'command failed'", err)
+	}
+	failed, ok := IsManualFailure(err)
+	if !ok {
+		t.Fatal("IsManualFailure returned false for Fail(nil)")
+	}
+	if failed.Message != "" {
+		t.Fatalf("Fail(nil) message = %q, want empty", failed.Message)
+	}
+	if failed.Unwrap() != nil {
+		t.Fatal("Fail(nil) should not wrap any error")
+	}
+}
+
+func TestTrapConcurrentSafety(t *testing.T) {
+	captureConsoleReports(t)
+	commandCtx := NewCommandContext(context.Background(), nil, Definition{Name: "trap:concurrent"}, nil, NewIO(strings.NewReader(""), io.Discard, io.Discard), nil, &cobra.Command{Use: "trap:concurrent"})
+
+	var wg sync.WaitGroup
+	const goroutineCount = 10
+
+	for i := 0; i < goroutineCount; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			release, err := commandCtx.Trap([]os.Signal{syscall.SIGUSR1}, func(os.Signal) {})
+			if err != nil {
+				t.Errorf("goroutine %d: Trap returned error: %v", id, err)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+			release()
+		}(i)
+	}
+
+	wg.Wait()
+	ReleaseTraps(commandCtx)
+}
+
+func TestCommandContextTrapClosesSignalChannelOnRelease(t *testing.T) {
+	captureConsoleReports(t)
+	commandCtx := NewCommandContext(context.Background(), nil, Definition{Name: "trap:channel"}, nil, NewIO(strings.NewReader(""), io.Discard, io.Discard), nil, &cobra.Command{Use: "trap:channel"})
+
+	release, err := commandCtx.Trap([]os.Signal{syscall.SIGUSR1}, func(os.Signal) {})
+	if err != nil {
+		t.Fatalf("Trap returned error: %v", err)
+	}
+
+	// 记录当前 goroutine 数量
+	initialGoroutines := runtime.NumGoroutine()
+
+	// 创建多个 trap
+	for i := 0; i < 5; i++ {
+		_, err := commandCtx.Trap([]os.Signal{syscall.SIGUSR2}, func(os.Signal) {})
+		if err != nil {
+			t.Fatalf("Trap %d returned error: %v", i, err)
+		}
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	afterTrapsGoroutines := runtime.NumGoroutine()
+
+	if afterTrapsGoroutines <= initialGoroutines {
+		t.Fatalf("trap goroutines did not start: initial=%d, after=%d", initialGoroutines, afterTrapsGoroutines)
+	}
+
+	// 释放所有 trap
+	release()
+	ReleaseTraps(commandCtx)
+
+	// 等待 goroutine 退出
+	time.Sleep(100 * time.Millisecond)
+	afterReleaseGoroutines := runtime.NumGoroutine()
+
+	// goroutine 数量应该恢复到接近初始值
+	if afterReleaseGoroutines >= afterTrapsGoroutines {
+		t.Fatalf("trap goroutines did not exit after release: afterTraps=%d, afterRelease=%d", afterTrapsGoroutines, afterReleaseGoroutines)
+	}
+
+	// 验证 channel 被关闭：尝试向 channel 发送信号应该不会 panic
+	// 但由于 channel 是私有的，我们无法直接访问
+	// 所以通过验证多次 release 不会 panic 来间接验证
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("release panicked: %v", r)
+		}
+	}()
+	release() // 重复 release 不应该 panic
 }
 
 func TestDefinitionUsageAndNormalizeAndGlobalConsoleOutput(t *testing.T) {
@@ -257,8 +387,8 @@ func TestParseSignatureOptionalArrayAndOptionInt(t *testing.T) {
 		t.Fatalf("BindDefinitionFlags returned error: %v", err)
 	}
 	input := NewInput(definition, cmd, nil)
-	if got := input.OptionInt("take"); got != 10 {
-		t.Fatalf("OptionInt(take) = %d, want 10", got)
+	if got, err := input.OptionInt("take"); err != nil || got != 10 {
+		t.Fatalf("OptionInt(take) = %d, err=%v, want 10, nil", got, err)
 	}
 }
 

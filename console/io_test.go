@@ -154,6 +154,19 @@ func TestTerminalIOChoiceWithOptionsAttemptsExhausted(t *testing.T) {
 	}
 }
 
+func TestChoiceWithOptionsMultipleRetrySuccess(t *testing.T) {
+	stdin := strings.NewReader("wrong1\nwrong2\nfirst\n")
+	ioo := NewIO(stdin, &bytes.Buffer{}, &bytes.Buffer{})
+
+	choice, err := ioo.ChoiceWithOptions("pick", []string{"first", "second"}, ChoiceOptions{Attempts: 3})
+	if err != nil {
+		t.Fatalf("ChoiceWithOptions returned error: %v", err)
+	}
+	if len(choice) != 1 || choice[0] != "first" {
+		t.Fatalf("choice = %v, want first", choice)
+	}
+}
+
 func TestTerminalIOTableAndProgress(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	io := NewIO(strings.NewReader(""), stdout, stdout)

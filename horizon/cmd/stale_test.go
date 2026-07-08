@@ -116,5 +116,5 @@ func (fakeInput) Arguments(string) []string     { return nil }
 func (fakeInput) Option(string) string          { return "" }
 func (fakeInput) OptionStrings(string) []string { return nil }
 func (fakeInput) OptionBool(string) bool        { return false }
-func (fakeInput) OptionInt(string) int          { return 0 }
+func (fakeInput) OptionInt(string) (int, error)  { return 0, nil }
 func (fakeInput) HasOption(string) bool         { return false }

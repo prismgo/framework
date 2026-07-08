@@ -24,7 +24,9 @@ func (i fakeInput) OptionStrings(name string) []string {
 	return []string{value}
 }
 func (i fakeInput) OptionBool(name string) bool { return i.bools[name] }
-func (i fakeInput) OptionInt(name string) int   { return parsePositiveInt(i.options[name]) }
+func (i fakeInput) OptionInt(name string) (int, error) {
+	return parsePositiveInt(i.options[name]), nil
+}
 func (i fakeInput) HasOption(name string) bool {
 	_, ok := i.options[name]
 	if ok {

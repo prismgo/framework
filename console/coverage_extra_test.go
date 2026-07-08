@@ -135,8 +135,8 @@ func TestCommandContextExposesReadOnlyInputContract(t *testing.T) {
 	if !commandCtx.OptionBool("enabled") {
 		t.Fatal("expected OptionBool(enabled) = true")
 	}
-	if got := commandCtx.OptionInt("take"); got != 25 {
-		t.Fatalf("OptionInt(take) = %d, want 25", got)
+	if got, err := commandCtx.OptionInt("take"); err != nil || got != 25 {
+		t.Fatalf("OptionInt(take) = %d, err=%v, want 25, nil", got, err)
 	}
 	if !commandCtx.HasOption("name") {
 		t.Fatal("expected HasOption(name) = true")
@@ -179,8 +179,8 @@ func TestBindDefinitionFlagsSupportsDefaultValuesAndBoolInput(t *testing.T) {
 		t.Fatalf("BindDefinitionFlags returned error: %v", err)
 	}
 	input := NewInput(definition, cmd, nil)
-	if got := input.OptionInt("take"); got != 10 {
-		t.Fatalf("OptionInt(take) = %d, want 10", got)
+	if got, err := input.OptionInt("take"); err != nil || got != 10 {
+		t.Fatalf("OptionInt(take) = %d, err=%v, want 10, nil", got, err)
 	}
 	if !input.OptionBool("force") {
 		t.Fatal("expected OptionBool(force) = true")
@@ -266,8 +266,8 @@ func TestNilRuntimeCommandContextReturnsDefaults(t *testing.T) {
 	if commandCtx.OptionBool("name") {
 		t.Fatal("expected nil runtime context bool option to be false")
 	}
-	if commandCtx.OptionInt("name") != 0 {
-		t.Fatal("expected nil runtime context int option to be zero")
+	if got, err := commandCtx.OptionInt("name"); err != nil || got != 0 {
+		t.Fatalf("OptionInt(name) = %d, err=%v, want 0, nil", got, err)
 	}
 	if commandCtx.HasOption("name") {
 		t.Fatal("expected nil runtime context HasOption to be false")
