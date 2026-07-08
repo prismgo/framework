@@ -213,9 +213,16 @@ func TestCommandContextTrapExitsOnContextCancel(t *testing.T) {
 		t.Fatalf("Trap returned error: %v", err)
 	}
 
-	// 等待 goroutine 启动
-	time.Sleep(50 * time.Millisecond)
-	afterTrapGoroutines := runtime.NumGoroutine()
+	// 轮询等待 goroutine 启动，避免 CI 环境调度延迟导致 flaky
+	var afterTrapGoroutines int
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		afterTrapGoroutines = runtime.NumGoroutine()
+		if afterTrapGoroutines > initialGoroutines {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	if afterTrapGoroutines <= initialGoroutines {
 		t.Fatalf("trap goroutine did not start: initial=%d, after=%d", initialGoroutines, afterTrapGoroutines)
@@ -311,8 +318,16 @@ func TestCommandContextTrapClosesSignalChannelOnRelease(t *testing.T) {
 		}
 	}
 
-	time.Sleep(50 * time.Millisecond)
-	afterTrapsGoroutines := runtime.NumGoroutine()
+	// 轮询等待 goroutine 启动，避免 CI 环境调度延迟导致 flaky
+	var afterTrapsGoroutines int
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		afterTrapsGoroutines = runtime.NumGoroutine()
+		if afterTrapsGoroutines > initialGoroutines {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	if afterTrapsGoroutines <= initialGoroutines {
 		t.Fatalf("trap goroutines did not start: initial=%d, after=%d", initialGoroutines, afterTrapsGoroutines)
