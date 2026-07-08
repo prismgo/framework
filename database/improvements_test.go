@@ -26,7 +26,9 @@ func TestIsolationLevelErrorMessage_IncludesValidLevels(t *testing.T) {
 	}
 
 	cfg := MySQLConfig{
-		IsolationLevel: "INVALID LEVEL",
+		Session: MySQLSessionConfig{
+			IsolationLevel: "INVALID LEVEL",
+		},
 	}
 
 	err = configureConnection(gormDB, cfg)

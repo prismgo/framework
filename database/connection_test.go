@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -19,9 +20,11 @@ import (
 
 func TestBuildMySQLDSNUsesDefaults(t *testing.T) {
 	dsn := BuildMySQLDSN(MySQLConfig{
-		Username: "root",
-		Password: "secret",
-		Database: "app",
+		Connection: MySQLConnectionConfig{
+			Username: "root",
+			Password: "secret",
+			Database: "app",
+		},
 	})
 	if !strings.Contains(dsn, "root:secret@tcp(127.0.0.1:3306)/app") {
 		t.Fatalf("unexpected dsn: %s", dsn)
@@ -38,7 +41,11 @@ func TestBuildMySQLDSNUsesDefaults(t *testing.T) {
 }
 
 func TestBuildMySQLDSNHonorsExplicitDSN(t *testing.T) {
-	got := BuildMySQLDSN(MySQLConfig{DSN: "custom-dsn"})
+	got := BuildMySQLDSN(MySQLConfig{
+		Connection: MySQLConnectionConfig{
+			DSN: "custom-dsn",
+		},
+	})
 	if got != "custom-dsn" {
 		t.Fatalf("explicit DSN should win, got %q", got)
 	}
@@ -46,36 +53,40 @@ func TestBuildMySQLDSNHonorsExplicitDSN(t *testing.T) {
 
 func TestBuildMySQLDSNRoundTripsSpecialCharacters(t *testing.T) {
 	want := MySQLConfig{
-		Host:     "db.internal",
-		Port:     "3307",
-		Username: "user@name/with?chars",
-		Password: "p@ss:word/with@chars?",
-		Database: "tenant/db:name",
-		Charset:  "utf8mb4",
-		Loc:      "Local",
+		Connection: MySQLConnectionConfig{
+			Host:     "db.internal",
+			Port:     "3307",
+			Username: "user@name/with?chars",
+			Password: "p@ss:word/with@chars?",
+			Database: "tenant/db:name",
+		},
+		Session: MySQLSessionConfig{
+			Charset: "utf8mb4",
+			Loc:     "Local",
+		},
 	}
 
 	parsed, err := mysqldriver.ParseDSN(BuildMySQLDSN(want))
 	if err != nil {
 		t.Fatalf("parse dsn: %v", err)
 	}
-	if parsed.User != want.Username {
-		t.Fatalf("user = %q, want %q", parsed.User, want.Username)
+	if parsed.User != want.Connection.Username {
+		t.Fatalf("user = %q, want %q", parsed.User, want.Connection.Username)
 	}
-	if parsed.Passwd != want.Password {
-		t.Fatalf("password = %q, want %q", parsed.Passwd, want.Password)
+	if parsed.Passwd != want.Connection.Password {
+		t.Fatalf("password = %q, want %q", parsed.Passwd, want.Connection.Password)
 	}
-	if parsed.DBName != want.Database {
-		t.Fatalf("dbname = %q, want %q", parsed.DBName, want.Database)
+	if parsed.DBName != want.Connection.Database {
+		t.Fatalf("dbname = %q, want %q", parsed.DBName, want.Connection.Database)
 	}
-	if parsed.Addr != want.Host+":"+want.Port {
-		t.Fatalf("addr = %q, want %q", parsed.Addr, want.Host+":"+want.Port)
+	if parsed.Addr != want.Connection.Host+":"+want.Connection.Port {
+		t.Fatalf("addr = %q, want %q", parsed.Addr, want.Connection.Host+":"+want.Connection.Port)
 	}
 	if !parsed.ParseTime {
 		t.Fatal("expected parseTime to round-trip true")
 	}
-	if got := parsed.Loc.String(); got != want.Loc {
-		t.Fatalf("loc = %q, want %q", got, want.Loc)
+	if got := parsed.Loc.String(); got != want.Session.Loc {
+		t.Fatalf("loc = %q, want %q", got, want.Session.Loc)
 	}
 }
 
@@ -171,10 +182,12 @@ func TestParseDurationSecondsOrText(t *testing.T) {
 
 func TestBuildMySQLDSNWithUnixSocket(t *testing.T) {
 	dsn := BuildMySQLDSN(MySQLConfig{
-		UnixSocket: "/var/run/mysqld/mysqld.sock",
-		Username:   "root",
-		Password:   "secret",
-		Database:   "app",
+		Connection: MySQLConnectionConfig{
+			UnixSocket: "/var/run/mysqld/mysqld.sock",
+			Username:   "root",
+			Password:   "secret",
+			Database:   "app",
+		},
 	})
 	if !strings.Contains(dsn, "unix(/var/run/mysqld/mysqld.sock)") {
 		t.Fatalf("expected unix socket in DSN, got: %s", dsn)
@@ -187,10 +200,12 @@ func TestBuildMySQLDSNWithUnixSocket(t *testing.T) {
 
 func TestBuildMySQLDSNWithTCPIfNoSocket(t *testing.T) {
 	dsn := BuildMySQLDSN(MySQLConfig{
-		Host:     "127.0.0.1",
-		Port:     "3306",
-		Username: "root",
-		Database: "app",
+		Connection: MySQLConnectionConfig{
+			Host:     "127.0.0.1",
+			Port:     "3306",
+			Username: "root",
+			Database: "app",
+		},
 	})
 	if !strings.Contains(dsn, "tcp(127.0.0.1:3306)") {
 		t.Fatalf("expected tcp in DSN when no socket, got: %s", dsn)
@@ -200,11 +215,13 @@ func TestBuildMySQLDSNWithTCPIfNoSocket(t *testing.T) {
 func TestBuildMySQLDSNSocketPriority(t *testing.T) {
 	// 验证 UnixSocket 优先级高于 Host/Port
 	dsn := BuildMySQLDSN(MySQLConfig{
-		UnixSocket: "/tmp/mysql.sock",
-		Host:       "192.168.1.1",
-		Port:       "3307",
-		Username:   "root",
-		Database:   "app",
+		Connection: MySQLConnectionConfig{
+			UnixSocket: "/tmp/mysql.sock",
+			Host:       "192.168.1.1",
+			Port:       "3307",
+			Username:   "root",
+			Database:   "app",
+		},
 	})
 	if !strings.Contains(dsn, "unix(/tmp/mysql.sock)") {
 		t.Fatalf("expected unix socket in DSN, got: %s", dsn)
@@ -225,10 +242,12 @@ func TestBuildDSNByDriver(t *testing.T) {
 			name:   "mysql driver uses BuildMySQLDSN",
 			driver: "mysql",
 			cfg: MySQLConfig{
-				Host:     "localhost",
-				Port:     "3306",
-				Username: "root",
-				Database: "test",
+				Connection: MySQLConnectionConfig{
+					Host:     "localhost",
+					Port:     "3306",
+					Username: "root",
+					Database: "test",
+				},
 			},
 			check: func(dsn string) bool {
 				return strings.Contains(dsn, "root@") && strings.Contains(dsn, "test")
@@ -238,7 +257,9 @@ func TestBuildDSNByDriver(t *testing.T) {
 			name:   "sqlite driver uses raw DSN",
 			driver: "sqlite",
 			cfg: MySQLConfig{
-				DSN: "file::memory:?cache=shared",
+				Connection: MySQLConnectionConfig{
+					DSN: "file::memory:?cache=shared",
+				},
 			},
 			check: func(dsn string) bool {
 				return dsn == "file::memory:?cache=shared"
@@ -283,7 +304,12 @@ func TestConfigureConnectionSkipsWhenCollationEmpty(t *testing.T) {
 	// Strict=false 时 SQL 模式为 NO_ENGINE_SUBSTITUTION
 	mock.ExpectExec("SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'").WillReturnResult(sqlmock.NewResult(0, 0))
 
-	err = configureConnection(gormDB, MySQLConfig{Collation: "", Strict: false})
+	err = configureConnection(gormDB, MySQLConfig{
+		Session: MySQLSessionConfig{
+			Collation: "",
+			Strict:    false,
+		},
+	})
 	if err != nil {
 		t.Fatalf("expected nil error for empty collation, got: %v", err)
 	}
@@ -362,9 +388,11 @@ func TestConfigureConnectionExecutesSetNames(t *testing.T) {
 	mock.ExpectExec("SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'").WillReturnResult(sqlmock.NewResult(0, 0))
 
 	err = configureConnection(gormDB, MySQLConfig{
-		Charset:   "utf8mb4",
-		Collation: "utf8mb4_unicode_ci",
-		Strict:    false,
+		Session: MySQLSessionConfig{
+			Charset:   "utf8mb4",
+			Collation: "utf8mb4_unicode_ci",
+			Strict:    false,
+		},
 	})
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
@@ -399,9 +427,11 @@ func TestConfigureConnectionUsesDefaultCharset(t *testing.T) {
 	mock.ExpectExec("SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'").WillReturnResult(sqlmock.NewResult(0, 0))
 
 	err = configureConnection(gormDB, MySQLConfig{
-		Charset:   "", // 空 charset
-		Collation: "utf8mb4_unicode_ci",
-		Strict:    false,
+		Session: MySQLSessionConfig{
+			Charset:   "", // 空 charset
+			Collation: "utf8mb4_unicode_ci",
+			Strict:    false,
+		},
 	})
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
@@ -432,8 +462,10 @@ func TestConfigureConnectionReturnsErrorOnFailure(t *testing.T) {
 	mock.ExpectExec("SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci'").WillReturnError(errors.New("mock error"))
 
 	err = configureConnection(gormDB, MySQLConfig{
-		Charset:   "utf8mb4",
-		Collation: "utf8mb4_unicode_ci",
+		Session: MySQLSessionConfig{
+			Charset:   "utf8mb4",
+			Collation: "utf8mb4_unicode_ci",
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -523,8 +555,10 @@ func TestGetSqlMode_ModesPriority(t *testing.T) {
 	}
 
 	cfg := MySQLConfig{
-		Strict: true,
-		Modes:  []string{"STRICT_TRANS_TABLES", "NO_ZERO_DATE"},
+		Session: MySQLSessionConfig{
+			Strict: true,
+			Modes:  []string{"STRICT_TRANS_TABLES", "NO_ZERO_DATE"},
+		},
 	}
 
 	mode := getSqlMode(cfg, gormDB)
@@ -556,8 +590,10 @@ func TestGetSqlMode_StrictFalse(t *testing.T) {
 	}
 
 	cfg := MySQLConfig{
-		Strict: false,
-		Modes:  nil,
+		Session: MySQLSessionConfig{
+			Strict: false,
+			Modes:  nil,
+		},
 	}
 
 	mode := getSqlMode(cfg, gormDB)
@@ -588,8 +624,10 @@ func TestGetSqlMode_StrictTrue_NewVersion(t *testing.T) {
 	mock.ExpectQuery("SELECT VERSION\\(\\)").WillReturnRows(rows)
 
 	cfg := MySQLConfig{
-		Strict: true,
-		Modes:  nil,
+		Session: MySQLSessionConfig{
+			Strict: true,
+			Modes:  nil,
+		},
 	}
 
 	mode := getSqlMode(cfg, gormDB)
@@ -624,8 +662,10 @@ func TestGetSqlMode_StrictTrue_OldVersion(t *testing.T) {
 	mock.ExpectQuery("SELECT VERSION\\(\\)").WillReturnRows(rows)
 
 	cfg := MySQLConfig{
-		Strict: true,
-		Modes:  nil,
+		Session: MySQLSessionConfig{
+			Strict: true,
+			Modes:  nil,
+		},
 	}
 
 	mode := getSqlMode(cfg, gormDB)
@@ -663,7 +703,9 @@ func TestConfigureConnection_SetsSqlMode(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	err = configureConnection(gormDB, MySQLConfig{
-		Strict: true,
+		Session: MySQLSessionConfig{
+			Strict: true,
+		},
 	})
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
@@ -701,8 +743,10 @@ func TestConfigureConnection_SetsTimezone(t *testing.T) {
 	mock.ExpectExec("SET time_zone='\\+08:00'").WillReturnResult(sqlmock.NewResult(0, 0))
 
 	err = configureConnection(gormDB, MySQLConfig{
-		Strict:   true,
-		Timezone: "+08:00",
+		Session: MySQLSessionConfig{
+			Strict:   true,
+			Timezone: "+08:00",
+		},
 	})
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
@@ -741,8 +785,10 @@ func TestConfigureConnection_SetsIsolationLevel(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	err = configureConnection(gormDB, MySQLConfig{
-		Strict:         true,
-		IsolationLevel: "READ COMMITTED",
+		Session: MySQLSessionConfig{
+			Strict:         true,
+			IsolationLevel: "READ COMMITTED",
+		},
 	})
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
@@ -774,8 +820,10 @@ func TestConfigureConnection_RejectsInvalidIsolationLevel(t *testing.T) {
 
 	// 非法隔离级别应在执行隔离级别 SQL 之前被拒绝
 	err = configureConnection(gormDB, MySQLConfig{
-		Strict:         false,
-		IsolationLevel: "INVALID LEVEL",
+		Session: MySQLSessionConfig{
+			Strict:         false,
+			IsolationLevel: "INVALID LEVEL",
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid isolation level, got nil")
@@ -817,8 +865,10 @@ func TestConfigureConnection_AcceptsValidIsolationLevels(t *testing.T) {
 				WillReturnResult(sqlmock.NewResult(0, 0))
 
 			err = configureConnection(gormDB, MySQLConfig{
-				Strict:         false,
-				IsolationLevel: level,
+				Session: MySQLSessionConfig{
+					Strict:         false,
+					IsolationLevel: level,
+				},
 			})
 			if err != nil {
 				t.Fatalf("expected no error for valid isolation level %q, got: %v", level, err)
@@ -864,11 +914,13 @@ func TestConfigureConnection_SetsAll(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	err = configureConnection(gormDB, MySQLConfig{
-		Charset:        "utf8mb4",
-		Collation:      "utf8mb4_unicode_ci",
-		Strict:         true,
-		Timezone:       "+08:00",
-		IsolationLevel: "READ COMMITTED",
+		Session: MySQLSessionConfig{
+			Charset:        "utf8mb4",
+			Collation:      "utf8mb4_unicode_ci",
+			Strict:         true,
+			Timezone:       "+08:00",
+			IsolationLevel: "READ COMMITTED",
+		},
 	})
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
@@ -903,7 +955,9 @@ func TestConfigureConnection_FailureClosesConnection(t *testing.T) {
 		WillReturnError(errors.New("mock sql_mode error"))
 
 	err = configureConnection(gormDB, MySQLConfig{
-		Strict: true,
+		Session: MySQLSessionConfig{
+			Strict: true,
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -980,26 +1034,30 @@ func TestSSLConfigToDSNParams(t *testing.T) {
 func TestMySQLConfigPhase3Fields(t *testing.T) {
 	t.Run("new fields can be set and read", func(t *testing.T) {
 		cfg := MySQLConfig{
-			Engine: "MyISAM",
-			SSL: SSLConfig{
-				CA:   "/path/to/ca.pem",
-				Cert: "/path/to/cert.pem",
-				Key:  "/path/to/key.pem",
+			Schema: MySQLSchemaConfig{
+				Engine: "MyISAM",
+				SSL: SSLConfig{
+					CA:   "/path/to/ca.pem",
+					Cert: "/path/to/cert.pem",
+					Key:  "/path/to/key.pem",
+				},
 			},
-			Options: map[string]string{
-				"timeout":     "10s",
-				"readTimeout": "30s",
+			Driver: MySQLDriverConfig{
+				Options: map[string]string{
+					"timeout":     "10s",
+					"readTimeout": "30s",
+				},
 			},
 		}
 
-		if cfg.Engine != "MyISAM" {
-			t.Fatalf("expected Engine=MyISAM, got %s", cfg.Engine)
+		if cfg.Schema.Engine != "MyISAM" {
+			t.Fatalf("expected Engine=MyISAM, got %s", cfg.Schema.Engine)
 		}
-		if cfg.SSL.CA != "/path/to/ca.pem" {
-			t.Fatalf("expected SSL.CA=/path/to/ca.pem, got %s", cfg.SSL.CA)
+		if cfg.Schema.SSL.CA != "/path/to/ca.pem" {
+			t.Fatalf("expected SSL.CA=/path/to/ca.pem, got %s", cfg.Schema.SSL.CA)
 		}
-		if cfg.Options["timeout"] != "10s" {
-			t.Fatalf("expected Options[timeout]=10s, got %s", cfg.Options["timeout"])
+		if cfg.Driver.Options["timeout"] != "10s" {
+			t.Fatalf("expected Options[timeout]=10s, got %s", cfg.Driver.Options["timeout"])
 		}
 	})
 
@@ -1007,35 +1065,39 @@ func TestMySQLConfigPhase3Fields(t *testing.T) {
 		cfg := MySQLConfig{}
 
 		// Engine 零值为空字符串
-		if cfg.Engine != "" {
-			t.Fatalf("expected Engine zero value to be empty, got %s", cfg.Engine)
+		if cfg.Schema.Engine != "" {
+			t.Fatalf("expected Engine zero value to be empty, got %s", cfg.Schema.Engine)
 		}
 
 		// SSL 零值为空结构体
-		if cfg.SSL.CA != "" || cfg.SSL.Cert != "" || cfg.SSL.Key != "" {
-			t.Fatalf("expected SSL zero value to be empty, got %+v", cfg.SSL)
+		if cfg.Schema.SSL.CA != "" || cfg.Schema.SSL.Cert != "" || cfg.Schema.SSL.Key != "" {
+			t.Fatalf("expected SSL zero value to be empty, got %+v", cfg.Schema.SSL)
 		}
-		if cfg.SSL.InsecureSkipVerify != false {
+		if cfg.Schema.SSL.InsecureSkipVerify != false {
 			t.Fatalf("expected SSL.InsecureSkipVerify zero value to be false")
 		}
 
 		// Options 零值为 nil map
-		if cfg.Options != nil {
-			t.Fatalf("expected Options zero value to be nil, got %v", cfg.Options)
+		if cfg.Driver.Options != nil {
+			t.Fatalf("expected Options zero value to be nil, got %v", cfg.Driver.Options)
 		}
 	})
 }
 
 func TestBuildMySQLDSNWithSSL(t *testing.T) {
 	dsn := BuildMySQLDSN(MySQLConfig{
-		Username: "root",
-		Password: "secret",
-		Database: "app",
-		SSL: SSLConfig{
-			CA:                 "/path/to/ca.pem",
-			Cert:               "/path/to/cert.pem",
-			Key:                "/path/to/key.pem",
-			InsecureSkipVerify: true,
+		Connection: MySQLConnectionConfig{
+			Username: "root",
+			Password: "secret",
+			Database: "app",
+		},
+		Schema: MySQLSchemaConfig{
+			SSL: SSLConfig{
+				CA:                 "/path/to/ca.pem",
+				Cert:               "/path/to/cert.pem",
+				Key:                "/path/to/key.pem",
+				InsecureSkipVerify: true,
+			},
 		},
 	})
 	if !strings.Contains(dsn, "tls=true") {
@@ -1051,11 +1113,15 @@ func TestBuildMySQLDSNWithSSL(t *testing.T) {
 
 func TestBuildMySQLDSNWithOptions(t *testing.T) {
 	dsn := BuildMySQLDSN(MySQLConfig{
-		Username: "root",
-		Password: "secret",
-		Database: "app",
-		Options: map[string]string{
-			"timeout": "10s",
+		Connection: MySQLConnectionConfig{
+			Username: "root",
+			Password: "secret",
+			Database: "app",
+		},
+		Driver: MySQLDriverConfig{
+			Options: map[string]string{
+				"timeout": "10s",
+			},
 		},
 	})
 	if !strings.Contains(dsn, "timeout=10s") {
@@ -1069,12 +1135,18 @@ func TestBuildMySQLDSNWithOptions(t *testing.T) {
 
 func TestBuildMySQLDSNOptionsOverrideDefaults(t *testing.T) {
 	dsn := BuildMySQLDSN(MySQLConfig{
-		Username: "root",
-		Password: "secret",
-		Database: "app",
-		Charset:  "utf8mb4",
-		Options: map[string]string{
-			"charset": "latin1",
+		Connection: MySQLConnectionConfig{
+			Username: "root",
+			Password: "secret",
+			Database: "app",
+		},
+		Session: MySQLSessionConfig{
+			Charset: "utf8mb4",
+		},
+		Driver: MySQLDriverConfig{
+			Options: map[string]string{
+				"charset": "latin1",
+			},
 		},
 	})
 	// Options 优先级高于默认值
@@ -1088,14 +1160,20 @@ func TestBuildMySQLDSNOptionsOverrideDefaults(t *testing.T) {
 
 func TestBuildMySQLDSNSSLAndOptionsCombined(t *testing.T) {
 	dsn := BuildMySQLDSN(MySQLConfig{
-		Username: "root",
-		Password: "secret",
-		Database: "app",
-		SSL: SSLConfig{
-			CA: "/path/to/ca.pem",
+		Connection: MySQLConnectionConfig{
+			Username: "root",
+			Password: "secret",
+			Database: "app",
 		},
-		Options: map[string]string{
-			"timeout": "5s",
+		Schema: MySQLSchemaConfig{
+			SSL: SSLConfig{
+				CA: "/path/to/ca.pem",
+			},
+		},
+		Driver: MySQLDriverConfig{
+			Options: map[string]string{
+				"timeout": "5s",
+			},
 		},
 	})
 	// SSL 参数存在
@@ -1113,4 +1191,138 @@ func TestBuildMySQLDSNSSLAndOptionsCombined(t *testing.T) {
 	if !strings.Contains(dsn, "charset=utf8mb4") {
 		t.Fatalf("expected charset=utf8mb4 in DSN, got: %s", dsn)
 	}
+}
+
+// TestSetOption_InitializesNilMap 验证 setOption 方法在 Options 为 nil 时自动初始化 map。
+func TestSetOption_InitializesNilMap(t *testing.T) {
+	cfg := MySQLConfig{}
+	if cfg.Driver.Options != nil {
+		t.Fatal("expected nil Options initially")
+	}
+
+	cfg.setOption("timeout", "5s")
+	if cfg.Driver.Options["timeout"] != "5s" {
+		t.Fatalf("expected timeout=5s, got %s", cfg.Driver.Options["timeout"])
+	}
+
+	cfg.setOption("readTimeout", "10s")
+	if len(cfg.Driver.Options) != 2 {
+		t.Fatalf("expected 2 options, got %d", len(cfg.Driver.Options))
+	}
+	if cfg.Driver.Options["readTimeout"] != "10s" {
+		t.Fatalf("expected readTimeout=10s, got %s", cfg.Driver.Options["readTimeout"])
+	}
+}
+
+// TestValidateInterpolateParamsWithCharset 验证 InterpolateParams 与危险字符集组合的校验。
+func TestValidateInterpolateParamsWithCharset(t *testing.T) {
+	dangerousCharsets := []string{"big5", "cp932", "gb2312", "gbk", "sjis"}
+	for _, charset := range dangerousCharsets {
+		t.Run(charset, func(t *testing.T) {
+			err := validateInterpolateParamsWithCharset(charset)
+			if err == nil {
+				t.Fatalf("expected error for dangerous charset %s", charset)
+			}
+			if !strings.Contains(err.Error(), "SQL injection risk") {
+				t.Fatalf("expected SQL injection risk error, got: %v", err)
+			}
+		})
+	}
+
+	safeCharsets := []string{"utf8", "utf8mb4", "latin1", "ascii", "binary"}
+	for _, charset := range safeCharsets {
+		t.Run(charset, func(t *testing.T) {
+			err := validateInterpolateParamsWithCharset(charset)
+			if err != nil {
+				t.Fatalf("expected no error for safe charset %s, got: %v", charset, err)
+			}
+		})
+	}
+}
+
+// TestConfigureConnection_RejectsInterpolateParamsWithDangerousCharset 验证 configureConnection 拒绝危险组合。
+func TestConfigureConnection_RejectsInterpolateParamsWithDangerousCharset(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      db,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
+	}
+
+	err = configureConnection(gormDB, MySQLConfig{
+		Session: MySQLSessionConfig{
+			Charset: "gbk",
+		},
+		Driver: MySQLDriverConfig{
+			InterpolateParams: true,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for InterpolateParams with gbk charset, got nil")
+	}
+	if !strings.Contains(err.Error(), "SQL injection risk") {
+		t.Fatalf("expected SQL injection risk error, got: %v", err)
+	}
+}
+
+// TestSSLConfig_Validate 验证 SSL 证书路径的文件存在性检查。
+func TestSSLConfig_Validate(t *testing.T) {
+	t.Run("empty paths pass validation", func(t *testing.T) {
+		ssl := SSLConfig{}
+		if err := ssl.validate(); err != nil {
+			t.Fatalf("expected no error for empty paths, got: %v", err)
+		}
+	})
+
+	t.Run("non-existent CA path fails", func(t *testing.T) {
+		ssl := SSLConfig{CA: "/non/existent/ca.pem"}
+		err := ssl.validate()
+		if err == nil {
+			t.Fatal("expected error for non-existent CA path")
+		}
+		if !strings.Contains(err.Error(), "SSL CA certificate not found") {
+			t.Fatalf("expected CA not found error, got: %v", err)
+		}
+	})
+
+	t.Run("non-existent Cert path fails", func(t *testing.T) {
+		ssl := SSLConfig{Cert: "/non/existent/cert.pem"}
+		err := ssl.validate()
+		if err == nil {
+			t.Fatal("expected error for non-existent Cert path")
+		}
+		if !strings.Contains(err.Error(), "SSL client certificate not found") {
+			t.Fatalf("expected cert not found error, got: %v", err)
+		}
+	})
+
+	t.Run("non-existent Key path fails", func(t *testing.T) {
+		ssl := SSLConfig{Key: "/non/existent/key.pem"}
+		err := ssl.validate()
+		if err == nil {
+			t.Fatal("expected error for non-existent Key path")
+		}
+		if !strings.Contains(err.Error(), "SSL client key not found") {
+			t.Fatalf("expected key not found error, got: %v", err)
+		}
+	})
+
+	t.Run("existing file passes", func(t *testing.T) {
+		tmpFile := t.TempDir() + "/test.pem"
+		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+
+		ssl := SSLConfig{CA: tmpFile}
+		if err := ssl.validate(); err != nil {
+			t.Fatalf("expected no error for existing file, got: %v", err)
+		}
+	})
 }

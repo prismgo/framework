@@ -20,37 +20,47 @@ func TestConfigureConnection_ValidatesBeforeSQL(t *testing.T) {
 		{
 			name: "invalid charset",
 			cfg: MySQLConfig{
-				Charset:   "invalid_charset",
-				Collation: "utf8mb4_unicode_ci",
+				Session: MySQLSessionConfig{
+					Charset:   "invalid_charset",
+					Collation: "utf8mb4_unicode_ci",
+				},
 			},
 			errContains: "invalid charset",
 		},
 		{
 			name: "invalid collation prefix",
 			cfg: MySQLConfig{
-				Charset:   "utf8mb4",
-				Collation: "utf8_unicode_ci",
+				Session: MySQLSessionConfig{
+					Charset:   "utf8mb4",
+					Collation: "utf8_unicode_ci",
+				},
 			},
 			errContains: "invalid collation",
 		},
 		{
 			name: "invalid timezone",
 			cfg: MySQLConfig{
-				Timezone: "Invalid/Timezone",
+				Session: MySQLSessionConfig{
+					Timezone: "Invalid/Timezone",
+				},
 			},
 			errContains: "invalid timezone",
 		},
 		{
 			name: "invalid isolation level",
 			cfg: MySQLConfig{
-				IsolationLevel: "INVALID LEVEL",
+				Session: MySQLSessionConfig{
+					IsolationLevel: "INVALID LEVEL",
+				},
 			},
 			errContains: "invalid isolation level",
 		},
 		{
 			name: "invalid sql mode",
 			cfg: MySQLConfig{
-				Modes: []string{"INVALID_MODE"},
+				Session: MySQLSessionConfig{
+					Modes: []string{"INVALID_MODE"},
+				},
 			},
 			errContains: "invalid sql mode",
 		},

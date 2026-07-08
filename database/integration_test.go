@@ -210,8 +210,10 @@ func TestIntegration_MySQLVersionAndIsolationLevels(t *testing.T) {
 
 			// 执行 configureConnection
 			err = configureConnection(gormDB, MySQLConfig{
-				Strict:         true,
-				IsolationLevel: tt.isolationLevel,
+				Session: MySQLSessionConfig{
+					Strict:         true,
+					IsolationLevel: tt.isolationLevel,
+				},
 			})
 
 			// 验证结果
@@ -457,8 +459,10 @@ func TestIntegration_SqlModeGeneration(t *testing.T) {
 
 			// 调用 getSqlMode
 			cfg := MySQLConfig{
-				Strict: tt.strict,
-				Modes:  tt.customModes,
+				Session: MySQLSessionConfig{
+					Strict: tt.strict,
+					Modes:  tt.customModes,
+				},
 			}
 			gotSqlMode := getSqlMode(cfg, gormDB)
 
