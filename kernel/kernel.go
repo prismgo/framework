@@ -818,16 +818,26 @@ func normalizeCommandArgs(args []string, includeProgramName bool) []string {
 }
 
 // resetCommandFlags 在每次执行前重置命令树上的 flag 状态。
+//
 // 需求背景：测试与程序化调用会复用同一个 Kernel/Command 实例；
 // 如果不在执行前清空 Changed 与当前值，上一次运行的 --ansi/--no-ansi 等显式状态会泄漏到下一次执行结果。
 // 递归重置：需要重置所有子命令的 flag，因为 persistent flags 的 Changed 状态不会被 Cobra 自动重置。
+//
+// 注意事项：对于 stringArray/stringSlice 等切片类型 flag，pflag 的 Set 方法会追加而非替换值，
+// 且空切片的 String() 输出为 "[]"，调用 Set("[]") 会把字面值 "[]" 追加为数组元素，破坏 flag 状态。
+// 这里通过 pflag.SliceValue 接口的 Replace 方法来正确重置切片值。
 func resetCommandFlags(cmd *cobra.Command) {
 	if cmd == nil {
 		return
 	}
 	cmd.Flags().VisitAll(func(flag *pflag.Flag) {
 		flag.Changed = false
-		_ = flag.Value.Set(flag.DefValue)
+		if sv, ok := flag.Value.(pflag.SliceValue); ok {
+			// 切片类型：使用 Replace 清空数组，避免 Set("[]") 追加字面值的问题。
+			_ = sv.Replace(nil)
+		} else {
+			_ = flag.Value.Set(flag.DefValue)
+		}
 	})
 	for _, child := range cmd.Commands() {
 		resetCommandFlags(child)

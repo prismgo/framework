@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/prismgo/framework/console"
@@ -56,4 +57,57 @@ func (c *commandWithOptions) Definition() *console.Definition {
 
 func (c *commandWithOptions) Handle(ctx console.CommandContext) error {
 	return nil
+}
+
+// stringArrayCommand 测试 stringArray 选项在多次调用间正确重置。
+// 回归测试 #20260710：resetCommandFlags 对 stringArray 调用 Set("[]") 会把字面值
+// "[]" 追加为数组元素，导致选项值在多次执行间泄漏。
+type stringArrayCommand struct {
+	values []string
+}
+
+func (c *stringArrayCommand) Definition() *console.Definition {
+	return console.MustDefinition("array:reset {--item=*} {--flag}", "test stringArray reset")
+}
+
+func (c *stringArrayCommand) Handle(ctx console.CommandContext) error {
+	c.values = ctx.Input().OptionStrings("item")
+	return nil
+}
+
+// TestResetCommandFlagsStringArray 验证 stringArray 选项在多次调用间正确重置。
+func TestResetCommandFlagsStringArray(t *testing.T) {
+	useKernelTestContainer(t)
+
+	k := New("test")
+	cmd := &stringArrayCommand{}
+	k.Register(cmd)
+
+	// 第一次调用：传入两个值
+	ctx := context.Background()
+	err := k.Call(ctx, "array:reset --item=a --item=b")
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	if got := strings.Join(cmd.values, ","); got != "a,b" {
+		t.Fatalf("first call values = %q, want a,b", got)
+	}
+
+	// 第二次调用：不传 --item，应重置为空
+	err = k.Call(ctx, "array:reset")
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if len(cmd.values) != 0 {
+		t.Fatalf("second call values = %q, want empty (got %d elements)", cmd.values, len(cmd.values))
+	}
+
+	// 第三次调用：传一个不同的值
+	err = k.Call(ctx, "array:reset --item=x --item=y --item=z")
+	if err != nil {
+		t.Fatalf("third call: %v", err)
+	}
+	if got := strings.Join(cmd.values, ","); got != "x,y,z" {
+		t.Fatalf("third call values = %q, want x,y,z", got)
+	}
 }
