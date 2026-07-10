@@ -4,7 +4,7 @@ package version
 const Name = "PrismGo"
 
 // Framework is the PrismGo framework version.
-const Framework = "0.2.0"
+const Framework = "0.2.1"
 
 // Banner returns the CLI version banner.
 func Banner() string {
