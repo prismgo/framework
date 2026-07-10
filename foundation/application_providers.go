@@ -305,6 +305,10 @@ func (a *Application) deferredProviderPending(identity string) bool {
 }
 
 // loadDeferredProviderForService 在容器缺失 binding 时按 service key 加载 provider。
+//
+// 并发安全性：多个 goroutine 同时解析同一个 deferred service 时，registerProviderPhase
+// 和 bootProviderPhase 内部的 phaseMu 锁保证 provider 只注册和启动一次。
+// 即使多个 goroutine 同时进入此函数，phase 检查会确保幂等性。
 func (a *Application) loadDeferredProviderForService(key string) error {
 	key = strings.TrimSpace(key)
 	if a == nil || key == "" {
@@ -416,6 +420,11 @@ func (a *Application) bootProviderPhase(provider providerpkg.ServiceProvider, id
 //
 // 设计思路：event provider 自身也是 provider，因此 dispatcher 可能在早期尚不可用。
 // 每次派发前都从当前 Application registry 解析，解析失败只跳过事件，不影响 Boot 结果。
+//
+// 有意设计：解析失败时静默跳过，不记录错误也不返回错误。原因：
+// 1. 这是启动早期的正常状态，不是配置错误或异常情况
+// 2. 事件派发是辅助功能，不应影响核心启动流程
+// 3. 避免在 logger/exception handler 尚未就绪时尝试记录错误
 func (a *Application) dispatchLifecycleEvent(ev event.Event) {
 	bus, err := resolveEventDispatcher(a.container)
 	if err != nil || bus == nil {

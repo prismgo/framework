@@ -118,7 +118,7 @@ func TestExceptionsHandlerRegistersFactoryOnCreate(t *testing.T) {
 	if gotDefault == nil {
 		t.Fatal("default handler was not passed to factory")
 	}
-	got, _ := app.Container().Make("exception.handler")
+	got, _ := app.Container().Make(ContainerKeyExceptionHandler)
 	if got == nil {
 		t.Fatal("handler was not registered in application container")
 	}
@@ -130,7 +130,7 @@ func TestExceptionsUseRegistersHandlerOnCreate(t *testing.T) {
 		e.Use(custom)
 	}).Create()
 
-	got, _ := app.Container().Make("exception.handler")
+	got, _ := app.Container().Make(ContainerKeyExceptionHandler)
 	if got != custom {
 		t.Fatal("custom handler was not registered in application container")
 	}
@@ -140,7 +140,7 @@ func TestBuilderExceptionHandlerFollowsAppDebugConfig(t *testing.T) {
 	app := Configure().Create()
 	useFoundationDebugConfig(t, app, true)
 
-	raw, _ := app.Container().Make("exception.handler")
+	raw, _ := app.Container().Make(ContainerKeyExceptionHandler)
 	h, _ := raw.(*goexception.Handler)
 	if h == nil {
 		t.Fatal("handler was not registered in application container")
@@ -172,8 +172,8 @@ func useFoundationDebugConfig(t *testing.T, app *Application, enabled bool) {
 	if err != nil {
 		t.Fatalf("load test config: %v", err)
 	}
-	_ = app.Container().Instance("config.default", cfg)
+	_ = app.Container().Instance(ContainerKeyConfigDefault, cfg)
 	t.Cleanup(func() {
-		_ = app.Container().Instance("config.default", previous)
+		_ = app.Container().Instance(ContainerKeyConfigDefault, previous)
 	})
 }

@@ -414,7 +414,7 @@ func TestRuntimeRegistriesLoadHTTPRoutesSilencesGinDebugAndRestoresMode(t *testi
 
 	app := NewApplication()
 	_ = route.ServiceProvider{}.Register(app)
-	if err := app.Container().Instance("exception.handler", goexception.New(goexception.WithLogging(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+	if err := app.Container().Instance(ContainerKeyExceptionHandler, goexception.New(goexception.WithLogging(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
 		t.Fatalf("bind exception handler: %v", err)
 	}
 	configureRuntimeRegistries(app, nil, Routing{
@@ -473,7 +473,7 @@ func TestBuilderPrependMiddlewaresRunBeforeInternalMiddlewares(t *testing.T) {
 
 	_ = route.ServiceProvider{}.Register(app)
 
-	if err := app.Container().Instance("event.dispatcher", bus); err != nil {
+	if err := app.Container().Instance(ContainerKeyEventDispatcher, bus); err != nil {
 		t.Fatalf("register event dispatcher: %v", err)
 	}
 

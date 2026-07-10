@@ -131,6 +131,10 @@ func (a *Application) acquireCloseSlot(ctx context.Context) (reentrant bool, err
 }
 
 // runCloseAttempt 执行单次关闭尝试，协调并发并管理状态。
+//
+// 设计说明：provider terminate 只执行一次（首次关闭），失败后不会重试。
+// 原因：terminate 失败通常意味着资源已损坏或处于不一致状态，重试没有意义且可能加重问题。
+// 只有 container resources 会在后续 CloseContext 调用中重试，直到成功后才派发 AppTerminated。
 func (a *Application) runCloseAttempt(ctx context.Context) (err error) {
 	gid := runtimex.GoroutineID()
 
@@ -177,6 +181,10 @@ func (a *Application) runCloseAttempt(ctx context.Context) (err error) {
 }
 
 // runFirstCloseAttempt 执行首次关闭的完整流程：Shutdown、事件派发、provider 终止、cleanup。
+//
+// 设计说明：此函数仅在首次关闭时调用。provider terminate 失败会被记录到 closeErr，
+// 但不会在后续重试中再次执行。这是有意设计：terminate 失败通常表示资源已损坏，
+// 重试可能加重问题。后续 CloseContext 调用只会重试 container resources。
 func (a *Application) runFirstCloseAttempt(eventCtx, closeCtx context.Context, cleanups []func(*Application) error) error {
 	a.Shutdown(ErrApplicationShutdown)
 

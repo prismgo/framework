@@ -404,7 +404,7 @@ func TestApplicationRunContextCoordinatesServerAndAppLifecycleEvents(t *testing.
 
 	app := NewApplication()
 	bus := event.New()
-	if err := app.Container().Instance("event.dispatcher", bus); err != nil {
+	if err := app.Container().Instance(ContainerKeyEventDispatcher, bus); err != nil {
 		t.Fatalf("register event dispatcher: %v", err)
 	}
 	var (

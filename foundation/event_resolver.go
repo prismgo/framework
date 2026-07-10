@@ -15,13 +15,13 @@ func resolveEventDispatcher(c containercontract.Container) (eventcontract.Dispat
 	if c == nil {
 		return nil, fmt.Errorf("foundation: container is nil")
 	}
-	raw, err := c.Make("event.dispatcher")
+	raw, err := c.Make(ContainerKeyEventDispatcher)
 	if err != nil {
 		return nil, err
 	}
 	bus, ok := raw.(eventcontract.Dispatcher)
 	if !ok || bus == nil {
-		return nil, fmt.Errorf("foundation: event.dispatcher resolved %T, want event.Dispatcher", raw)
+		return nil, fmt.Errorf("foundation: %s resolved %T, want event.Dispatcher", ContainerKeyEventDispatcher, raw)
 	}
 	return bus, nil
 }

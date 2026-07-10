@@ -178,7 +178,7 @@ func TestApplicationCloseReportsCleanupErrorBeforeReportingFacadeClose(t *testin
 	var calls []string
 
 	// 场景：cleanup 返回错误时，必须先通过仍存活的 reporting facade 上报，再关闭 reporting 资源。
-	if err := app.Container().Instance("exception.handler", goexception.New(
+	if err := app.Container().Instance(ContainerKeyExceptionHandler, goexception.New(
 		goexception.WithPanicStack(false),
 		goexception.WithReporter(func(ctx any, err error, fields map[string]any) {
 			if _, ok := ctx.(context.Context); !ok {
@@ -220,7 +220,7 @@ func TestApplicationCloseReportsProviderTerminateErrorBeforeReportingFacadeClose
 	var calls []string
 
 	// 场景：provider Terminate 错误属于普通关闭错误，reporting facade 关闭前应能收到该错误。
-	if err := app.Container().Instance("exception.handler", goexception.New(
+	if err := app.Container().Instance(ContainerKeyExceptionHandler, goexception.New(
 		goexception.WithPanicStack(false),
 		goexception.WithReporter(func(ctx any, err error, fields map[string]any) {
 			if _, ok := ctx.(context.Context); !ok {
@@ -274,7 +274,7 @@ func TestApplicationCloseReportsNormalFacadeErrorAndRetryDoesNotReportAgain(t *t
 	var closeCalls int
 
 	// 场景：普通 facade 关闭失败只在首次关闭上报；重试只推进剩余资源，不重复上报旧错误。
-	if err := app.Container().Instance("exception.handler", goexception.New(
+	if err := app.Container().Instance(ContainerKeyExceptionHandler, goexception.New(
 		goexception.WithPanicStack(false),
 		goexception.WithReporter(func(ctx any, err error, fields map[string]any) {
 			reportCalls++
@@ -329,7 +329,7 @@ func TestApplicationCloseReporterPanicIsReturnedWithoutRecursiveReport(t *testin
 	var reportCalls int
 
 	// 场景：reporter 自身 panic 进入 CloseContext 返回值，但不能再次递归触发异常上报。
-	if err := app.Container().Instance("exception.handler", goexception.New(
+	if err := app.Container().Instance(ContainerKeyExceptionHandler, goexception.New(
 		goexception.WithPanicStack(false),
 		goexception.WithReporter(func(ctx any, err error, fields map[string]any) {
 			reportCalls++
@@ -359,7 +359,7 @@ func TestApplicationCloseDoesNotReportReportingFacadeCloseError(t *testing.T) {
 	var reportCalls int
 
 	// 场景：reporting facade 自身关闭失败只作为返回错误，不递归调用 reporter 上报自己。
-	if err := app.Container().Instance("exception.handler", goexception.New(
+	if err := app.Container().Instance(ContainerKeyExceptionHandler, goexception.New(
 		goexception.WithPanicStack(false),
 		goexception.WithReporter(func(ctx any, err error, fields map[string]any) {
 			reportCalls++

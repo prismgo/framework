@@ -73,12 +73,12 @@ func (a *Application) RegisterShutdownSignals() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	routine.Task(a.Context(), func(context.Context) error {
+		defer signal.Stop(sigCh)
 		select {
 		case sig := <-sigCh:
 			a.Shutdown(fmt.Errorf("received signal %s", sig))
 		case <-a.Context().Done():
 		}
-		signal.Stop(sigCh)
 		return nil
 	}).
 		Component("foundation").

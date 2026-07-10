@@ -18,7 +18,7 @@ func TestApplicationProviderRepositoryRegistersEverythingBeforeBooting(t *testin
 		name: "base",
 		register: func(app *Application) error {
 			calls = append(calls, "register:base")
-			return app.Container().Singleton("event.dispatcher", func(containercontract.Resolver) (any, error) {
+			return app.Container().Singleton(ContainerKeyEventDispatcher, func(containercontract.Resolver) (any, error) {
 				return bus, nil
 			})
 		},

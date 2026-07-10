@@ -56,7 +56,7 @@ func (m *mockEventDispatcher) Has(eventName string) bool {
 
 func bindApplicationCloseReporterForTest(t *testing.T, app *Application) {
 	t.Helper()
-	if err := app.Container().Instance("exception.handler", goexception.New(goexception.WithPanicStack(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+	if err := app.Container().Instance(ContainerKeyExceptionHandler, goexception.New(goexception.WithPanicStack(false)), container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
 		t.Fatalf("bind exception handler: %v", err)
 	}
 	manager, err := logger.NewManager(logger.Config{
@@ -578,7 +578,7 @@ func TestAppTerminatedDurationFields(t *testing.T) {
 			capturedEvent = &e
 		}
 	}
-	if err := app.Container().Instance("event.dispatcher", bus); err != nil {
+	if err := app.Container().Instance(ContainerKeyEventDispatcher, bus); err != nil {
 		t.Fatalf("bind event bus: %v", err)
 	}
 
@@ -622,14 +622,14 @@ func TestConfigBaseProviderPreservesExplicitConfig(t *testing.T) {
 		t.Fatalf("reload config failed: %v", err)
 	}
 	app := &Application{container: container.NewContainer()}
-	if err := app.Container().Instance("config.default", existing); err != nil {
+	if err := app.Container().Instance(ContainerKeyConfigDefault, existing); err != nil {
 		t.Fatalf("seed config failed: %v", err)
 	}
 	if err := (configpkg.ServiceProvider{}).Register(app); err != nil {
 		t.Fatalf("register config provider failed: %v", err)
 	}
 
-	raw, err := app.Make("config.default")
+	raw, err := app.Make(ContainerKeyConfigDefault)
 	if err != nil {
 		t.Fatalf("Resolve config failed: %v", err)
 	}
@@ -650,9 +650,9 @@ func TestBuilderDeclaresFrameworkFacadeSlots(t *testing.T) {
 	}
 
 	want := map[string]bool{
-		"event.dispatcher":   false,
-		"config.default":     false,
-		"logger.manager":     false,
+		ContainerKeyEventDispatcher: false,
+		ContainerKeyConfigDefault:   false,
+		"logger.manager":            false,
 		"redis":              false,
 		"redis.connection":   false,
 		"cache.manager":      false,

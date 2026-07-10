@@ -80,6 +80,10 @@ func (b *Builder) WithExceptions(configure func(*Exceptions)) *Builder {
 // default providers，再放入业务 providers，保证业务 provider 可以覆盖或使用框架能力。
 //
 // v4 异常处理重构：统一使用 prismgo/exception.Handler，同时服务 HTTP 和非 HTTP 上下文。
+//
+// Panic 行为：如果 provider 注册失败，该方法会 panic。这是有意设计：provider 注册失败
+// 属于启动装配失败，应该立即终止进程，避免返回一个半装配的 Application 继续运行。
+// 调用方应确保 provider 配置正确，依赖的服务可用。
 func (b *Builder) Create() *Application {
 	app := NewApplication(b.basePath)
 
@@ -128,7 +132,7 @@ func (b *Builder) registerExceptionHandler(app *Application) {
 		b.exceptions.handlerFactory,
 	)
 	if app != nil && handler != nil {
-		if err := app.Instance("exception.handler", handler, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
+		if err := app.Instance(ContainerKeyExceptionHandler, handler, container.WithCloseGroup(container.CloseGroupReporting)); err != nil {
 			panic(fmt.Errorf("register exception handler: %w", err))
 		}
 	}
