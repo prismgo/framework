@@ -213,19 +213,49 @@ func TestCommandContextTrapExitsOnContextCancel(t *testing.T) {
 		t.Fatalf("Trap returned error: %v", err)
 	}
 
-	// 轮询等待 goroutine 启动，避免 CI 环境调度延迟导致 flaky
+	// 立即检查：Trap() 调用后马上查看 goroutine 数量
+	immediateGoroutines := runtime.NumGoroutine()
+
+	// 检查是否有 trap goroutine（包括正在启动的）
+	checkForTrapGoroutine := func() bool {
+		buf := make([]byte, 32768)
+		n := runtime.Stack(buf, true)
+		stack := string(buf[:n])
+		// 匹配 Trap 函数中的闭包或 routine.Go 的包装函数
+		return strings.Contains(stack, "Trap.func") || strings.Contains(stack, "routine.(*builder).Go.gowrap")
+	}
+
+	// 轮询等待 goroutine 启动，使用两种方式检测：
+	// 1. runtime.NumGoroutine() 增加
+	// 2. 堆栈中出现 trap goroutine
+	// 任一条件满足即认为 goroutine 已启动
 	var afterTrapGoroutines int
+	var goroutineStarted bool
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		afterTrapGoroutines = runtime.NumGoroutine()
+
+		// 方式1：检查 goroutine 数量
 		if afterTrapGoroutines > initialGoroutines {
+			goroutineStarted = true
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+
+		// 方式2：检查堆栈
+		if checkForTrapGoroutine() {
+			goroutineStarted = true
+			break
+		}
+
+		time.Sleep(1 * time.Millisecond)
 	}
 
-	if afterTrapGoroutines <= initialGoroutines {
-		t.Fatalf("trap goroutine did not start: initial=%d, after=%d", initialGoroutines, afterTrapGoroutines)
+	if !goroutineStarted {
+		// 失败时 dump 堆栈用于诊断
+		buf := make([]byte, 32768)
+		n := runtime.Stack(buf, true)
+		t.Logf("goroutine dump:\n%s", string(buf[:n]))
+		t.Fatalf("trap goroutine did not start: initial=%d, immediate=%d, after=%d", initialGoroutines, immediateGoroutines, afterTrapGoroutines)
 	}
 
 	// 取消 context，goroutine 应该通过 ctx.Done() 退出
