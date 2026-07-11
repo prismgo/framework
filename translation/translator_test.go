@@ -11,6 +11,7 @@ import (
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
 	transcontract "github.com/prismgo/framework/contracts/translation"
+	pathutil "github.com/prismgo/framework/internal/path"
 )
 
 func bindFacadeTranslator(t *testing.T) {
@@ -72,8 +73,9 @@ func TestFileLoaderNamespaces(t *testing.T) {
 	if len(namespaces) != 1 {
 		t.Errorf("Namespaces = %v, want 1 namespace", len(namespaces))
 	}
-	if namespaces["test"] != "/some/path" {
-		t.Errorf("Namespaces[test] = %v, want /some/path", namespaces["test"])
+	expected := pathutil.Clean("/some/path")
+	if namespaces["test"] != expected {
+		t.Errorf("Namespaces[test] = %v, want %v", namespaces["test"], expected)
 	}
 }
 
@@ -86,8 +88,9 @@ func TestFileLoaderJSONPaths(t *testing.T) {
 	if len(paths) != 1 {
 		t.Errorf("JSONPaths = %v, want 1 path", len(paths))
 	}
-	if paths[0] != "/some/path" {
-		t.Errorf("JSONPaths[0] = %v, want /some/path", paths[0])
+	expected := pathutil.Clean("/some/path")
+	if paths[0] != expected {
+		t.Errorf("JSONPaths[0] = %v, want %v", paths[0], expected)
 	}
 }
 
@@ -98,8 +101,9 @@ func TestTranslatorAddPath(t *testing.T) {
 	translator.AddPath("/test/path")
 
 	paths := loader.Paths()
-	if len(paths) != 1 || paths[0] != "/test/path" {
-		t.Errorf("Paths = %v, want [/test/path]", paths)
+	expected := pathutil.Clean("/test/path")
+	if len(paths) != 1 || paths[0] != expected {
+		t.Errorf("Paths = %v, want [%v]", paths, expected)
 	}
 }
 
@@ -110,8 +114,9 @@ func TestTranslatorAddJSONPath(t *testing.T) {
 	translator.AddJSONPath("/test/path")
 
 	paths := loader.JSONPaths()
-	if len(paths) != 1 || paths[0] != "/test/path" {
-		t.Errorf("JSONPaths = %v, want [/test/path]", paths)
+	expected := pathutil.Clean("/test/path")
+	if len(paths) != 1 || paths[0] != expected {
+		t.Errorf("JSONPaths = %v, want [%v]", paths, expected)
 	}
 }
 
@@ -900,8 +905,9 @@ func TestFacadeAddNamespace(t *testing.T) {
 	}
 
 	namespaces := loader.Namespaces()
-	if namespaces["test"] != "/test/path" {
-		t.Errorf("Namespaces[test] = %v, want /test/path", namespaces["test"])
+	expected := pathutil.Clean("/test/path")
+	if namespaces["test"] != expected {
+		t.Errorf("Namespaces[test] = %v, want %v", namespaces["test"], expected)
 	}
 }
 
@@ -916,8 +922,9 @@ func TestFacadeAddJSONPath(t *testing.T) {
 	}
 
 	paths := loader.JSONPaths()
-	if len(paths) != 1 || paths[0] != "/test/path" {
-		t.Errorf("JSONPaths = %v, want [/test/path]", paths)
+	expected := pathutil.Clean("/test/path")
+	if len(paths) != 1 || paths[0] != expected {
+		t.Errorf("JSONPaths = %v, want [%v]", paths, expected)
 	}
 }
 

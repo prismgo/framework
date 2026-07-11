@@ -590,6 +590,12 @@ func TestAppTerminatedDurationFields(t *testing.T) {
 	// 等待一小段时间，确保 Duration > 0
 	time.Sleep(10 * time.Millisecond)
 
+	// 注册一个 cleanup 确保关闭流程有可测量的耗时（Windows 上关闭可能太快）
+	app.RegisterCleanup(func(a *Application) error {
+		time.Sleep(time.Millisecond)
+		return nil
+	})
+
 	// 关闭应用
 	if err := app.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
@@ -653,14 +659,14 @@ func TestBuilderDeclaresFrameworkFacadeSlots(t *testing.T) {
 		ContainerKeyEventDispatcher: false,
 		ContainerKeyConfigDefault:   false,
 		"logger.manager":            false,
-		"redis":              false,
-		"redis.connection":   false,
-		"cache.manager":      false,
-		"cookie.queue":       false,
-		"session.manager":    false,
-		"filesystem.manager": false,
-		"database.default":   false,
-		"database.schema":    false,
+		"redis":                     false,
+		"redis.connection":          false,
+		"cache.manager":             false,
+		"cookie.queue":              false,
+		"session.manager":           false,
+		"filesystem.manager":        false,
+		"database.default":          false,
+		"database.schema":           false,
 	}
 	for _, info := range container.List() {
 		if _, ok := want[info.Key]; ok {

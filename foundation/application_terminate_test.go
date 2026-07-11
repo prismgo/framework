@@ -896,6 +896,12 @@ func TestAppTerminatedEventDurationAndCloseDuration(t *testing.T) {
 	// 等待一段时间，确保 Duration 可测量
 	time.Sleep(50 * time.Millisecond)
 
+	// 注册一个 cleanup 确保关闭流程有可测量的耗时（Windows 上关闭可能太快）
+	app.RegisterCleanup(func(a *Application) error {
+		time.Sleep(time.Millisecond)
+		return nil
+	})
+
 	// 关闭应用，触发 AppTerminated 事件
 	if err := app.CloseContext(context.Background()); err != nil {
 		t.Fatalf("close app: %v", err)

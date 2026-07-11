@@ -3,6 +3,7 @@ package foundation
 import (
 	"context"
 	"os"
+	"runtime"
 	"syscall"
 	"testing"
 )
@@ -39,6 +40,10 @@ func TestRegisterShutdownSignalsNilApplication(t *testing.T) {
 }
 
 func TestRegisterShutdownSignalsTriggersShutdown(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not support SIGTERM signal delivery in tests")
+	}
+
 	app := NewApplication()
 	defer func() {
 		if err := app.Close(); err != nil {

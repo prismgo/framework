@@ -142,6 +142,12 @@ func TestScheduleDoneLogRequiresAppDebug(t *testing.T) {
 	if err := registry.Instance("logger.manager", manager); err != nil {
 		t.Fatalf("bind logger manager: %v", err)
 	}
+	t.Cleanup(func() {
+		// 显式关闭 logger manager，避免 Windows 上文件句柄未释放导致 TempDir 清理失败
+		if err := manager.Close(); err != nil {
+			t.Logf("close logger manager: %v", err)
+		}
+	})
 
 	s := NewSchedule()
 	task := newScheduledTask(func(context.Context) error { return nil })

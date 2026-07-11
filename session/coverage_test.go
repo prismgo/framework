@@ -150,7 +150,12 @@ func TestAppendUniqueBranches(t *testing.T) {
 // TestNewFileLockManagerBranches 测试 newFileLockManager 的错误路径
 func TestNewFileLockManagerBranches(t *testing.T) {
 	t.Run("create in non-existent parent", func(t *testing.T) {
-		dir := "/nonexistent/parent/dir"
+		// 使用一个文件作为父目录，确保 MkdirAll 在跨平台都会失败
+		blocker := filepath.Join(t.TempDir(), "blocker")
+		if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+			t.Fatalf("write blocker: %v", err)
+		}
+		dir := filepath.Join(blocker, "child")
 		if _, err := newFileLockManager(dir); err == nil {
 			t.Fatal("expected error for non-existent parent directory")
 		}
@@ -467,11 +472,16 @@ func TestStoreGetBranches(t *testing.T) {
 
 // TestNewFileDriverBranches 测试 NewFileDriver 的错误路径
 func TestNewFileDriverBranches(t *testing.T) {
-	t.Run("with non-existent directory", func(t *testing.T) {
+	t.Run("with non-directory path", func(t *testing.T) {
+		// 使用一个文件作为目录路径，确保在跨平台都会失败
+		blocker := filepath.Join(t.TempDir(), "blocker")
+		if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+			t.Fatalf("write blocker: %v", err)
+		}
 		cfg := testConfig(t)
-		cfg.Files = "/nonexistent/dir"
+		cfg.Files = blocker
 		if _, err := NewFileDriver(cfg); err == nil {
-			t.Fatal("expected error for non-existent directory")
+			t.Fatal("expected error for non-directory path")
 		}
 	})
 }

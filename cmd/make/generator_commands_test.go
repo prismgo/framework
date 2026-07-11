@@ -395,7 +395,7 @@ func TestMigrationGeneratorRejectsUnsafeCustomPaths(t *testing.T) {
 		name string
 		path string
 	}{
-		{name: "absolute without realpath", path: filepath.Join(string(filepath.Separator), "tmp", "migrations")},
+		{name: "absolute without realpath", path: filepath.Join(os.TempDir(), "migrations")},
 		{name: "parent traversal", path: "../migrations"},
 		{name: "current directory", path: "."},
 	}
@@ -510,8 +510,10 @@ func TestGeneratedFileExistsRequiresForceAndFullpathControlsOutput(t *testing.T)
 
 	stdout := &bytes.Buffer{}
 	runMakeCommand(t, cmd, makeInput{args: map[string][]string{"name": {"OrderPaid"}}, bools: map[string]bool{"force": true, "fullpath": true}}, stdout)
-	if !strings.Contains(stdout.String(), filepath.Join(root, "app", "events", "order_paid.go")) {
-		t.Fatalf("output = %q, want absolute path", stdout.String())
+	expectedPath := filepath.ToSlash(filepath.Join(root, "app", "events", "order_paid.go"))
+	actualOutput := filepath.ToSlash(stdout.String())
+	if !strings.Contains(actualOutput, expectedPath) {
+		t.Fatalf("output = %q, want absolute path containing %q", stdout.String(), expectedPath)
 	}
 }
 
