@@ -57,6 +57,18 @@ foreach ($line in (Get-Content -LiteralPath $LogFile)) {
         continue
     }
 
+    # panic: lines - treat as failure when no --- FAIL: is emitted
+    if ($line -match '^panic:') {
+        $target = if (-not [string]::IsNullOrEmpty($currentTest)) { $currentTest } else { 'panic' }
+        if (-not $testSet.ContainsKey($target)) {
+            $testSet[$target] = $true
+            [void]$tests.Add($target)
+        }
+        Remember-Detail $target $line
+        $collectingDetail = $target
+        continue
+    }
+
     # --- FAIL: lines
     if ($line -match '^\s*--- FAIL:\s*(\S+)') {
         $failTest = $Matches[1]

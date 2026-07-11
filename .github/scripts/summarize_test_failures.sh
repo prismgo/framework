@@ -51,6 +51,21 @@ awk '
     next
   }
 
+  # 捕获 panic 行，将其记录为失败测试用例
+  /^panic:/ {
+    if (current_test != "") {
+      test_name = current_test
+    } else {
+      test_name = "panic"
+    }
+    if (!seen_test[test_name]++) {
+      tests[++test_count] = test_name
+    }
+    collecting_detail = test_name
+    remember_detail(test_name, $0)
+    next
+  }
+
   /^[[:space:]]*--- FAIL:/ {
     line = $0
     sub(/^[[:space:]]*--- FAIL:[[:space:]]*/, "", line)
