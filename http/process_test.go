@@ -3,11 +3,8 @@ package http
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 )
 
 func TestProcessManagerPIDFileLifecycle(t *testing.T) {
@@ -75,60 +72,5 @@ func TestNotifyReloadParentWithoutEnvReturnsNil(t *testing.T) {
 	t.Setenv(reloadSignalEnv, "")
 	if err := NotifyReloadParent(); err != nil {
 		t.Fatalf("NotifyReloadParent returned error: %v", err)
-	}
-}
-
-func TestWaitForNewPIDReturnsNewPIDWhenFileChanges(t *testing.T) {
-	pidFile := filepath.Join(t.TempDir(), "process.pid")
-	oldPID := 12345
-	newPID := 54321
-
-	// Initialize pid file with old PID
-	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(oldPID)), 0644); err != nil {
-		t.Fatalf("write init pid file: %v", err)
-	}
-
-	manager := NewProcessManager(pidFile)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		time.Sleep(50 * time.Millisecond)
-		if err := os.WriteFile(pidFile, []byte(strconv.Itoa(newPID)), 0644); err != nil {
-			t.Errorf("write new pid failed: %v", err)
-		}
-	}()
-
-	got, err := manager.waitForNewPID(oldPID, 5*time.Second)
-	wg.Wait()
-
-	if err != nil {
-		t.Fatalf("waitForNewPID returned error: %v", err)
-	}
-	if got != newPID {
-		t.Fatalf("waitForNewPID = %d, want %d", got, newPID)
-	}
-}
-
-func TestWaitForNewPIDReturnsErrorOnTimeout(t *testing.T) {
-	pidFile := filepath.Join(t.TempDir(), "process-timeout.pid")
-	oldPID := 12345
-
-	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(oldPID)), 0644); err != nil {
-		t.Fatalf("write init pid file: %v", err)
-	}
-
-	manager := NewProcessManager(pidFile)
-
-	got, err := manager.waitForNewPID(oldPID, 50*time.Millisecond)
-	if err == nil {
-		t.Fatalf("waitForNewPID returned pid=%d, want error", got)
-	}
-	if !strings.Contains(err.Error(), "reload: new process did not write pid file") {
-		t.Fatalf("waitForNewPID error = %q, want timeout error", err.Error())
-	}
-	if got != 0 {
-		t.Fatalf("waitForNewPID pid on timeout = %d, want 0", got)
 	}
 }

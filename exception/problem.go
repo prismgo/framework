@@ -26,7 +26,7 @@ type Problem struct {
 	File      string         `json:"file,omitempty"`
 	Line      int            `json:"line,omitempty"`
 	// Trace 包含堆栈跟踪信息，会被截断至 4KB 左右（详见 internal/stackx）。
-	Trace     []string       `json:"trace,omitempty"`
+	Trace []string `json:"trace,omitempty"`
 }
 
 // HTTPError is the minimal contract for errors that can expose a safe HTTP

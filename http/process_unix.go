@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -28,20 +29,30 @@ func (pm *ProcessManager) Reload(pid int) (int, error) {
 		return 0, fmt.Errorf("send reload signal failed: %w", err)
 	}
 	if pm.pidFile == "" {
-		return pid, nil
+		// 无法等待新 PID，仅确认信号已发送
+		return 0, nil
 	}
 	return pm.waitForNewPID(pid, 10*time.Second)
 }
 
 func (pm *ProcessManager) waitForNewPID(oldPID int, timeout time.Duration) (int, error) {
 	deadline := time.Now().Add(timeout)
+	var lastErr error
 	for time.Now().Before(deadline) {
 		newPID, err := pm.ReadPID()
-		if err != nil || newPID == oldPID || newPID <= 0 {
+		if err != nil {
+			lastErr = err
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		if newPID == oldPID || newPID <= 0 {
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 		return newPID, nil
+	}
+	if lastErr != nil {
+		return 0, fmt.Errorf("reload: new process did not write pid file within %s: last read error: %w", timeout, lastErr)
 	}
 	return 0, fmt.Errorf("reload: new process did not write pid file within %s", timeout)
 }
@@ -64,14 +75,33 @@ func WatchReloadSignal(ctx context.Context, listener net.Listener, executable st
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGUSR2)
 	stopped := make(chan struct{})
+	var reloading sync.Mutex
 	go func() {
 		defer close(stopped)
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-signals:
-				_ = spawnReloadChild(listener, executable, args, onReady)
+			case sig, ok := <-signals:
+				if !ok {
+					// channel 已关闭，cleanup 正在执行，退出 goroutine
+					return
+				}
+				_ = sig // 消费信号
+				if !reloading.TryLock() {
+					// 已有 reload 在执行，丢弃本次信号
+					continue
+				}
+				go func() {
+					defer reloading.Unlock()
+					if err := spawnReloadChild(listener, executable, args, onReady); err != nil {
+						exception.Report(context.Background(), err, map[string]any{
+							"component":  "http",
+							"operation":  "watch_reload_signal",
+							"executable": executable,
+						})
+					}
+				}()
 			}
 		}
 	}()
@@ -82,6 +112,11 @@ func WatchReloadSignal(ctx context.Context, listener net.Listener, executable st
 	}
 }
 
+// spawnReloadChild 启动子进程并传递监听器文件描述符。
+//
+// 副作用说明：调用 fileListener.File() 会将底层 TCPListener 切换为阻塞模式（Go 标准库行为），
+// 这会导致 listener.Accept() 绕过 netpoller，在高并发场景下可能阻塞操作系统线程。
+// 因此 reload 触发后应尽快通过 context 取消使旧进程停止 Accept()，进入优雅关闭流程。
 func spawnReloadChild(listener net.Listener, executable string, args []string, onReady func()) error {
 	fileListener, ok := listener.(*net.TCPListener)
 	if !ok {
@@ -109,7 +144,13 @@ func spawnReloadChild(listener net.Listener, executable string, args []string, o
 		return fmt.Errorf("start reload child failed: %w", err)
 	}
 	go func() {
-		_ = cmd.Wait()
+		if err := cmd.Wait(); err != nil {
+			exception.Report(context.Background(), err, map[string]any{
+				"component": "http",
+				"operation": "reload_child_wait",
+				"pid":       cmd.Process.Pid,
+			})
+		}
 	}()
 	return nil
 }

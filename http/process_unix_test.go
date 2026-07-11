@@ -6,7 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -37,8 +40,9 @@ func TestProcessManagerReloadAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reload returned error: %v", err)
 	}
-	if newPID <= 0 {
-		t.Fatalf("Reload new PID = %d, want positive", newPID)
+	// pidFile 为空时，Reload 返回 0 表示信号已发送但无法确认新进程 PID
+	if newPID != 0 {
+		t.Fatalf("Reload new PID = %d, want 0 (pidFile is empty)", newPID)
 	}
 	_ = reloadCmd.Wait()
 
@@ -123,4 +127,67 @@ func trueExecutable(t *testing.T) string {
 		t.Fatalf("find true executable failed: %v", err)
 	}
 	return path
+}
+
+// TestWaitForNewPIDReturnsNewPIDWhenFileChanges 验证 waitForNewPID 在新 PID 写入后正确返回。
+//
+// 设计说明：waitForNewPID 是 Unix 平台特有的方法，Windows 上返回 stub 错误，
+// 因此此测试放在 process_unix_test.go 中避免跨平台编译失败。
+func TestWaitForNewPIDReturnsNewPIDWhenFileChanges(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "process.pid")
+	oldPID := 12345
+	newPID := 54321
+
+	// Initialize pid file with old PID
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(oldPID)), 0644); err != nil {
+		t.Fatalf("write init pid file: %v", err)
+	}
+
+	manager := NewProcessManager(pidFile)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		time.Sleep(50 * time.Millisecond)
+		if err := os.WriteFile(pidFile, []byte(strconv.Itoa(newPID)), 0644); err != nil {
+			t.Errorf("write new pid failed: %v", err)
+		}
+	}()
+
+	got, err := manager.waitForNewPID(oldPID, 5*time.Second)
+	wg.Wait()
+
+	if err != nil {
+		t.Fatalf("waitForNewPID returned error: %v", err)
+	}
+	if got != newPID {
+		t.Fatalf("waitForNewPID = %d, want %d", got, newPID)
+	}
+}
+
+// TestWaitForNewPIDReturnsErrorOnTimeout 验证 waitForNewPID 在超时时返回错误。
+//
+// 设计说明：waitForNewPID 是 Unix 平台特有的方法，Windows 上返回 stub 错误，
+// 因此此测试放在 process_unix_test.go 中避免跨平台编译失败。
+func TestWaitForNewPIDReturnsErrorOnTimeout(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "process-timeout.pid")
+	oldPID := 12345
+
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(oldPID)), 0644); err != nil {
+		t.Fatalf("write init pid file: %v", err)
+	}
+
+	manager := NewProcessManager(pidFile)
+
+	got, err := manager.waitForNewPID(oldPID, 50*time.Millisecond)
+	if err == nil {
+		t.Fatalf("waitForNewPID returned pid=%d, want error", got)
+	}
+	if !strings.Contains(err.Error(), "reload: new process did not write pid file") {
+		t.Fatalf("waitForNewPID error = %q, want timeout error", err.Error())
+	}
+	if got != 0 {
+		t.Fatalf("waitForNewPID pid on timeout = %d, want 0", got)
+	}
 }

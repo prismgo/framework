@@ -384,6 +384,39 @@ func TestWatchReloadSignalContextCancellationCleansUp(t *testing.T) {
 	}
 }
 
+// TestWatchReloadSignal_CleanupWithoutCancelExitsGoroutine 验证仅调用 cleanup（不调用 cancel）时 goroutine 也能退出。
+//
+// 设计说明：修复 Critical #1 问题 - cleanup 关闭 signals channel 后，goroutine 应主动退出而非死循环。
+// 测试验证：cleanup 调用后应在合理时间内返回，证明 goroutine 已退出。
+func TestWatchReloadSignalCleanupWithoutCancelExitsGoroutine(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	}()
+
+	// 注意：故意不调用 cancel，仅调用 cleanup
+	ctx := context.Background()
+	cleanup := WatchReloadSignal(ctx, listener, trueExecutable(t), nil, nil)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cleanup()
+	}()
+
+	select {
+	case <-done:
+		// cleanup 正常返回，证明 goroutine 已退出
+	case <-time.After(3 * time.Second):
+		t.Fatal("cleanup blocked: goroutine did not exit after signals channel closed")
+	}
+}
+
 // TestWatchReloadSignal_ReloadSignalSpawnsChild 验证 SIGUSR2 触发 WatchReloadSignal 派生子进程。
 //
 // 设计说明：直接向当前进程发送 SIGUSR2，验证 WatchReloadSignal 能正确捕获信号并调用

@@ -16,7 +16,7 @@ func (pm *ProcessManager) Reload(pid int) (int, error) {
 }
 
 func (pm *ProcessManager) waitForNewPID(oldPID int, timeout time.Duration) (int, error) {
-	return 0, fmt.Errorf("waitForNewPID is not supported on Windows")
+	return 0, fmt.Errorf("reload is not supported on Windows")
 }
 
 // WatchReloadSignal 在 Windows 平台上返回空操作清理函数。
