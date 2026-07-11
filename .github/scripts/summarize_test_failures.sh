@@ -45,10 +45,48 @@ awk '
     details[test_name, ++detail_count[test_name]] = value
   }
 
+  function add_build_error(package_name, error_line) {
+    error_line = trim(error_line)
+    if (package_name == "" || error_line == "") {
+      return
+    }
+    if (!seen_package[package_name]++) {
+      packages[++package_count] = package_name
+    }
+    if (build_error_count[package_name] >= 10) {
+      build_error_truncated[package_name] = 1
+      return
+    }
+    build_errors[package_name, ++build_error_count[package_name]] = error_line
+  }
+
   /^=== RUN[[:space:]]+/ {
     current_test = $0
     sub(/^=== RUN[[:space:]]+/, "", current_test)
     next
+  }
+
+  # 捕获编译错误：# package [package.test]
+  /^# [^[:space:]]+/ {
+    current_build_package = $0
+    sub(/^# /, "", current_build_package)
+    sub(/[[:space:]]+\[.*$/, "", current_build_package)
+    # 过滤掉非包名的行（如 FAIL）
+    if (current_build_package !~ /^(FAIL|PASS|ok|---)/) {
+      collecting_build_errors = 1
+    }
+    next
+  }
+
+  # 捕获编译错误行：file.go:line:col: error message
+  collecting_build_errors && /^[^[:space:]]+\.[a-z]+:[0-9]+:[0-9]+:/ {
+    add_build_error(current_build_package, $0)
+    next
+  }
+
+  # 非编译错误行结束编译错误收集
+  collecting_build_errors {
+    collecting_build_errors = 0
   }
 
   # 捕获 panic 行，将其记录为失败测试用例
@@ -97,9 +135,13 @@ awk '
 
   /^FAIL[[:space:]]+/ {
     line = $0
+    sub(/^FAIL[[:space:]]+/, "", line)
     sub(/[[:space:]]+$/, "", line)
-    if (!seen_package[line]++) {
-      packages[++package_count] = line
+    # 提取包名（去掉 [setup failed] 等后缀）
+    pkg_name = line
+    sub(/[[:space:]]+\[.*$/, "", pkg_name)
+    if (!seen_package[pkg_name]++) {
+      packages[++package_count] = pkg_name
     }
   }
 
@@ -126,12 +168,24 @@ awk '
     }
 
     if (package_count > 0) {
+      print ""
       print "Failed packages:"
       for (i = 1; i <= package_count; i++) {
-        print "  - " packages[i]
+        pkg = packages[i]
+        print "  - " pkg
+        if (build_error_count[pkg] > 0) {
+          print "    Build errors:"
+          for (j = 1; j <= build_error_count[pkg]; j++) {
+            print "      " build_errors[pkg, j]
+          }
+          if (build_error_truncated[pkg]) {
+            print "      ... (truncated; see full log)"
+          }
+        }
       }
     }
 
+    print ""
     print "Full log: " log_path
   }
 ' log_path="$LOG_FILE" "$LOG_FILE" >"$SUMMARY_FILE"
