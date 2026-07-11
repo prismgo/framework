@@ -259,6 +259,8 @@ func TestSpawnReloadChildRejectsNonTCPListener(t *testing.T) {
 }
 
 func TestSpawnReloadChildStartError(t *testing.T) {
+	// 设置 exception handler，避免 spawnReloadChild 内部 goroutine 调用 exception.Report 时 panic
+	setupExceptionHandlerForTest(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen failed: %v", err)
@@ -276,6 +278,7 @@ func TestSpawnReloadChildStartError(t *testing.T) {
 }
 
 func TestSpawnReloadChildIncludesReadyEnv(t *testing.T) {
+	setupExceptionHandlerForTest(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen failed: %v", err)
@@ -422,6 +425,7 @@ func TestWatchReloadSignalCleanupWithoutCancelExitsGoroutine(t *testing.T) {
 // 设计说明：直接向当前进程发送 SIGUSR2，验证 WatchReloadSignal 能正确捕获信号并调用
 // spawnReloadChild 启动子进程。通过标记文件验证子进程确实被执行。
 func TestWatchReloadSignalReloadSignalSpawnsChild(t *testing.T) {
+	setupExceptionHandlerForTest(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen failed: %v", err)
@@ -483,6 +487,7 @@ func TestWatchReloadSignalReloadSignalSpawnsChild(t *testing.T) {
 // 设计说明：此测试不经过 SIGUSR2 信号触发路径，直接调用 spawnReloadChild，
 // 隔离验证"监听器 FD 继承 + 子进程 HTTP 服务"这一核心能力。
 func TestSpawnReloadChildIntegration(t *testing.T) {
+	setupExceptionHandlerForTest(t)
 	// 设置子进程标识环境变量，spawnReloadChild 通过 os.Environ() 传递给子进程
 	t.Setenv("PRISMGO_TEST_RELOAD_CHILD", "1")
 	registerReloadChildCleanup(t)
@@ -599,6 +604,7 @@ func TestSpawnReloadChildIntegration(t *testing.T) {
 //   - 这是最高层级的集成测试，覆盖了从信号触发到进程切换的完整链路，
 //     验证 serve --reload 命令背后的核心基础设施在真实跨进程场景下的正确性。
 func TestReloadCrossProcessEndToEnd(t *testing.T) {
+	setupExceptionHandlerForTest(t)
 	t.Setenv("PRISMGO_TEST_RELOAD_CHILD", "1")
 	registerReloadChildCleanup(t)
 	// 1. 创建 TCP 监听器
@@ -714,6 +720,7 @@ func TestReloadCrossProcessEndToEnd(t *testing.T) {
 // 设计说明：平滑重载的核心目标是零停机，此测试验证在进程切换窗口内请求不会大量丢失。
 // 同 EndToEnd 测试，使用 context 取消替代 SIGTERM 以避免杀死测试进程。
 func TestReloadCrossProcessRequestContinuity(t *testing.T) {
+	setupExceptionHandlerForTest(t)
 	t.Setenv("PRISMGO_TEST_RELOAD_CHILD", "1")
 	registerReloadChildCleanup(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

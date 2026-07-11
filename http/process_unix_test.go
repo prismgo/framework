@@ -13,7 +13,38 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/prismgo/framework/container"
+	"github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/logger"
 )
+
+// setupExceptionHandlerForTest 设置测试所需的容器环境。
+// spawnReloadChild 内部 goroutine 调用 exception.Report，需要 exception handler 和 logger。
+func setupExceptionHandlerForTest(t *testing.T) {
+	t.Helper()
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+
+	mgr, err := logger.NewManager(logger.Config{
+		Default: "null",
+		Channels: map[string]logger.ChannelOptions{
+			"null": {Driver: "null", Level: "debug"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create logger manager failed: %v", err)
+	}
+	if err := registry.Instance("logger.manager", mgr); err != nil {
+		t.Fatalf("bind logger manager failed: %v", err)
+	}
+
+	handler := exception.New()
+	if err := registry.Instance("exception.handler", handler); err != nil {
+		t.Fatalf("bind exception handler failed: %v", err)
+	}
+}
 
 func TestProcessManagerSignalsChildProcesses(t *testing.T) {
 	manager := NewProcessManager("")

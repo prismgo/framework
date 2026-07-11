@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prismgo/framework/container"
 	"github.com/prismgo/framework/facade"
 )
 
@@ -15,14 +16,16 @@ func Resolve() *Handler {
 }
 
 // Report 通过当前 Handler 上报异常。
+// 容器不可用时静默忽略，避免后台 goroutine 在应用关闭后 panic。
 func Report(ctx context.Context, err error, fields map[string]any) {
 	if err == nil {
 		return
 	}
-	h := Resolve()
-	if h != nil {
-		h.Report(ctx, err, fields)
+	h, resolveErr := container.Make[*Handler](serviceKey)
+	if resolveErr != nil || h == nil {
+		return
 	}
+	h.Report(ctx, err, fields)
 }
 
 // Render 通过当前 Handler 将异常渲染为安全的 HTTP 响应。
