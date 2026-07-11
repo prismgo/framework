@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         go: ["1.25", "1.26"]
         test-mode: ["normal", "race"]
         include:
@@ -44,6 +44,8 @@ jobs:
             go-build: ~/.cache/go-build
           - os: macos-latest
             go-build: ~/Library/Caches/go-build
+          - os: windows-latest
+            go-build: ~\AppData\Local\go-build
     name: ${{ matrix.os }} @ Go ${{ matrix.go }} ${{ matrix.test-mode }}
     runs-on: ${{ matrix.os }}
     env:
@@ -72,13 +74,24 @@ jobs:
             ${{ runner.os }}-go-${{ matrix.go }}-
             ${{ runner.os }}-go-
 
-      - name: Run Tests
+      - name: Run Tests (Unix)
+        if: runner.os != 'Windows'
         run: |
           if [ "${{ matrix.test-mode }}" = "race" ]; then
             make test-race
           else
             make covdata
           fi
+
+      - name: Run Tests (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if ("${{ matrix.test-mode }}" -eq "race") {
+            go test -v -race ./...
+          } else {
+            go test -v -covermode=count -coverprofile=.coverage/coverage.out ./...
+          }
+        shell: pwsh
 
       - name: Upload coverage to Codecov
         if: matrix.test-mode == 'normal'
