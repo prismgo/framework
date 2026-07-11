@@ -65,6 +65,8 @@ type Application struct {
 	signalsRegistered bool
 	// startedAt 记录应用启动时间，用于计算生命周期总时长
 	startedAt time.Time
+	// closeStartedAt 记录关闭流程开始时间，用于计算 CloseDuration
+	closeStartedAt time.Time
 }
 
 // NewApplication 创建应用实例，并注册默认通用资源工厂。

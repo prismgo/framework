@@ -169,6 +169,9 @@ func (a *Application) runCloseAttempt(ctx context.Context) (err error) {
 		closeCtx = eventCtx
 	}
 
+	// 关闭流程计时起点：从 runCloseAttempt 开始，包含 provider terminate、cleanup 和 container 资源释放。
+	a.closeStartedAt = time.Now()
+
 	if firstAttempt {
 		firstErr = a.runFirstCloseAttempt(eventCtx, closeCtx, cleanups)
 	}
@@ -212,9 +215,10 @@ func (a *Application) runFirstCloseAttempt(eventCtx, closeCtx context.Context, c
 }
 
 // drainContainerResources 关闭容器资源并派发终止事件。
+//
+// CloseDuration 以 a.closeStartedAt 作为计时起点，覆盖 provider terminate、cleanup
+// 与 container 资源释放的完整关闭流程。
 func (a *Application) drainContainerResources(ctx, eventCtx, closeCtx context.Context, firstAttempt bool, firstErr error, bus eventcontract.Dispatcher) error {
-	closeStartedAt := time.Now()
-
 	if closeCtx.Err() != nil {
 		closeCtx = eventCtx
 	}
@@ -248,6 +252,7 @@ func (a *Application) drainContainerResources(ctx, eventCtx, closeCtx context.Co
 	}
 	a.terminated = true
 	startedAt := a.startedAt
+	closeStartedAt := a.closeStartedAt
 	a.mu.Unlock()
 
 	if bus != nil {
