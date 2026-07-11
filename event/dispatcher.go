@@ -140,9 +140,11 @@ func (d *Dispatcher) collect(name string) []registeredListener {
 func (d *Dispatcher) invokeListener(ctx context.Context, ev Event, l Listener, async bool) {
 	defer func() {
 		if r := recover(); r != nil {
-			fields := syncListenerReportFields(ev, async)
-			fields["stack"] = string(stackx.Capture())
-			exception.Report(ctx, fmt.Errorf("event listener panic: %v", r), fields)
+			// 捕获 panic 发生位置的结构化堆栈
+			stack := stackx.Capture(0)
+			panicErr := fmt.Errorf("event listener panic: %v", r)
+			err := exception.WithStackTrace(panicErr, stack)
+			exception.Report(ctx, err, syncListenerReportFields(ev, async))
 		}
 	}()
 

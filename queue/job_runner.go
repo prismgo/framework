@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	queuecontract "github.com/prismgo/framework/contracts/queue"
+	goexception "github.com/prismgo/framework/exception"
 	"github.com/prismgo/framework/internal/stackx"
 	"github.com/prismgo/framework/queue/payload"
 )
@@ -43,7 +44,10 @@ func (p *JobRunner) Process(ctx context.Context, env *payload.Envelope) (err err
 	})
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("queue: job panic: %v\n%s", r, string(stackx.Capture()))
+			// 捕获 panic 发生位置的结构化堆栈
+			stack := stackx.Capture(0)
+			panicErr := fmt.Errorf("queue: job panic: %v", r)
+			err = goexception.WithStackTrace(panicErr, stack)
 		}
 	}()
 	if err := p.ensureBatchActive(ctx, env); err != nil {
@@ -187,5 +191,3 @@ func firstString(value string, fallback string) string {
 	}
 	return value
 }
-
-

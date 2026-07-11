@@ -16,6 +16,7 @@ import (
 	"github.com/prismgo/framework/console"
 	"github.com/prismgo/framework/event"
 	goexception "github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/internal/stackx"
 	"github.com/prismgo/framework/timer"
 	"github.com/prismgo/framework/version"
 
@@ -511,7 +512,12 @@ func (k *Kernel) prepareCommandExecution(ctx context.Context, registered registe
 
 func (k *Kernel) dispatchFinishedEvent(commandCtx console.CommandContext, registered registeredCommand, rawInput []string, start time.Time, err *error) {
 	if rec := recover(); rec != nil {
-		*err = fmt.Errorf("panic recovered: %v", rec)
+		// 立即捕获 panic 堆栈，这是 panic 发生位置的真实堆栈
+		// skip=0: 从 recover 之后开始采集，捕获 panic 发生位置的堆栈
+		stack := stackx.Capture(0)
+		panicErr := fmt.Errorf("panic recovered: %v", rec)
+		// 用 WithStackTrace 包装，让 error 携带结构化堆栈信息
+		*err = goexception.WithStackTrace(panicErr, stack)
 		goexception.Report(commandCtx.Context(), *err, map[string]any{
 			"command":     registered.definition.Name,
 			"input":       strings.Join(rawInput, " "),

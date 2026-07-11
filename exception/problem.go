@@ -88,7 +88,7 @@ func (p Problem) WithDebug(err error) Problem {
 	p.Detail = err.Error()
 	p.Message = err.Error()
 	p.Exception = fmt.Sprintf("%T", err)
-	p.Trace = stackTraceLines(stackx.Capture())
+	p.Trace = stackTraceLines(stackx.CaptureBytes())
 	if len(p.Trace) > 0 {
 		p.File, p.Line = firstTraceLocation(p.Trace)
 	}

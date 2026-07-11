@@ -33,11 +33,14 @@ func Exception(handler *exception.Handler) gin.HandlerFunc {
 				panic(recovered)
 			}
 
-			err := fmt.Errorf("panic recovered: %v", recovered)
+			// 捕获 panic 发生位置的结构化堆栈
+			stack := stackx.Capture(0)
+			panicErr := fmt.Errorf("panic recovered: %v", recovered)
+			err := exception.WithStackTrace(panicErr, stack)
 			_ = c.Error(err)
 			c.Set("_panic_logged", true)
 			status := h.Render(c, err)
-			reportHTTP(h, c, err, status, start, recovered, stackx.Capture())
+			reportHTTP(h, c, err, status, start, recovered)
 		}()
 
 		c.Next()
@@ -48,24 +51,17 @@ func Exception(handler *exception.Handler) gin.HandlerFunc {
 			if !c.Writer.Written() {
 				status = h.Render(c, err)
 			}
-			reportHTTP(h, c, err, status, start, nil, stackForStatus(h, status))
+			reportHTTP(h, c, err, status, start, nil)
 			return
 		}
 
 		if status >= http.StatusBadRequest {
-			reportHTTP(h, c, nil, status, start, nil, stackForStatus(h, status))
+			reportHTTP(h, c, nil, status, start, nil)
 		}
 	}
 }
 
-func stackForStatus(h *exception.Handler, status int) []byte {
-	if h == nil || !h.PanicStack || status < http.StatusInternalServerError {
-		return nil
-	}
-	return stackx.Capture()
-}
-
-func reportHTTP(h *exception.Handler, c *gin.Context, err error, status int, start time.Time, recovered any, stack []byte) {
+func reportHTTP(h *exception.Handler, c *gin.Context, err error, status int, start time.Time, recovered any) {
 	if h == nil || c == nil {
 		return
 	}
@@ -103,9 +99,6 @@ func reportHTTP(h *exception.Handler, c *gin.Context, err error, status int, sta
 	}
 	if recovered != nil {
 		fields["panic"] = fmt.Sprintf("%v", recovered)
-	}
-	if h.PanicStack && len(stack) > 0 {
-		fields["stack"] = string(stack)
 	}
 
 	h.Report(c, reportErr, fields)

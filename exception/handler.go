@@ -141,13 +141,14 @@ func (h *Handler) Report(ctx context.Context, err error, fields map[string]any) 
 
 	addErrorMetadata(fields, err)
 
-	// 当 PanicStack 启用且 fields 中尚无调用栈时自动采集（仅 5xx 状态码）
-	if h.PanicStack {
-		if _, hasStack := fields["stack"]; !hasStack {
-			if status >= http.StatusInternalServerError {
-				fields["stack"] = string(stackx.Capture())
-			}
-		}
+	// 保存原始 error 用于传递给 reporter
+	originalErr := err
+
+	// 自动兜底：如果 error 未携带堆栈，自动捕获并跳过 Report 相关帧
+	if h.PanicStack && !hasStackTrace(err) {
+		// skip=3: 跳过 hasStackTrace、Report、addErrorMetadata
+		stack := stackx.Capture(3)
+		err = WithStackTrace(err, stack)
 	}
 	fields = scrubLogFields(fields)
 
@@ -171,9 +172,9 @@ func (h *Handler) Report(ctx context.Context, err error, fields map[string]any) 
 		entry.Error(message)
 	}
 
-	// 执行自定义 reporter
+	// 执行自定义 reporter，传递原始 error
 	for _, reporter := range h.Reporters {
-		reporter(ctx, err, fields)
+		reporter(ctx, originalErr, fields)
 	}
 }
 

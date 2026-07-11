@@ -6,20 +6,65 @@
 package stackx
 
 import (
+	"runtime"
 	"runtime/debug"
+	"strings"
 )
 
 const maxStackSize = 4 * 1024 // 4KB
 
 const truncationSuffix = "\n... stack trace truncated ..."
 
-// Capture 采集当前调用位置的堆栈并截断到安全大小。
-//
-// 返回值保证不超过 maxStackSize + len(truncationSuffix)。
-// 超过限制时，截断后的堆栈末尾会附加截断提示。
-// 截断点会对齐到最近的换行符，确保输出可读性。
-func Capture() []byte {
+// Capture 采集当前调用位置的结构化堆栈。
+// skip 参数表示跳过的帧数（0 表示从调用者开始）。
+// 返回的 StackTrace 支持延迟解析和智能过滤。
+func Capture(skip int) *StackTrace {
+	const maxDepth = 64
+	pcs := make([]uintptr, maxDepth)
+	
+	// skip + 2: 跳过 runtime.Callers 和 Capture 本身
+	n := runtime.Callers(skip+2, pcs)
+	if n == 0 {
+		return &StackTrace{}
+	}
+	
+	return &StackTrace{
+		pcs: pcs[:n],
+	}
+}
+
+// CaptureBytes 采集当前调用位置的堆栈并截断到安全大小。
+// Deprecated: 使用 Capture(skip int) *StackTrace 代替，支持结构化堆栈和智能过滤。
+func CaptureBytes() []byte {
 	return truncate(debug.Stack())
+}
+
+// DefaultFilter 返回默认的堆栈帧过滤函数。
+// 过滤规则：
+// - 过滤 runtime.* 帧
+// - 过滤 internal/stackx.* 帧
+// - 过滤 exception.Report 相关帧
+// 保留框架业务代码帧和所有业务代码帧。
+func DefaultFilter() func(StackFrame) bool {
+	return func(frame StackFrame) bool {
+		// 过滤 runtime 帧
+		if strings.HasPrefix(frame.Function, "runtime.") {
+			return false
+		}
+		
+		// 过滤 stackx 自身帧
+		if strings.Contains(frame.File, "internal/stackx") {
+			return false
+		}
+		
+		// 过滤 exception.Report 相关帧
+		if strings.Contains(frame.Function, "exception.(*Handler).Report") ||
+		   strings.Contains(frame.Function, "exception.Report") {
+			return false
+		}
+		
+		return true
+	}
 }
 
 // truncate 限制堆栈信息大小，防止日志爆炸。

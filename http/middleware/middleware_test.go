@@ -422,7 +422,7 @@ func TestExceptionStatusFallbacksAndSingleReport(t *testing.T) {
 	engine.Use(Exception(h))
 	engine.GET("/twice", func(c *gin.Context) {
 		_ = c.Error(errors.New("first"))
-		reportHTTP(h, c, errors.New("already reported"), http.StatusInternalServerError, time.Now(), nil, nil)
+		reportHTTP(h, c, errors.New("already reported"), http.StatusInternalServerError, time.Now(), nil)
 	})
 
 	recorder := httptest.NewRecorder()

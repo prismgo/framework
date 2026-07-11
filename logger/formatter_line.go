@@ -11,10 +11,10 @@ import (
 
 const simpleLineFormat = "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n"
 
-// stackTracer 抽象携带堆栈字符串的 error，
+// stackTracer 抽象携带结构化堆栈的 error，
 // 兼容业务侧未来接入自定义错误类型或第三方错误包。
 type stackTracer interface {
-	StackTrace() string
+	StackTrace() *stackx.StackTrace
 }
 
 // LineFormatter 对齐 Laravel 13 默认 LineFormatter 行格式。
@@ -85,6 +85,7 @@ func (f *LineFormatter) buildLine(entry *logrus.Entry) (string, error) {
 // formatContext 把 logrus 字段编码为 Laravel line formatter 的 context JSON。
 // 设计约束：当前实现把全部 entry.Data 视为 context；error 字段保留标准错误消息，
 // 这样既能兼容 WithError 语义，又能在 stacktrace 之外保留可直接检索的错误文本。
+// stack 字段被排除，因为堆栈信息已在 [stacktrace] 段落中输出，避免重复。
 func (f *LineFormatter) formatContext(data logrus.Fields) (string, error) {
 	if len(data) == 0 {
 		return "", nil
@@ -95,6 +96,10 @@ func (f *LineFormatter) formatContext(data logrus.Fields) (string, error) {
 			if err, ok := value.(error); ok && err != nil {
 				context[key] = err.Error()
 			}
+			continue
+		}
+		// 排除 stack 字段，堆栈信息已在 [stacktrace] 段落中输出
+		if key == "stack" {
 			continue
 		}
 		context[key] = value
@@ -131,14 +136,20 @@ func (f *LineFormatter) formatStackTraces(entry *logrus.Entry) string {
 	return "[stacktrace]\n" + trace + "\n"
 }
 
-// extractStackTrace 优先读取 error 自带的堆栈字符串，
+// extractStackTrace 优先读取 error 自带的结构化堆栈，
 // 否则回退到 debug.Stack 采集当前日志调用位置的 Go 原生栈。
+// 应用 DefaultFilter 过滤框架内部无关帧，保留业务代码帧。
 func (f *LineFormatter) extractStackTrace(err error) string {
 	if traced, ok := err.(stackTracer); ok {
-		trace := strings.TrimSpace(traced.StackTrace())
-		if trace != "" {
-			return trace
+		stack := traced.StackTrace()
+		if stack != nil {
+			// 应用默认过滤器，过滤框架内部帧
+			filtered := stack.Filter(stackx.DefaultFilter())
+			trace := strings.TrimSpace(filtered.Format())
+			if trace != "" {
+				return trace
+			}
 		}
 	}
-	return strings.TrimSpace(string(stackx.Capture()))
+	return strings.TrimSpace(string(stackx.CaptureBytes()))
 }

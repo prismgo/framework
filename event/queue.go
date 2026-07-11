@@ -239,14 +239,16 @@ func (o queueListenerOptions) QueueSilenced() bool             { return false }
 func (j *queuedListenerJob) Handle(ctx context.Context) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("event queued listener panic: %v", r)
+			// 捕获 panic 发生位置的结构化堆栈
+			stack := stackx.Capture(0)
+			panicErr := fmt.Errorf("event queued listener panic: %v", r)
+			err = exception.WithStackTrace(panicErr, stack)
 			exception.Report(ctx, err, map[string]any{
 				"component":   "event",
 				"subsystem":   "queued_listener",
 				"event":       j.EventName,
 				"listener_id": j.ListenerID,
 				"operation":   "handle",
-				"stack":       string(stackx.Capture()),
 			})
 		}
 	}()

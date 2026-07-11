@@ -7,6 +7,7 @@ import (
 
 	contract "github.com/prismgo/framework/contracts/routine"
 	goexception "github.com/prismgo/framework/exception"
+	"github.com/prismgo/framework/internal/stackx"
 )
 
 var errNilTask = errors.New("routine: task is nil")
@@ -90,7 +91,10 @@ func (c taskConfig) run() {
 	}
 	defer func() {
 		if rec := recover(); rec != nil {
+			// 捕获 panic 发生位置的结构化堆栈
+			stack := stackx.Capture(0)
 			err := c.panicError(rec)
+			err = goexception.WithStackTrace(err, stack)
 			goexception.Report(ctx, err, c.reportFields())
 			if c.onPanic != nil {
 				c.onPanic(err)
