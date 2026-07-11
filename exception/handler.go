@@ -144,10 +144,11 @@ func (h *Handler) Report(ctx context.Context, err error, fields map[string]any) 
 	// 保存原始 error 用于传递给 reporter
 	originalErr := err
 
-	// 自动兜底：如果 error 未携带堆栈，自动捕获并跳过 Report 相关帧
+	// 自动兜底：如果 error 未携带堆栈，自动捕获并跳过 Report 自身
 	if h.PanicStack && !hasStackTrace(err) {
-		// skip=3: 跳过 hasStackTrace、Report、addErrorMetadata
-		stack := stackx.Capture(3)
+		// skip=1: Capture 内部 skip+2 已跳过 runtime.Callers 和 Capture 自身，
+		// 额外 skip=1 跳过 Report 方法，使第一帧为 Report 的调用者
+		stack := stackx.Capture(1)
 		err = WithStackTrace(err, stack)
 	}
 	fields = scrubLogFields(fields)

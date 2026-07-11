@@ -39,32 +39,36 @@ func CaptureBytes() []byte {
 	return truncate(debug.Stack())
 }
 
-// DefaultFilter 返回默认的堆栈帧过滤函数。
+// defaultFilterFunc 是 DefaultFilter 返回的共享过滤函数，避免闭包重复分配。
 // 过滤规则：
 // - 过滤 runtime.* 帧
 // - 过滤 internal/stackx.* 帧
 // - 过滤 exception.Report 相关帧
 // 保留框架业务代码帧和所有业务代码帧。
-func DefaultFilter() func(StackFrame) bool {
-	return func(frame StackFrame) bool {
-		// 过滤 runtime 帧
-		if strings.HasPrefix(frame.Function, "runtime.") {
-			return false
-		}
-		
-		// 过滤 stackx 自身帧
-		if strings.Contains(frame.File, "internal/stackx") {
-			return false
-		}
-		
-		// 过滤 exception.Report 相关帧
-		if strings.Contains(frame.Function, "exception.(*Handler).Report") ||
-		   strings.Contains(frame.Function, "exception.Report") {
-			return false
-		}
-		
-		return true
+var defaultFilterFunc = func(frame StackFrame) bool {
+	// 过滤 runtime 帧
+	if strings.HasPrefix(frame.Function, "runtime.") {
+		return false
 	}
+
+	// 过滤 stackx 自身帧
+	if strings.Contains(frame.File, "internal/stackx") {
+		return false
+	}
+
+	// 过滤 exception.Report 相关帧
+	if strings.Contains(frame.Function, "exception.(*Handler).Report") ||
+		strings.Contains(frame.Function, "exception.Report") {
+		return false
+	}
+
+	return true
+}
+
+// DefaultFilter 返回默认的堆栈帧过滤函数（共享实例）。
+// 多次调用返回同一个函数，避免闭包重复分配。
+func DefaultFilter() func(StackFrame) bool {
+	return defaultFilterFunc
 }
 
 // truncate 限制堆栈信息大小，防止日志爆炸。

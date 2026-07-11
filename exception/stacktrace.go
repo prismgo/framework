@@ -100,6 +100,9 @@ type wrapError struct {
 }
 
 func (e *wrapError) Error() string {
+	if e.msg == "" {
+		return e.err.Error()
+	}
 	return e.msg + ": " + e.err.Error()
 }
 

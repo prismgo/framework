@@ -81,6 +81,12 @@ func (st *StackTrace) Filter(fn func(StackFrame) bool) *StackTrace {
 	}
 }
 
+// NewStackTraceFromFrames 从预定义的帧数组构造 StackTrace，
+// 用于测试或已知堆栈内容的场景（跳过 runtime.Callers 解析）。
+func NewStackTraceFromFrames(frames []StackFrame) *StackTrace {
+	return &StackTrace{frames: frames}
+}
+
 // resolveFrames 将 PC 指针解析为 StackFrame
 func resolveFrames(pcs []uintptr) []StackFrame {
 	if len(pcs) == 0 {
