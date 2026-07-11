@@ -25,8 +25,8 @@ if (-not (Test-Path $LogRoot)) {
 }
 
 $timestamp = Get-Date -Format 'yyyyMMddHHmmss'
-$pid = $PID
-$TestLog = Join-Path $LogRoot "test-summary-$timestamp-$pid.log"
+$procId = $PID
+$TestLog = Join-Path $LogRoot "test-summary-$timestamp-$procId.log"
 
 Write-Host "==> Command: $($Command -join ' ')"
 
