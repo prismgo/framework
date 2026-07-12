@@ -27,6 +27,10 @@ type Problem struct {
 	Line      int            `json:"line,omitempty"`
 	// Trace 包含堆栈跟踪信息，会被截断至 4KB 左右（详见 internal/stackx）。
 	Trace []string `json:"trace,omitempty"`
+
+	// basePath 是项目根目录路径，用于在调试响应中裁剪绝对路径避免泄露目录结构。
+	// 由 Handler.renderResponse 在调用 WithDebug 前设置。
+	basePath string `json:"-"`
 }
 
 // HTTPError is the minimal contract for errors that can expose a safe HTTP
@@ -88,11 +92,40 @@ func (p Problem) WithDebug(err error) Problem {
 	p.Detail = err.Error()
 	p.Message = err.Error()
 	p.Exception = fmt.Sprintf("%T", err)
-	p.Trace = stackTraceLines(stackx.CaptureBytes())
-	if len(p.Trace) > 0 {
-		p.File, p.Line = firstTraceLocation(p.Trace)
+
+	// 优先从 error 自身读取结构化堆栈（通过 stackTracer 接口），
+	// 这样能反映错误源头的调用位置而非 WithDebug 渲染位置。
+	st := captureStackForDebug(err)
+	p.File, p.Line = st.FirstLocation()
+	p.Trace = st.Lines()
+
+	// 裁剪文件路径中的项目根目录前缀，避免泄露服务器目录结构
+	if p.basePath != "" && strings.HasPrefix(p.File, p.basePath) {
+		p.File = strings.TrimPrefix(p.File, p.basePath)
+		p.File = strings.TrimPrefix(p.File, "/")
 	}
+	if p.basePath != "" {
+		for i, line := range p.Trace {
+			if strings.HasPrefix(line, p.basePath) {
+				p.Trace[i] = strings.TrimPrefix(line, p.basePath)
+				p.Trace[i] = strings.TrimPrefix(p.Trace[i], "/")
+			}
+		}
+	}
+
 	return p
+}
+
+// captureStackForDebug 返回用于调试展示的堆栈。
+// 优先从 error 自身的 stackTracer 接口读取，否则采集渲染位置的堆栈。
+func captureStackForDebug(err error) *stackx.StackTrace {
+	var tracer interface{ StackTrace() *stackx.StackTrace }
+	if errors.As(err, &tracer) && tracer != nil {
+		if stack := tracer.StackTrace(); stack != nil {
+			return stack.Filter(nil)
+		}
+	}
+	return stackx.Capture(0).Filter(nil)
 }
 
 func normalizeStatus(status int) int {
@@ -140,49 +173,6 @@ func defaultTypeForStatus(status int) string {
 		}
 		return fmt.Sprintf("http.%d", status)
 	}
-}
-
-func stackTraceLines(stack []byte) []string {
-	raw := strings.Split(strings.TrimSpace(string(stack)), "\n")
-	trace := make([]string, 0, len(raw))
-	for _, line := range raw {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			trace = append(trace, line)
-		}
-	}
-	return trace
-}
-
-func firstTraceLocation(trace []string) (string, int) {
-	for _, line := range trace {
-		if !strings.Contains(line, ".go:") ||
-			strings.Contains(line, "runtime/debug.Stack") ||
-			strings.Contains(line, "runtime/debug/stack.go") ||
-			strings.Contains(line, "internal/stackx") {
-			continue
-		}
-		file, lineNumber := splitFileLine(line)
-		if file != "" {
-			return file, lineNumber
-		}
-	}
-	return "", 0
-}
-
-func splitFileLine(line string) (string, int) {
-	idx := strings.LastIndex(line, ".go:")
-	if idx < 0 {
-		return "", 0
-	}
-	file := line[:idx+3]
-	rest := line[idx+4:]
-	if tab := strings.Index(rest, "\t"); tab >= 0 {
-		rest = rest[:tab]
-	}
-	var n int
-	_, _ = fmt.Sscanf(rest, "%d", &n)
-	return file, n
 }
 
 type fieldErrorProvider interface {

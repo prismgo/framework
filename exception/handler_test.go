@@ -265,19 +265,6 @@ func TestProblemForErrorMapsFrameworkStatusBranches(t *testing.T) {
 	}
 }
 
-// TestProblemDebugHelpersHandleMissingLocations verifies debug trace parsing tolerates frames without Go locations.
-func TestProblemDebugHelpersHandleMissingLocations(t *testing.T) {
-	file, line := firstTraceLocation([]string{"runtime/debug.Stack", "plain frame"})
-	if file != "" || line != 0 {
-		t.Fatalf("firstTraceLocation = (%q, %d), want empty location", file, line)
-	}
-
-	file, line = splitFileLine("not-a-go-frame")
-	if file != "" || line != 0 {
-		t.Fatalf("splitFileLine invalid = (%q, %d), want empty location", file, line)
-	}
-}
-
 // =============================================================================
 // ShouldReport 测试
 // =============================================================================

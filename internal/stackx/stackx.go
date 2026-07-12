@@ -7,13 +7,8 @@ package stackx
 
 import (
 	"runtime"
-	"runtime/debug"
 	"strings"
 )
-
-const maxStackSize = 4 * 1024 // 4KB
-
-const truncationSuffix = "\n... stack trace truncated ..."
 
 // Capture 采集当前调用位置的结构化堆栈。
 // skip 参数表示跳过的帧数（0 表示从调用者开始）。
@@ -21,29 +16,26 @@ const truncationSuffix = "\n... stack trace truncated ..."
 func Capture(skip int) *StackTrace {
 	const maxDepth = 64
 	pcs := make([]uintptr, maxDepth)
-	
+
 	// skip + 2: 跳过 runtime.Callers 和 Capture 本身
 	n := runtime.Callers(skip+2, pcs)
 	if n == 0 {
 		return &StackTrace{}
 	}
-	
+
 	return &StackTrace{
 		pcs: pcs[:n],
 	}
 }
 
-// CaptureBytes 采集当前调用位置的堆栈并截断到安全大小。
-// Deprecated: 使用 Capture(skip int) *StackTrace 代替，支持结构化堆栈和智能过滤。
-func CaptureBytes() []byte {
-	return truncate(debug.Stack())
-}
-
 // defaultFilterFunc 是 DefaultFilter 返回的共享过滤函数，避免闭包重复分配。
 // 过滤规则：
 // - 过滤 runtime.* 帧
+// - 过滤 testing.* 帧（测试框架基础设施）
 // - 过滤 internal/stackx.* 帧
 // - 过滤 exception.Report 相关帧
+// - 过滤 logger.* 帧（日志记录基础设施）
+// - 过滤 sirupsen/logrus.* 帧（第三方日志库）
 // 保留框架业务代码帧和所有业务代码帧。
 var defaultFilterFunc = func(frame StackFrame) bool {
 	// 过滤 runtime 帧
@@ -51,41 +43,42 @@ var defaultFilterFunc = func(frame StackFrame) bool {
 		return false
 	}
 
-	// 过滤 stackx 自身帧
-	if strings.Contains(frame.File, "internal/stackx") {
+	// 过滤 testing 帧（测试框架基础设施），但保留测试函数本身
+	// 只过滤 testing.tRunner, testing.(*T).Run 等基础设施代码
+	if frame.Function == "testing.tRunner" ||
+		strings.HasPrefix(frame.Function, "testing.(*T).") {
 		return false
 	}
 
-	// 过滤 exception.Report 相关帧
-	if strings.Contains(frame.Function, "exception.(*Handler).Report") ||
-		strings.Contains(frame.Function, "exception.Report") {
+	// 过滤 stackx 自身帧，但保留测试函数（通过检查文件路径是否为 _test.go）
+	if strings.Contains(frame.File, "/internal/stackx/") && !strings.HasSuffix(frame.File, "_test.go") {
+		return false
+	}
+
+	// 过滤 exception.Report 相关帧（合并检查以提高效率）
+	if strings.HasPrefix(frame.Function, "github.com/prismgo/framework/exception.") &&
+		strings.Contains(frame.Function, ".Report") {
+		return false
+	}
+
+	// 过滤 logger 包的帧（日志记录基础设施），但保留测试函数（通过检查文件路径是否为 _test.go）
+	// 合并 logger 和 logrus 的检查
+	if !strings.HasSuffix(frame.File, "_test.go") &&
+		(strings.HasPrefix(frame.Function, "github.com/prismgo/framework/logger.") || strings.HasPrefix(frame.Function, "github.com/sirupsen/logrus")) {
 		return false
 	}
 
 	return true
 }
 
+// CaptureBytes 采集当前调用位置的堆栈并截断到安全大小。
+// Deprecated: 使用 Capture(0).Filter(nil).Format() 代替。
+func CaptureBytes() []byte {
+	return []byte(Capture(0).Filter(nil).Format())
+}
+
 // DefaultFilter 返回默认的堆栈帧过滤函数（共享实例）。
 // 多次调用返回同一个函数，避免闭包重复分配。
 func DefaultFilter() func(StackFrame) bool {
 	return defaultFilterFunc
-}
-
-// truncate 限制堆栈信息大小，防止日志爆炸。
-// 超过 maxStackSize 的堆栈会被截断，并添加截断提示。
-// 截断点会向前回退到最近的换行符，避免截断到行中间。
-func truncate(stack []byte) []byte {
-	if len(stack) <= maxStackSize {
-		return stack
-	}
-	// 向前回退到最近的换行符
-	cut := maxStackSize
-	for cut > 0 && stack[cut-1] != '\n' {
-		cut--
-	}
-	suffix := []byte(truncationSuffix)
-	truncated := make([]byte, cut+len(suffix))
-	copy(truncated, stack[:cut])
-	copy(truncated[cut:], suffix)
-	return truncated
 }

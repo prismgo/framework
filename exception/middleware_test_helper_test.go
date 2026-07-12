@@ -34,7 +34,8 @@ func exceptionMiddlewareTest(h *Handler) gin.HandlerFunc {
 			_ = c.Error(err)
 			c.Set(panicLoggedKey, true)
 			status := h.renderResponse(c, err)
-			h.reportHTTPTest(c, err, status, start, recovered, stackx.CaptureBytes())
+			stack := []byte(stackx.Capture(0).Filter(nil).Format())
+			h.reportHTTPTest(c, err, status, start, recovered, stack)
 		}()
 
 		c.Next()
@@ -59,7 +60,7 @@ func (h *Handler) stackForStatusTest(status int) []byte {
 	if h == nil || !h.PanicStack || status < http.StatusInternalServerError {
 		return nil
 	}
-	return stackx.CaptureBytes()
+	return []byte(stackx.Capture(0).Filter(nil).Format())
 }
 
 func (h *Handler) stackForStatus(status int) []byte {

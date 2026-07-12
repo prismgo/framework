@@ -2,6 +2,7 @@ package logger
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -137,19 +138,23 @@ func (f *LineFormatter) formatStackTraces(entry *logrus.Entry) string {
 }
 
 // extractStackTrace 优先读取 error 自带的结构化堆栈，
-// 否则回退到 debug.Stack 采集当前日志调用位置的 Go 原生栈。
+// 否则回退到 Capture 采集当前日志调用位置的堆栈。
 // 应用 DefaultFilter 过滤框架内部无关帧，保留业务代码帧。
 func (f *LineFormatter) extractStackTrace(err error) string {
-	if traced, ok := err.(stackTracer); ok {
-		stack := traced.StackTrace()
+	var tracer stackTracer
+	// 使用 errors.As 而非类型断言，确保能穿透错误包装链找到结构化堆栈
+	if errors.As(err, &tracer) {
+		stack := tracer.StackTrace()
 		if stack != nil {
 			// 应用默认过滤器，过滤框架内部帧
-			filtered := stack.Filter(stackx.DefaultFilter())
+			filtered := stack.Filter(nil)
 			trace := strings.TrimSpace(filtered.Format())
 			if trace != "" {
 				return trace
 			}
 		}
 	}
-	return strings.TrimSpace(string(stackx.CaptureBytes()))
+	// 回退到 Capture 采集当前调用位置的堆栈
+	stack := stackx.Capture(0)
+	return strings.TrimSpace(stack.Filter(nil).Format())
 }

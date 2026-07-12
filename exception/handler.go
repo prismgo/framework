@@ -63,6 +63,9 @@ type Handler struct {
 	ContextExtractor ContextExtractor
 	// Renderers 自定义错误渲染器链，对齐 Laravel Handler::renderable()。
 	Renderers []rendererEntry
+
+	// basePath 是项目根目录路径，用于在调试响应中裁剪绝对路径避免泄露目录结构。
+	basePath string
 }
 
 // rendererEntry 保存一对可选的渲染器。
@@ -238,6 +241,7 @@ func (h *Handler) renderResponse(c *gin.Context, err error) int {
 		}
 	}
 	problem := problemForError(err, requestIDFromContext(c))
+	problem.basePath = h.basePath
 	if h.Debug() {
 		problem = problem.WithDebug(err)
 	}
@@ -429,6 +433,16 @@ func WithDebugResolver(resolve func() bool) Option {
 	return func(h *Handler) {
 		if resolve != nil {
 			h.DebugResolver = resolve
+		}
+	}
+}
+
+// WithBasePath 设置项目根目录路径，用于在调试响应中裁剪文件路径。
+// 在 foundation 装配中会自动从容器 path.base 绑定注入。
+func WithBasePath(basePath string) Option {
+	return func(h *Handler) {
+		if basePath != "" {
+			h.basePath = basePath
 		}
 	}
 }

@@ -320,7 +320,7 @@ func TestWithFieldAndWithError(t *testing.T) {
 	if !strings.Contains(got, `{"error":"bad","uid":42}`) && !strings.Contains(got, `{"uid":42,"error":"bad"}`) {
 		t.Fatalf("field or error message not rendered: %s", got)
 	}
-	if !strings.Contains(got, "[stacktrace]") || !strings.Contains(got, "runtime/debug.Stack") {
+	if !strings.Contains(got, "[stacktrace]") || !strings.Contains(got, "TestWithFieldAndWithError") {
 		t.Fatalf("error stacktrace not rendered: %s", got)
 	}
 }

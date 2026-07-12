@@ -87,7 +87,7 @@ func TestCleanupDeliveryRegistry_ConcurrentAccess(t *testing.T) {
 	states := make([]*rabbitMQDeliveryState, numEntries)
 
 	for i := 0; i < numEntries; i++ {
-		entries[i] = &payload.Envelope{ID: string(rune('A' + i%26)) + string(rune('0'+i/26))}
+		entries[i] = &payload.Envelope{ID: string(rune('A'+i%26)) + string(rune('0'+i/26))}
 		states[i] = &rabbitMQDeliveryState{acked: false}
 		rabbitMQDeliveryRegistry.Store(entries[i], &rabbitMQDeliveryEntry{
 			state:    states[i],

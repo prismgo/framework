@@ -375,11 +375,11 @@ func (i surfaceInput) Argument(name string) string {
 	}
 	return values[0]
 }
-func (i surfaceInput) Arguments(name string) []string { return append([]string(nil), i.args[name]...) }
-func (i surfaceInput) Option(name string) string      { return i.options[name] }
-func (i surfaceInput) OptionStrings(string) []string  { return nil }
-func (i surfaceInput) OptionBool(name string) bool    { return i.bools[name] }
-func (i surfaceInput) OptionInt(name string) (int, error)      { return i.ints[name], nil }
+func (i surfaceInput) Arguments(name string) []string     { return append([]string(nil), i.args[name]...) }
+func (i surfaceInput) Option(name string) string          { return i.options[name] }
+func (i surfaceInput) OptionStrings(string) []string      { return nil }
+func (i surfaceInput) OptionBool(name string) bool        { return i.bools[name] }
+func (i surfaceInput) OptionInt(name string) (int, error) { return i.ints[name], nil }
 func (i surfaceInput) HasOption(name string) bool {
 	if _, ok := i.options[name]; ok {
 		return true

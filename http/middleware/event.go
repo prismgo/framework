@@ -43,7 +43,7 @@ func Event(dispatcher eventcontract.Dispatcher) gin.HandlerFunc {
 				errText := fmt.Sprintf("%v", r)
 				stack := ""
 				if config.GetBool("app.debug", false) {
-					stack = string(stackx.CaptureBytes())
+					stack = stackx.Capture(0).Filter(nil).Format()
 				}
 				bus.Dispatch(c.Request.Context(), event.RequestFailed{
 					Method:    c.Request.Method,

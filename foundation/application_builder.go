@@ -115,18 +115,28 @@ func (b *Builder) registerExceptionHandler(app *Application) {
 	//
 	// 装配顺序：
 	//   1. 框架默认 Option（Recovery/Logging/ClientErrorLogging/PanicStack）
-	//   2. 业务侧 WithExceptions Option（Context/Render/Report/DontReport/Level）
-	//   3. 业务侧 HandlerFactory（struct embedding 替换/包裹）
-	//   4. 注册到 facade registry，供 HTTP（RenderError）和非 HTTP（exception.Report）统一使用
+	//   2. 从容器解析项目根目录路径，用于裁剪调试响应中的绝对路径
+	//   3. 业务侧 WithExceptions Option（Context/Render/Report/DontReport/Level）
+	//   4. 业务侧 HandlerFactory（struct embedding 替换/包裹）
+	//   5. 注册到 facade registry，供 HTTP（RenderError）和非 HTTP（exception.Report）统一使用
+	defaultOpts := []goexception.Option{
+		goexception.WithRecovery(true),
+		goexception.WithLogging(true),
+		goexception.WithClientErrorLogging(true),
+		goexception.WithPanicStack(true),
+		goexception.WithDebugResolver(func() bool { return config.GetBool("app.debug", false) }),
+	}
+	// 从容器解析 path.base 用于调试响应路径裁剪
+	if app != nil {
+		if basePath, err := app.Container().Make("path.base"); err == nil {
+			if bp, ok := basePath.(string); ok && bp != "" {
+				defaultOpts = append(defaultOpts, goexception.WithBasePath(bp))
+			}
+		}
+	}
 	handler := goexception.BuildAndRegister(
 		append(
-			[]goexception.Option{
-				goexception.WithRecovery(true),
-				goexception.WithLogging(true),
-				goexception.WithClientErrorLogging(true),
-				goexception.WithPanicStack(true),
-				goexception.WithDebugResolver(func() bool { return config.GetBool("app.debug", false) }),
-			},
+			defaultOpts,
 			b.exceptions.options...,
 		),
 		b.exceptions.handlerFactory,
