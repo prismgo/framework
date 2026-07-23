@@ -228,6 +228,13 @@ func (w *Worker) WorkQueue(ctx context.Context, queueConn queuecontract.Queue, o
 		}
 		ok, err := w.runNextJob(ctx, queueConn, options)
 		if err != nil {
+			// shouldStop 在每次循环迭代入口检查 ctx.Err() 以优雅停止 worker，但在
+			// runNextJob 进行阻塞 Pop 或 job 处理期间 context 可能被取消，导致返回
+			// context.Canceled 或 DeadlineExceeded。这里将其视为正常停止信号，与
+			// shouldStop 的设计意图一致。
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
 			return err
 		}
 		if ok {
