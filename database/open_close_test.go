@@ -102,7 +102,7 @@ func TestConfigureConnection_ValidatesBeforeSQL(t *testing.T) {
 
 // TestOpen_RejectsUnsupportedDriver 验证 Open 函数拒绝不支持的驱动
 func TestOpen_RejectsUnsupportedDriver(t *testing.T) {
-	db, err := Open("sqlite", "file::memory:?cache=shared", MySQLConfig{})
+	db, err := Open("postgres", "unused", MySQLConfig{})
 	if err == nil {
 		t.Fatal("expected error for unsupported driver, got nil")
 	}

@@ -4,12 +4,14 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	mysqldriver "github.com/go-sql-driver/mysql"
+	configpkg "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
 	"gorm.io/driver/mysql"
@@ -91,12 +93,42 @@ func TestBuildMySQLDSNRoundTripsSpecialCharacters(t *testing.T) {
 }
 
 func TestOpenRejectsUnknownDriver(t *testing.T) {
-	_, err := Open("sqlite", "file::memory:?cache=shared", MySQLConfig{})
+	_, err := Open("postgres", "unused", MySQLConfig{})
 	if err == nil {
 		t.Fatalf("expected unsupported driver error")
 	}
 	if !strings.Contains(err.Error(), "unsupported driver") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestOpenSQLite(t *testing.T) {
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	if err := registry.Instance("config.default", configpkg.New()); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+
+	db, err := Open("sqlite", "file:"+filepath.Join(t.TempDir(), "database.sqlite"), MySQLConfig{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() {
+		sqlDB, sqlErr := db.DB()
+		if sqlErr == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	if err := db.Exec("CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT NOT NULL)").Error; err != nil {
+		t.Fatalf("create sqlite table: %v", err)
+	}
+	if err := db.Exec("INSERT INTO widgets (name) VALUES (?)", "demo").Error; err != nil {
+		t.Fatalf("insert sqlite row: %v", err)
+	}
+	var count int64
+	if err := db.Table("widgets").Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("count sqlite rows = %d, %v", count, err)
 	}
 }
 
@@ -264,6 +296,14 @@ func TestBuildDSNByDriver(t *testing.T) {
 			check: func(dsn string) bool {
 				return dsn == "file::memory:?cache=shared"
 			},
+		},
+		{
+			name:   "sqlite driver falls back to database path",
+			driver: "sqlite3",
+			cfg: MySQLConfig{
+				Connection: MySQLConnectionConfig{Database: "storage/testing.sqlite"},
+			},
+			check: func(dsn string) bool { return dsn == "storage/testing.sqlite" },
 		},
 		{
 			name:   "unknown driver returns empty DSN",

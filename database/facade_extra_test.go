@@ -2,7 +2,6 @@ package database
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -91,25 +90,35 @@ func TestServiceProviderLazyOpenDefaultConnection(t *testing.T) {
 	_ = sqlDB2.Close()
 }
 
-func TestOpenDefaultConnectionRejectsUnsupportedDriver(t *testing.T) {
+func TestOpenDefaultConnectionSupportsSQLite(t *testing.T) {
 	registry := container.NewContainer()
 	container.SetProvider(func() *container.Container { return registry })
 	t.Cleanup(func() { container.SetProvider(nil) })
 	useDatabaseConfig(t, registry, "sqlite", "sqlite")
-	if _, err := OpenDefaultConnection(); err == nil || !strings.Contains(err.Error(), "unsupported driver") {
-		t.Fatalf("expected unsupported driver error, got %v", err)
+	db, err := OpenDefaultConnection()
+	if err != nil {
+		t.Fatalf("open default sqlite connection: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sqlite sql.DB: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 }
 
 func useDatabaseConfig(t *testing.T, registry *container.Container, connection, driver string) {
 	t.Helper()
+	dsn := "root:secret@tcp(127.0.0.1:1)/prismgo?charset=utf8mb4&parseTime=true&loc=Local"
+	if driver == "sqlite" || driver == "sqlite3" {
+		dsn = filepath.Join(t.TempDir(), "database.sqlite")
+	}
 	configpkg.Add("database", func() map[string]any {
 		return map[string]any{
 			"default": connection,
 			"connections": map[string]any{
 				connection: map[string]any{
 					"driver":             driver,
-					"dsn":                "root:secret@tcp(127.0.0.1:1)/prismgo?charset=utf8mb4&parseTime=true&loc=Local",
+					"dsn":                dsn,
 					"conn_max_lifetime":  "2m",
 					"conn_max_idle_time": "30",
 					"max_open_conns":     4,

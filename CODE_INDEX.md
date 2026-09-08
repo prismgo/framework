@@ -415,13 +415,11 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 
 | File | Key Symbols | Description |
 |---|---|---|
-| `manager.go` | `Manager` (struct) | Database connection manager |
-| `config.go` | `Config`, `ConnectionConfig` | Database configuration types |
-| `facade.go` | `Resolve() *Manager` | Package-level facade |
-| | `Connection`, `DB`, `Table` | Database facade |
-| `service_provider.go` | `ServiceProvider` | Register `database.manager` lazy singleton |
-| `factory.go` | — | Model factory support |
-| `seeder.go` | — | Database seeding |
+| `connection.go` | `Open`, `OpenDefaultConnection`, `OpenConnection` | MySQL/SQLite connection construction, DSN and pool configuration |
+| `facade.go` | `Resolve() *gorm.DB` | Resolve the application database connection |
+| `service_provider.go` | `ServiceProvider` | Register the lazy `database.default` singleton |
+| `migration.go` | `RegisterMigration`, `RegisterSeeder` | Migration and seeder registries |
+| `migrator.go` | `Migrator` | Migration and index maintenance helpers |
 
 **Sub-packages:**
 | Sub-package | File | Key Symbols | Description |
@@ -430,7 +428,6 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 | | `blueprint.go` | `Blueprint` (struct) | Table blueprint definition |
 | | `facade.go` | `Resolve() *Builder` | Schema facade: `Create`, `Table`, `DropIfExists`, `HasColumn`, `HasColumnType`, `GetColumnListing`, `GetIndexes`, `HasIndex`, `HasTable`, `HasView`, `GetTables`, `GetViews`, `GetTypes`, `GetForeignKeys`, `CreateDatabase`, `DropDatabaseIfExists` |
 | | `grammar.go` | — | SQL grammar definitions |
-| `database/migrations/` | — | Migration execution engine |
 
 ---
 

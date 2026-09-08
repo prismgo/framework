@@ -1,5 +1,4 @@
 // Package database 提供 GORM 数据库连接的通用构造工具，屏蔽不同 driver 的差异。
-// 当前仅内置 MySQL；如需扩展 SQLite / Postgres 等，可新增同名 DSN 构造器后在 Open 中分支。
 package database
 
 import (
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	mysqldriver "github.com/go-sql-driver/mysql"
 	configpkg "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/exception"
@@ -210,7 +210,6 @@ type MySQLConfig struct {
 }
 
 // Open 根据 driver 字符串打开 GORM 数据库连接。
-// 目前仅支持 driver == "mysql"；其他 driver 立即返回错误，避免隐式回退到 MySQL 造成困惑。
 // cfg 用于传递 TablePrefix 等连接级配置到 GORM。
 func Open(driver, dsn string, cfg MySQLConfig) (*gorm.DB, error) {
 	driver = strings.ToLower(strings.TrimSpace(driver))
@@ -239,6 +238,14 @@ func Open(driver, dsn string, cfg MySQLConfig) (*gorm.DB, error) {
 			return nil, err
 		}
 		return db, nil
+	case "sqlite", "sqlite3":
+		return gorm.Open(sqlite.Open(dsn), &gorm.Config{
+			DisableAutomaticPing: true,
+			Logger:               gormLoggerFromDebug(configpkg.GetBool("app.debug", false)),
+			NamingStrategy: schema.NamingStrategy{
+				TablePrefix: cfg.Schema.TablePrefix,
+			},
+		})
 	default:
 		return nil, fmt.Errorf("database: unsupported driver: %s", driver)
 	}
@@ -647,13 +654,12 @@ func BuildMySQLDSN(cfg MySQLConfig) string {
 }
 
 // buildDSNByDriver 根据驱动类型构建 DSN。
-// 目前仅支持 mysql 驱动，其他驱动返回空字符串。
 func buildDSNByDriver(driver string, cfg MySQLConfig) string {
 	switch strings.ToLower(strings.TrimSpace(driver)) {
 	case "mysql", "":
 		return BuildMySQLDSN(cfg)
 	case "sqlite", "sqlite3":
-		return cfg.Connection.DSN
+		return defaultIfBlank(cfg.Connection.DSN, cfg.Connection.Database)
 	default:
 		return ""
 	}
@@ -709,7 +715,7 @@ func parseDurationSecondsOrText(value string, fallback time.Duration) time.Durat
 	return time.Duration(n * float64(time.Second))
 }
 
-// OpenDefaultConnection 根据应用配置仓库创建默认数据库连接，目前仅支持 MySQL。
+// OpenDefaultConnection 根据应用配置仓库创建默认数据库连接。
 func OpenDefaultConnection() (*gorm.DB, error) {
 	connection := configpkg.GetString("database.default", "mysql")
 	return OpenConnection(connection)
