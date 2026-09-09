@@ -7,7 +7,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible
 	github.com/eko/gocache/lib/v4 v4.2.4
-	github.com/eko/gocache/store/redis/v4 v4.2.6
+	github.com/eko/gocache/store/redis/v4 v4.2.9
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-sql-driver/mysql v1.10.1
