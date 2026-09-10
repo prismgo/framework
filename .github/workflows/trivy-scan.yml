@@ -19,6 +19,8 @@ jobs:
   trivy-scan:
     name: Trivy Security Scan
     runs-on: ubuntu-latest
+    env:
+      TRIVY_VEX: .github/vex/golang-x-crypto.openvex.json
     steps:
       - name: Checkout code
         uses: actions/checkout@v7

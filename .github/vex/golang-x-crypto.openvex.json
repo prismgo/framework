@@ -1,0 +1,46 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/prismgo/framework/security/vex/2026-golang-x-crypto-ssh",
+  "author": "PrismGo maintainers",
+  "role": "Document Creator",
+  "timestamp": "2026-09-10T00:00:00+08:00",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "CVE-2026-56855"
+      },
+      "products": [
+        {
+          "@id": "pkg:golang/github.com/prismgo/framework",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/golang.org/x/crypto@v0.55.0"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "PrismGo does not import golang.org/x/crypto/ssh; only non-SSH packages from this module are in the dependency graph."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-78662"
+      },
+      "products": [
+        {
+          "@id": "pkg:golang/github.com/prismgo/framework",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/golang.org/x/crypto@v0.55.0"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "PrismGo does not import golang.org/x/crypto/ssh; only non-SSH packages from this module are in the dependency graph."
+    }
+  ]
+}
