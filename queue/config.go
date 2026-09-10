@@ -53,8 +53,6 @@ type ConnectionConfig struct {
 	BlockFor   time.Duration
 	// Options 保存 driver 原始扩展参数，具体解析由 connector/driver 自己完成。
 	Options map[string]any
-
-	retryAfterConfigured bool
 }
 
 // NewManagerFromConfig 从 config facade 构造 Manager。
@@ -238,13 +236,12 @@ func connectionConfigFromMap(spec map[string]any, queueName string) ConnectionCo
 	retryAfter := secondsValue(spec["retry_after"], 0)
 	blockFor := secondsValue(spec["block_for"], 0)
 	cfg := ConnectionConfig{
-		Driver:               castString(spec["driver"]),
-		Queue:                firstNonEmpty(castString(spec["queue"]), queueName),
-		Prefix:               prefix,
-		RetryAfter:           retryAfter,
-		BlockFor:             blockFor,
-		Options:              cloneAnyMap(spec),
-		retryAfterConfigured: mapHasKey(spec, "retry_after"),
+		Driver:     castString(spec["driver"]),
+		Queue:      firstNonEmpty(castString(spec["queue"]), queueName),
+		Prefix:     prefix,
+		RetryAfter: retryAfter,
+		BlockFor:   blockFor,
+		Options:    cloneAnyMap(spec),
 	}
 	return cfg
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	queuecontract "github.com/prismgo/framework/contracts/queue"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -55,7 +56,7 @@ func TestRabbitMQIntegrationDelayRelease(t *testing.T) {
 	if err := reserved.Release(ctx, 200*time.Millisecond); err != nil {
 		t.Fatalf("release rabbitmq job: %v", err)
 	}
-	if _, err := conn.Pop(ctx, []string{fixture.queue}); !errors.Is(err, ErrEmpty) {
+	if _, err := conn.Pop(ctx, []string{fixture.queue}, queuecontract.PopNoWait); !errors.Is(err, ErrEmpty) {
 		t.Fatalf("immediate pop after delayed release err = %v, want ErrEmpty", err)
 	}
 

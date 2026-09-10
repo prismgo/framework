@@ -166,9 +166,6 @@ func TestConfigCastingAndConnectionDefaultsCoverFallbacks(t *testing.T) {
 	if cfg.Driver != "sync" || cfg.Queue != "fallback" || cfg.RetryAfter != 15*time.Second {
 		t.Fatalf("connection config parsed incorrectly: %#v", cfg)
 	}
-	if !cfg.retryAfterConfigured {
-		t.Fatal("retry_after presence should be recorded even when parsed from string")
-	}
 }
 
 func TestRuntimeHelperErrorBranches(t *testing.T) {
@@ -317,9 +314,8 @@ func TestConnectorAndCacheHelperBoundaries(t *testing.T) {
 		t.Fatalf("sync connector with spec: %v", err)
 	}
 	_, err := (RabbitMQConnector{}).Connect(context.Background(), "rabbit", connectorConfig(ConnectionConfig{
-		Driver:               "rabbitmq",
-		RetryAfter:           time.Second,
-		retryAfterConfigured: true,
+		Driver:     "rabbitmq",
+		RetryAfter: time.Second,
 	}))
 	if !errors.Is(err, ErrUnsupportedRetryAfter) {
 		t.Fatalf("rabbit retry_after error = %v, want ErrUnsupportedRetryAfter", err)

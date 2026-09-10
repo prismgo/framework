@@ -24,7 +24,7 @@ func (c RabbitMQConnector) Connect(_ context.Context, name string, config map[st
 	if err != nil {
 		return nil, err
 	}
-	if spec.retryAfterConfigured && spec.RetryAfter > 0 {
+	if spec.RetryAfter > 0 {
 		return nil, fmt.Errorf("queue: connection %q: %w", name, ErrUnsupportedRetryAfter)
 	}
 	return rabbitmqdriver.NewRabbitMQQueue(name, rabbitMQOptionsFromMap(spec.Options), c.codec, spec.BlockFor)
