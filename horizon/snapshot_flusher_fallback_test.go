@@ -38,7 +38,6 @@ func TestSnapshotUsesTemporaryFlusherWhenRuntimeFlusherMissing(t *testing.T) {
 			EventMetricsSampleRate: 1,
 		},
 	})
-	time.Sleep(100 * time.Millisecond)
 
 	runtime := &runtimeCommandAdapter{manager: manager, store: store}
 	summary, err := runtime.Snapshot(ctx, now)

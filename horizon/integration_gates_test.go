@@ -442,8 +442,9 @@ func newIntegrationRabbitMQQueueManager(url, exchange, queueName, restartQueue s
 		Default: "rabbitmq",
 		Connections: map[string]queue.ConnectionConfig{
 			"rabbitmq": {
-				Driver: "rabbitmq",
-				Queue:  queueName,
+				Driver:   "rabbitmq",
+				Queue:    queueName,
+				BlockFor: 2 * time.Second,
 				Options: map[string]any{
 					"url":                url,
 					"exchange":           exchange,

@@ -25,6 +25,7 @@ import (
 type collectorItem struct {
 	input      CollectorInput
 	receivedAt time.Time
+	sequence   uint64
 }
 
 // eventMetricsWindow 保存单个 window 内按 connection+queue+jobName 维度的 event_metrics 聚合增量。
@@ -178,6 +179,15 @@ type collector struct {
 
 	// 有界事件缓冲，容量由 buffer_size 控制
 	buffer chan collectorItem
+	// ingressMu 只串行化事件入队和 snapshot 水位读取，不覆盖 snapshot 等待，保持 Collect 热路径短小。
+	ingressMu sync.Mutex
+	// acceptedSequence/completedSequence 为按需 flush 提供完成水位，确保调用前已接受的事件完成聚合。
+	acceptedSequence  uint64
+	completionMu      sync.Mutex
+	completionCond    *sync.Cond
+	completedSequence uint64
+	completionPending map[uint64]struct{}
+	running           atomic.Bool
 
 	// event_metrics 窗口聚合：key 为 "windowStart:connection:queue:jobName"
 	windows map[string]*eventMetricsWindow
@@ -261,19 +271,22 @@ func newCollector(cfg ObservabilityConfig) *collector {
 	if bufSize <= 0 {
 		bufSize = 10000
 	}
-	return &collector{
-		cfg:        cfg,
-		buffer:     make(chan collectorItem, bufSize),
-		windows:    make(map[string]*eventMetricsWindow),
-		aggKeys:    make(map[string]*aggregateKeyState),
-		queued:     make(map[string]queuedJobCollectorState),
-		drops:      make(map[string]int64),
-		batchIndex: make(map[string]int),
-		sampler:    newSampleRandomSource(),
+	coll := &collector{
+		cfg:               cfg,
+		buffer:            make(chan collectorItem, bufSize),
+		windows:           make(map[string]*eventMetricsWindow),
+		aggKeys:           make(map[string]*aggregateKeyState),
+		queued:            make(map[string]queuedJobCollectorState),
+		drops:             make(map[string]int64),
+		batchIndex:        make(map[string]int),
+		sampler:           newSampleRandomSource(),
+		completionPending: make(map[uint64]struct{}),
 		memState: ObservabilityMemoryState{
 			BufferSize: bufSize,
 		},
 	}
+	coll.completionCond = sync.NewCond(&coll.completionMu)
+	return coll
 }
 
 // Start 启动后台事件处理 goroutine。
@@ -281,6 +294,7 @@ func newCollector(cfg ObservabilityConfig) *collector {
 // 参数说明：ctx 用于控制整个 collector 生命周期，取消时后台 goroutine 退出。
 func (c *collector) Start(ctx context.Context) {
 	c.ctx, c.cancel = context.WithCancel(ctx)
+	c.running.Store(true)
 	c.wg.Add(1)
 	startRestartingTrackedGoroutineWithPanicHandler(c.ctx, &c.wg, "collector", nil, func(err error) {
 		c.recordDrop(MemoryDropCollectorPanic)
@@ -293,7 +307,11 @@ func (c *collector) Start(ctx context.Context) {
 			Gap:         ObservabilityGapUnknown,
 		})
 		c.mu.Unlock()
-	}, c.processLoop)
+	}, func() {
+		c.running.Store(true)
+		defer c.running.Store(false)
+		c.processLoop()
+	})
 }
 
 // Stop 优雅关闭 collector：取消 context，等待后台 goroutine 退出，关闭 buffer channel。
@@ -352,8 +370,13 @@ func (c *collector) Collect(_ context.Context, input CollectorInput) error {
 		return nil
 	}
 
+	c.ingressMu.Lock()
+	defer c.ingressMu.Unlock()
+	sequence := c.acceptedSequence + 1
+	item := collectorItem{input: input, receivedAt: time.Now(), sequence: sequence}
 	select {
-	case c.buffer <- collectorItem{input: input, receivedAt: time.Now()}:
+	case c.buffer <- item:
+		c.acceptedSequence = sequence
 		c.updateBufferUsed(1)
 		return nil
 	default:
@@ -362,10 +385,12 @@ func (c *collector) Collect(_ context.Context, input CollectorInput) error {
 		if c.cfg.DropPolicy == ObservabilityDropOldest {
 			// 丢弃最旧事件，腾出空间放入当前事件
 			select {
-			case <-c.buffer:
+			case dropped := <-c.buffer:
 				c.updateBufferUsed(-1)
+				c.markCompleted(dropped.sequence)
 				select {
-				case c.buffer <- collectorItem{input: input, receivedAt: time.Now()}:
+				case c.buffer <- item:
+					c.acceptedSequence = sequence
 					c.updateBufferUsed(1)
 				default:
 				}
@@ -401,6 +426,7 @@ func (c *collector) FlushSnapshot(now time.Time) *flushSnapshot {
 	if c == nil {
 		return nil
 	}
+	c.waitForAcceptedEvents()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -569,7 +595,7 @@ func (c *collector) processLoop() {
 			return
 		case item := <-c.buffer:
 			c.updateBufferUsed(-1)
-			c.processItem(item)
+			c.processBufferedItem(item)
 		}
 	}
 }
@@ -580,11 +606,55 @@ func (c *collector) drainBuffer() {
 		select {
 		case item := <-c.buffer:
 			c.updateBufferUsed(-1)
-			c.processItem(item)
+			c.processBufferedItem(item)
 		default:
 			return
 		}
 	}
+}
+
+func (c *collector) processBufferedItem(item collectorItem) {
+	defer c.markCompleted(item.sequence)
+	c.processItem(item)
+}
+
+func (c *collector) waitForAcceptedEvents() {
+	c.ingressMu.Lock()
+	target := c.acceptedSequence
+	c.ingressMu.Unlock()
+	if !c.running.Load() {
+		c.drainBuffer()
+	}
+
+	c.completionMu.Lock()
+	for c.completedSequence < target {
+		c.completionCond.Wait()
+	}
+	c.completionMu.Unlock()
+}
+
+func (c *collector) markCompleted(sequence uint64) {
+	c.completionMu.Lock()
+	if sequence <= c.completedSequence {
+		c.completionMu.Unlock()
+		return
+	}
+	if sequence != c.completedSequence+1 {
+		c.completionPending[sequence] = struct{}{}
+		c.completionMu.Unlock()
+		return
+	}
+	c.completedSequence = sequence
+	for {
+		next := c.completedSequence + 1
+		if _, ok := c.completionPending[next]; !ok {
+			break
+		}
+		delete(c.completionPending, next)
+		c.completedSequence = next
+	}
+	c.completionCond.Broadcast()
+	c.completionMu.Unlock()
 }
 
 // processItem 处理单个 queue event：应用采样、更新聚合、收集明细。

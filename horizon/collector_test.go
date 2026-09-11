@@ -503,6 +503,30 @@ func TestCollectorDropOldestPolicy(t *testing.T) {
 	}
 }
 
+func TestCollectorCompletionWatermarkWaitsForContiguousSequences(t *testing.T) {
+	coll := newCollector(observabilityPresetConfigOrFull())
+	coll.acceptedSequence = 2
+	coll.markCompleted(2)
+
+	done := make(chan struct{})
+	go func() {
+		coll.waitForAcceptedEvents()
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("completion watermark advanced past unfinished sequence 1")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	coll.markCompleted(1)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("completion watermark did not advance after sequence 1 completed")
+	}
+}
+
 func TestCollectorRateLimitRecordsDegradedDrop(t *testing.T) {
 	cfg := observabilityPresetConfigOrFull()
 	cfg.BufferSize = 100
