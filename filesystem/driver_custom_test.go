@@ -422,6 +422,34 @@ func TestCustomDriverExtendReplacesExistingFactory(t *testing.T) {
 	}
 }
 
+func TestFacadeExtendRegistersDriverOnCurrentManager(t *testing.T) {
+	registry := useIsolatedFacadeRegistry(t)
+	manager, err := NewManager(Config{
+		Default: "custom",
+		Disks: map[string]DiskConfig{
+			"custom": {Driver: "facade-driver"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewManager() error = %v, want nil", err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	if err := registry.Instance(serviceKey, manager); err != nil {
+		t.Fatalf("bind manager: %v", err)
+	}
+
+	Extend("facade-driver", func(DriverFactoryContext) (Driver, error) {
+		return &fakeDriver{files: map[string]fakeFile{"key": {data: []byte("facade")}}}, nil
+	})
+	body, err := Disk("custom").Get(context.Background(), "key")
+	if err != nil {
+		t.Fatalf("Get() error = %v, want nil", err)
+	}
+	if got, want := string(body), "facade"; got != want {
+		t.Fatalf("Get() body = %q, want %q", got, want)
+	}
+}
+
 func TestManagerDriverFactoriesAreApplicationLocal(t *testing.T) {
 	newManager := func(t *testing.T) *Manager {
 		t.Helper()

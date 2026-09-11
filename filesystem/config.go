@@ -29,7 +29,7 @@ type Config struct {
 
 // DiskConfig 描述单个磁盘的通用配置。
 type DiskConfig struct {
-	// Driver 决定底层驱动类型，支持 local / oss 以及 Extend 注册的自定义 driver。
+	// Driver 决定底层驱动类型，支持内置 local 以及 Extend 注册的扩展 driver。
 	Driver string
 	// Root 仅 local 驱动使用，表示本地根目录。
 	Root string
@@ -41,7 +41,7 @@ type DiskConfig struct {
 	Visibility string
 	// Serve 控制本地磁盘是否允许生成临时访问地址。
 	Serve bool
-	// OSS 保存对象存储驱动的专属配置。
+	// OSS 保存可选 OSS 扩展的连接配置。
 	OSS OSSConfig
 	// Options 保存自定义 driver 的原始扩展参数，内置 driver 会安全忽略。
 	Options map[string]any
