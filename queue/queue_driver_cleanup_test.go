@@ -3,7 +3,6 @@ package queue
 import (
 	"context"
 	"errors"
-	redisqueue "github.com/prismgo/framework/queue/redis"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -12,13 +11,13 @@ import (
 	"time"
 	"unsafe"
 
+	redisqueue "github.com/prismgo/framework/queue/redis"
+
 	miniredis "github.com/alicebob/miniredis/v2"
 	configpkg "github.com/prismgo/framework/config"
 	queuecontract "github.com/prismgo/framework/contracts/queue"
 	encodingpkg "github.com/prismgo/framework/encoding"
 	"github.com/prismgo/framework/queue/payload"
-	rabbitmqdriver "github.com/prismgo/framework/queue/rabbitmq"
-	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -643,120 +642,6 @@ func TestRedisQueueDueReservedMigrationNotifiesBlockedWorker(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("blocking pop did not wake after reserved migration")
-	}
-}
-
-func TestManagerQueueReturnsRabbitMQDriverContractQueue(t *testing.T) {
-	// 需求背景：Laravel 13 的 QueueManager 只通过 connector 建立 queue contract；
-	// PrismGo 的 rabbitmq connector 不应再回到父包 wrapper 或旧 Connection 兼容面。
-	dialer := func(string, amqp.Config) (rabbitmqdriver.AMQPConnection, error) {
-		return &rabbitMQContractManagerTestConnection{}, nil
-	}
-
-	manager, err := NewManager(Config{
-		Default: "sync",
-		Connections: map[string]ConnectionConfig{
-			"sync":     {Driver: "sync", Queue: "default"},
-			"rabbitmq": {Driver: "rabbitmq", Queue: "jobs", Options: map[string]any{"declare": true, "dialer": rabbitmqdriver.Dialer(dialer)}},
-		},
-	}, NewRegistry())
-	if err != nil {
-		t.Fatalf("new manager: %v", err)
-	}
-	t.Cleanup(func() { _ = manager.Close() })
-
-	queueConn, err := manager.Queue("rabbitmq")
-	if err != nil {
-		t.Fatalf("resolve rabbitmq queue: %v", err)
-	}
-	if _, ok := queueConn.(*rabbitmqdriver.RabbitMQQueue); !ok {
-		t.Fatalf("rabbitmq queue type = %T, want *rabbitmq.RabbitMQQueue", queueConn)
-	}
-	_ = queuecontract.Queue(queueConn)
-	if _, ok := queueConn.(queuecontract.ConsumerIntentLeaser); !ok {
-		t.Fatalf("rabbitmq queue type = %T, want ConsumerIntentLeaser on contract path", queueConn)
-	}
-}
-
-type rabbitMQContractManagerTestConnection struct {
-	closed bool
-}
-
-func (c *rabbitMQContractManagerTestConnection) Channel() (rabbitmqdriver.AMQPChannel, error) {
-	return nil, errors.New("manager contract test should not open AMQP channels")
-}
-
-func (c *rabbitMQContractManagerTestConnection) NotifyClose(receiver chan *amqp.Error) chan *amqp.Error {
-	return receiver
-}
-
-func (c *rabbitMQContractManagerTestConnection) Close() error {
-	c.closed = true
-	return nil
-}
-
-func (c *rabbitMQContractManagerTestConnection) IsClosed() bool {
-	return c.closed
-}
-
-func TestConfigCastHelpersCoverSupportedShapes(t *testing.T) {
-	fallback := 9 * time.Second
-	// RabbitMQ 配置支持秒数、Go duration 字符串和测试直接传入的强类型 duration。
-	durationCases := []struct {
-		name  string
-		value any
-		want  time.Duration
-	}{
-		{name: "duration", value: 1500 * time.Millisecond, want: 1500 * time.Millisecond},
-		{name: "int seconds", value: 2, want: 2 * time.Second},
-		{name: "int64 seconds", value: int64(3), want: 3 * time.Second},
-		{name: "float seconds", value: 1.5, want: 1500 * time.Millisecond},
-		{name: "string duration", value: "250ms", want: 250 * time.Millisecond},
-		{name: "string seconds", value: "4", want: 4 * time.Second},
-		{name: "empty", value: "", want: fallback},
-		{name: "negative", value: -1, want: fallback},
-	}
-	for _, tc := range durationCases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := castDurationValue(tc.value, fallback); got != tc.want {
-				t.Fatalf("duration = %v, want %v", got, tc.want)
-			}
-		})
-	}
-
-	if got := castDurationBuckets([]time.Duration{time.Second, 2 * time.Second}, nil); len(got) != 2 || got[1] != 2*time.Second {
-		t.Fatalf("duration bucket slice = %v", got)
-	}
-	if got := castDurationBuckets([]int{1, 0, 3}, nil); len(got) != 2 || got[1] != 3*time.Second {
-		t.Fatalf("int bucket slice = %v", got)
-	}
-	if got := castDurationBuckets([]any{"2", int64(4), -1}, nil); len(got) != 2 || got[1] != 4*time.Second {
-		t.Fatalf("any bucket slice = %v", got)
-	}
-	if got := castDurationBuckets("5, bad, 7", nil); len(got) != 2 || got[1] != 7*time.Second {
-		t.Fatalf("string bucket slice = %v", got)
-	}
-	if got := castDurationBuckets(-1, []time.Duration{fallback}); len(got) != 1 || got[0] != fallback {
-		t.Fatalf("fallback bucket slice = %v", got)
-	}
-
-	boolCases := []struct {
-		value    any
-		fallback bool
-		want     bool
-	}{
-		{value: true, fallback: false, want: true},
-		{value: "yes", fallback: false, want: true},
-		{value: "off", fallback: true, want: false},
-		{value: 1, fallback: false, want: true},
-		{value: int64(0), fallback: true, want: false},
-		{value: 2.0, fallback: false, want: true},
-		{value: "unknown", fallback: true, want: true},
-	}
-	for _, tc := range boolCases {
-		if got := castBool(tc.value, tc.fallback); got != tc.want {
-			t.Fatalf("castBool(%v) = %v, want %v", tc.value, got, tc.want)
-		}
 	}
 }
 

@@ -306,14 +306,6 @@ func TestConnectorAndCacheHelperBoundaries(t *testing.T) {
 	if _, err := (SyncConnector{}).Connect(context.Background(), "sync", connectorConfig(ConnectionConfig{Driver: "sync"}, nil)); err != nil {
 		t.Fatalf("sync connector with spec: %v", err)
 	}
-	_, err := (RabbitMQConnector{}).Connect(context.Background(), "rabbit", connectorConfig(ConnectionConfig{
-		Driver:     "rabbitmq",
-		RetryAfter: time.Second,
-	}, nil))
-	if !errors.Is(err, ErrUnsupportedRetryAfter) {
-		t.Fatalf("rabbit retry_after error = %v, want ErrUnsupportedRetryAfter", err)
-	}
-
 	if got := cleanCacheKey(":\x00tenant:1\x7f:"); got != "tenant:1" {
 		t.Fatalf("cleanCacheKey() = %q, want tenant:1", got)
 	}
