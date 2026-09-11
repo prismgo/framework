@@ -1,12 +1,10 @@
 package schema
 
 import (
-	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/prismgo/framework/exception"
 	"gorm.io/gorm"
 )
 
@@ -71,6 +69,31 @@ type ForeignKeyInfo struct {
 	OnDelete       string
 }
 
+// SchemaLister lists schemas for a dialect carried by a GORM Dialector.
+type SchemaLister interface {
+	GetSchemas(db *gorm.DB) ([]SchemaInfo, error)
+}
+
+// TableLister lists tables for a dialect carried by a GORM Dialector.
+type TableLister interface {
+	GetTables(db *gorm.DB, schemas []string) ([]TableInfo, error)
+}
+
+// ViewLister lists views for a dialect carried by a GORM Dialector.
+type ViewLister interface {
+	GetViews(db *gorm.DB, schemas []string) ([]ViewInfo, error)
+}
+
+// TypeLister lists custom types for a dialect carried by a GORM Dialector.
+type TypeLister interface {
+	GetTypes(db *gorm.DB, filter any) ([]TypeInfo, error)
+}
+
+// ForeignKeyLister lists foreign keys for a dialect carried by a GORM Dialector.
+type ForeignKeyLister interface {
+	GetForeignKeys(db *gorm.DB, table string) ([]ForeignKeyInfo, error)
+}
+
 // CreateDatabase 创建数据库。当前仅 MySQL 支持真实执行。
 func (b *Builder) CreateDatabase(name string) (bool, error) {
 	if strings.TrimSpace(name) == "" {
@@ -113,16 +136,13 @@ func (b *Builder) GetSchemas() ([]SchemaInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	if lister, ok := db.Dialector.(SchemaLister); ok {
+		return lister.GetSchemas(db)
+	}
 	switch dialect(db) {
 	case "mysql":
 		var rows []struct{ Name string }
 		if err := db.Raw("SELECT SCHEMA_NAME AS name FROM information_schema.SCHEMATA ORDER BY SCHEMA_NAME").Scan(&rows).Error; err != nil {
-			return nil, err
-		}
-		return schemaRows(rows), nil
-	case "sqlite", "sqlite3":
-		var rows []struct{ Name string }
-		if err := db.Raw("PRAGMA database_list").Scan(&rows).Error; err != nil {
 			return nil, err
 		}
 		return schemaRows(rows), nil
@@ -152,6 +172,9 @@ func (b *Builder) GetTables(schemaFilter any) ([]TableInfo, error) {
 		return nil, err
 	}
 	schemas := normalizeSchemas(schemaFilter)
+	if lister, ok := db.Dialector.(TableLister); ok {
+		return lister.GetTables(db, schemas)
+	}
 	switch dialect(db) {
 	case "mysql":
 		current := db.Migrator().CurrentDatabase()
@@ -163,10 +186,6 @@ func (b *Builder) GetTables(schemaFilter any) ([]TableInfo, error) {
 			"SELECT TABLE_NAME AS name, TABLE_SCHEMA AS `schema`, TABLE_TYPE AS type FROM information_schema.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA IN ? ORDER BY TABLE_SCHEMA, TABLE_NAME",
 			schemas,
 		).Scan(&rows).Error
-		return rows, err
-	case "sqlite", "sqlite3":
-		var rows []TableInfo
-		err := db.Raw("SELECT name, 'main' AS `schema`, type FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").Scan(&rows).Error
 		return rows, err
 	default:
 		return nil, unsupported("get tables", db)
@@ -198,6 +217,9 @@ func (b *Builder) GetViews(schemaFilter any) ([]ViewInfo, error) {
 		return nil, err
 	}
 	schemas := normalizeSchemas(schemaFilter)
+	if lister, ok := db.Dialector.(ViewLister); ok {
+		return lister.GetViews(db, schemas)
+	}
 	switch dialect(db) {
 	case "mysql":
 		if len(schemas) == 0 {
@@ -209,23 +231,22 @@ func (b *Builder) GetViews(schemaFilter any) ([]ViewInfo, error) {
 			schemas,
 		).Scan(&rows).Error
 		return rows, err
-	case "sqlite", "sqlite3":
-		var rows []ViewInfo
-		err := db.Raw("SELECT name, 'main' AS `schema`, sql AS definition FROM sqlite_master WHERE type = 'view' ORDER BY name").Scan(&rows).Error
-		return rows, err
 	default:
 		return nil, unsupported("get views", db)
 	}
 }
 
-// GetTypes 返回自定义类型列表。MySQL/SQLite 无独立用户类型语义，返回空列表。
-func (b *Builder) GetTypes(_ any) ([]TypeInfo, error) {
+// GetTypes 返回自定义类型列表。MySQL 无独立用户类型语义，返回空列表。
+func (b *Builder) GetTypes(filter any) ([]TypeInfo, error) {
 	db, err := b.resolve()
 	if err != nil {
 		return nil, err
 	}
+	if lister, ok := db.Dialector.(TypeLister); ok {
+		return lister.GetTypes(db, filter)
+	}
 	switch dialect(db) {
-	case "mysql", "sqlite", "sqlite3":
+	case "mysql":
 		return []TypeInfo{}, nil
 	default:
 		return nil, unsupported("get types", db)
@@ -437,11 +458,12 @@ func (b *Builder) GetForeignKeys(table string) ([]ForeignKeyInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	if lister, ok := db.Dialector.(ForeignKeyLister); ok {
+		return lister.GetForeignKeys(db, table)
+	}
 	switch dialect(db) {
 	case "mysql":
 		return b.getMySQLForeignKeys(db, table)
-	case "sqlite", "sqlite3":
-		return b.getSQLiteForeignKeys(db, table)
 	default:
 		return nil, unsupported("get foreign keys", db)
 	}
@@ -462,7 +484,19 @@ func (b *Builder) DropAllTables() error {
 	}
 	tables, err := b.GetTables(nil)
 	if err != nil {
-		return err
+		if !errors.Is(err, ErrUnsupportedFeature) || dialect(db) == "sqlite" || dialect(db) == "sqlite3" {
+			return err
+		}
+		names, listErr := db.Migrator().GetTables()
+		if listErr != nil {
+			return listErr
+		}
+		for _, name := range names {
+			if dropErr := db.Migrator().DropTable(name); dropErr != nil {
+				return dropErr
+			}
+		}
+		return nil
 	}
 	if len(tables) == 0 {
 		return nil
@@ -496,18 +530,18 @@ func (b *Builder) DropAllViews() error {
 	return nil
 }
 
-// DropAllTypes 删除自定义类型。MySQL/SQLite 无独立用户类型语义，保持空操作。
+// DropAllTypes 删除自定义类型。MySQL 无独立用户类型语义，保持空操作。
 func (b *Builder) DropAllTypes() error {
 	_, err := b.GetTypes(nil)
 	return err
 }
 
-// EnsureVectorExtensionExists 确保向量扩展存在。MySQL/SQLite 不支持扩展管理。
+// EnsureVectorExtensionExists 确保向量扩展存在。MySQL 不支持扩展管理。
 func (b *Builder) EnsureVectorExtensionExists(schemaName ...string) error {
 	return b.EnsureExtensionExists("vector", schemaName...)
 }
 
-// EnsureExtensionExists 确保扩展存在。MySQL/SQLite 不支持扩展管理。
+// EnsureExtensionExists 确保扩展存在。MySQL 不支持扩展管理。
 func (b *Builder) EnsureExtensionExists(name string, _ ...string) error {
 	db, err := b.resolve()
 	if err != nil {
@@ -550,43 +584,6 @@ ORDER BY k.CONSTRAINT_NAME, k.ORDINAL_POSITION`, table).Scan(&rows).Error
 		item.ForeignColumns = append(item.ForeignColumns, row.ForeignColumn)
 	}
 	return foreignMapValues(grouped), nil
-}
-
-func (b *Builder) getSQLiteForeignKeys(db *gorm.DB, table string) ([]ForeignKeyInfo, error) {
-	rows, err := db.Raw("PRAGMA foreign_key_list(" + quoteIdentifier(table) + ")").Rows()
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			exception.Report(context.Background(), err, map[string]any{
-				"component": "database",
-				"operation": "close_sqlite_foreign_key_rows",
-				"table":     table,
-			})
-		}
-	}()
-	grouped := map[string]*ForeignKeyInfo{}
-	for rows.Next() {
-		var (
-			id, seq            int
-			refTable, from, to string
-			onUpdate, onDelete string
-			match              sql.NullString
-		)
-		if err := rows.Scan(&id, &seq, &refTable, &from, &to, &onUpdate, &onDelete, &match); err != nil {
-			return nil, err
-		}
-		name := fmt.Sprintf("fk_%s_%d", table, id)
-		item := grouped[name]
-		if item == nil {
-			item = &ForeignKeyInfo{Name: name, ForeignTable: refTable, OnUpdate: onUpdate, OnDelete: onDelete}
-			grouped[name] = item
-		}
-		item.Columns = append(item.Columns, from)
-		item.ForeignColumns = append(item.ForeignColumns, to)
-	}
-	return foreignMapValues(grouped), rows.Err()
 }
 
 func schemaRows(rows []struct{ Name string }) []SchemaInfo {

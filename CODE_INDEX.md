@@ -429,13 +429,14 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 | `facade.go` | `Resolve() *gorm.DB` | Resolve the application database connection |
 | `service_provider.go` | `ServiceProvider` | Register lazy `database.manager` and `database.default` singletons |
 | `migration.go` | `RegisterMigration`, `RegisterSeeder` | Migration and seeder registries |
-| `migrator.go` | `Migrator` | Migration and index maintenance helpers |
+| `migrator.go` | `Migrator`, `CompositeIndexEnsurer`, `CompositeUniqueIndexEnsurer` | Migration and index maintenance helpers; dialectors may provide composite-index creation |
 
 **Sub-packages:**
 | Sub-package | File | Key Symbols | Description |
 |---|---|---|---|
-| `database/schema/` | `schema.go` | `Schema` (struct) | Schema builder |
-| | `blueprint.go` | `Blueprint` (struct) | Table blueprint definition |
+| `database/schema/` | `schema.go` | `Schema`, `ForeignKeyConstraintController` | Schema builder and dialector-owned foreign-key constraint control |
+| | `blueprint.go` | `Blueprint`, `BlueprintDefinition`, `BlueprintCompiler` | Table blueprint definition, immutable dialect input, and dialector compilation seam |
+| | `metadata.go` | `SchemaLister`, `TableLister`, `ViewLister`, `TypeLister`, `ForeignKeyLister` | Narrow dialector capabilities for schema metadata discovery |
 | | `facade.go` | `Resolve() *Builder` | Schema facade: `Create`, `Table`, `DropIfExists`, `HasColumn`, `HasColumnType`, `GetColumnListing`, `GetIndexes`, `HasIndex`, `HasTable`, `HasView`, `GetTables`, `GetViews`, `GetTypes`, `GetForeignKeys`, `CreateDatabase`, `DropDatabaseIfExists` |
 | | `grammar.go` | — | SQL grammar definitions |
 

@@ -14,7 +14,6 @@ import (
 	"github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 	"gorm.io/driver/mysql"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -24,19 +23,6 @@ type namedDialector struct {
 }
 
 func (d namedDialector) Name() string { return d.name }
-
-type syncBaseWidget struct {
-	ID uint
-}
-
-func (syncBaseWidget) TableName() string { return "schema_sync_widgets" }
-
-type syncExpandedWidget struct {
-	ID   uint
-	Code string
-}
-
-func (syncExpandedWidget) TableName() string { return "schema_sync_widgets" }
 
 type syncDefaultWidget struct {
 	ID        uint
@@ -75,13 +61,33 @@ func (schemaFakeMySQLConn) ExecContext(_ context.Context, query string, _ []driv
 	return driver.RowsAffected(1), nil
 }
 
-func (schemaFakeMySQLConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+func (schemaFakeMySQLConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	normalized := strings.ToLower(query)
 	switch {
 	case strings.Contains(normalized, "select database()"):
 		return &schemaFakeRows{columns: []string{"database"}, rows: [][]driver.Value{{"prismgo_test"}}}, nil
+	case strings.Contains(normalized, "information_schema.schemata"):
+		return &schemaFakeRows{columns: []string{"name"}, rows: [][]driver.Value{{"prismgo_test"}}}, nil
+	case strings.Contains(normalized, "information_schema.views"):
+		return &schemaFakeRows{columns: []string{"name", "schema", "definition"}, rows: nil}, nil
+	case strings.Contains(normalized, "information_schema.key_column_usage"):
+		return &schemaFakeRows{columns: []string{"name", "column_name", "foreign_table", "foreign_column", "on_update", "on_delete"}, rows: nil}, nil
+	case strings.Contains(normalized, "information_schema.statistics"):
+		count := int64(0)
+		if len(args) > 0 && args[len(args)-1].Value == "schema_index_toggle_name_index" {
+			count = 1
+		}
+		return &schemaFakeRows{columns: []string{"count"}, rows: [][]driver.Value{{count}}}, nil
+	case strings.Contains(normalized, "select table_name as name"):
+		return &schemaFakeRows{columns: []string{"name", "schema", "type"}, rows: nil}, nil
 	case strings.Contains(normalized, "information_schema.tables"):
 		return &schemaFakeRows{columns: []string{"count"}, rows: [][]driver.Value{{int64(0)}}}, nil
+	case strings.Contains(normalized, "information_schema.columns"):
+		count := int64(0)
+		if len(args) > 0 && (args[len(args)-1].Value == "age" || args[len(args)-1].Value == "username") {
+			count = 1
+		}
+		return &schemaFakeRows{columns: []string{"count"}, rows: [][]driver.Value{{count}}}, nil
 	default:
 		return &schemaFakeRows{columns: []string{"ok"}, rows: [][]driver.Value{{1}}}, nil
 	}
@@ -110,16 +116,6 @@ func (r *schemaFakeRows) Next(dest []driver.Value) error {
 	return nil
 }
 
-func openSQLite(t *testing.T) *gorm.DB {
-	t.Helper()
-	name := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
-	db, err := gorm.Open(sqlite.Open("file:"+name+"?mode=memory&cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	return db
-}
-
 func openSchemaFakeMySQL(t *testing.T) *gorm.DB {
 	t.Helper()
 	registerSchemaFakeMySQLOnce.Do(func() {
@@ -143,114 +139,8 @@ func openSchemaFakeMySQL(t *testing.T) *gorm.DB {
 	return db
 }
 
-func TestCreateTableAndInspectSQLite(t *testing.T) {
-	db := openSQLite(t)
-	builder := New(db)
-
-	err := builder.Create("schema_widgets", func(table *Blueprint) {
-		table.Id()
-		table.String("name", 64).Default("guest").Comment("display name")
-		table.Boolean("enabled").Default(true)
-		table.Decimal("amount", 10, 2).Unsigned().Nullable()
-		table.Json("payload").Nullable()
-		table.Timestamps()
-		table.SoftDeletes()
-		table.UniqueNamed("uix_schema_widgets_name", "name")
-		table.IndexNamed("idx_schema_widgets_enabled", "enabled")
-	})
-	if err != nil {
-		t.Fatalf("create table: %v", err)
-	}
-	if !builder.HasTable("schema_widgets") {
-		t.Fatal("expected schema_widgets table")
-	}
-	if !builder.HasColumn("schema_widgets", "name") {
-		t.Fatal("expected name column")
-	}
-	if !builder.HasIndex("schema_widgets", "uix_schema_widgets_name") {
-		t.Fatal("expected unique index")
-	}
-
-	if err := builder.Create("schema_widgets", func(table *Blueprint) { table.Id() }); err != nil {
-		t.Fatalf("second create should be idempotent: %v", err)
-	}
-}
-
-func TestAlterTableSQLiteIsIdempotent(t *testing.T) {
-	db := openSQLite(t)
-	builder := New(db)
-	if err := builder.Create("schema_alters", func(table *Blueprint) { table.Id() }); err != nil {
-		t.Fatalf("create table: %v", err)
-	}
-	addColumn := func() error {
-		return builder.Table("schema_alters", func(table *Blueprint) {
-			table.String("code", 32).Nullable()
-			table.IndexNamed("idx_schema_alters_code", "code")
-		})
-	}
-	if err := addColumn(); err != nil {
-		t.Fatalf("alter add column: %v", err)
-	}
-	if err := addColumn(); err != nil {
-		t.Fatalf("alter add column twice: %v", err)
-	}
-	if !builder.HasColumn("schema_alters", "code") {
-		t.Fatal("expected code column")
-	}
-}
-
-func TestRenameDropAndColumnIndexSQLite(t *testing.T) {
-	db := openSQLite(t)
-	builder := New(db)
-	if err := builder.Create("schema_column_changes", func(table *Blueprint) {
-		table.Id()
-		table.String("username").Index()
-		table.String("age", 8).Nullable()
-		table.String("remember_token").Nullable()
-		table.Timestamps()
-		table.SoftDeletes()
-		table.Morphs("owner")
-		table.ForeignId("user_id")
-	}); err != nil {
-		t.Fatalf("create table: %v", err)
-	}
-	if !builder.HasIndex("schema_column_changes", "schema_column_changes_username_index") {
-		t.Fatal("expected column-level index to be created")
-	}
-	if err := builder.Table("schema_column_changes", func(table *Blueprint) {
-		table.RenameColumn("username", "name")
-		table.DropColumn("age")
-		table.DropRememberToken()
-		table.DropTimestamps()
-		table.DropSoftDeletes()
-		table.DropMorphs("owner")
-		table.DropForeignIdFor("user_id")
-	}); err != nil {
-		t.Fatalf("rename/drop columns: %v", err)
-	}
-	if !builder.HasColumn("schema_column_changes", "name") {
-		t.Fatal("expected renamed name column")
-	}
-	for _, column := range []string{"username", "age", "remember_token", "created_at", "updated_at", "deleted_at", "owner_id", "owner_type", "user_id"} {
-		if builder.HasColumn("schema_column_changes", column) {
-			t.Fatalf("expected %s to be dropped", column)
-		}
-	}
-}
-
-func TestChangeColumnMySQLCompileAndSQLiteUnsupported(t *testing.T) {
-	db := openSQLite(t)
-	builder := New(db)
-	if err := builder.Create("schema_change_columns", func(table *Blueprint) {
-		table.Id()
-		table.String("age", 8)
-		table.String("username", 32)
-	}); err != nil {
-		t.Fatalf("create table: %v", err)
-	}
-
-	mysqlDB := db.Session(&gorm.Session{})
-	mysqlDB.Dialector = namedDialector{Dialector: db.Dialector, name: "mysql"}
+func TestChangeColumnMySQLCompile(t *testing.T) {
+	mysqlDB := openSchemaFakeMySQL(t)
 	blueprint := NewBlueprint("schema_change_columns", alterTable)
 	blueprint.String("age", 16).Nullable().Default("18").Change()
 	blueprint.String("username", 64).Unique(false).Change()
@@ -263,46 +153,10 @@ func TestChangeColumnMySQLCompileAndSQLiteUnsupported(t *testing.T) {
 		t.Fatalf("expected modify column SQL, got %s", joined)
 	}
 
-	err = builder.Table("schema_change_columns", func(table *Blueprint) {
-		table.String("age", 16).Change()
-	})
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("sqlite change should be unsupported, got %v", err)
-	}
-}
-
-func TestRenameDropAndForeignKeyTogglesSQLite(t *testing.T) {
-	db := openSQLite(t)
-	builder := New(db)
-	if err := builder.Create("schema_renames", func(table *Blueprint) { table.Id() }); err != nil {
-		t.Fatalf("create table: %v", err)
-	}
-	if err := builder.Rename("schema_renames", "schema_renamed"); err != nil {
-		t.Fatalf("rename table: %v", err)
-	}
-	if !builder.HasTable("schema_renamed") {
-		t.Fatal("expected renamed table")
-	}
-	if err := builder.DisableForeignKeyConstraints(); err != nil {
-		t.Fatalf("disable constraints: %v", err)
-	}
-	if err := builder.EnableForeignKeyConstraints(); err != nil {
-		t.Fatalf("enable constraints: %v", err)
-	}
-	if err := builder.WithoutForeignKeyConstraints(func() error { return nil }); err != nil {
-		t.Fatalf("without constraints: %v", err)
-	}
-	if err := builder.DropIfExists("schema_renamed"); err != nil {
-		t.Fatalf("drop table: %v", err)
-	}
-	if builder.HasTable("schema_renamed") {
-		t.Fatal("expected table dropped")
-	}
 }
 
 func TestBlueprintCompilesLaravelColumnSurfaceForMySQL(t *testing.T) {
-	db := openSQLite(t)
-	db.Dialector = namedDialector{Dialector: db.Dialector, name: "mysql"}
+	db := openSchemaFakeMySQL(t)
 
 	blueprint := NewBlueprint("schema_all_columns", createTable)
 	blueprint.Id()
@@ -392,9 +246,8 @@ func TestDefaultOptionsAffectBlueprintAndSyncModelParsing(t *testing.T) {
 	DefaultTimePrecision(&precision)
 	MorphUsingUuids()
 
-	db := openSQLite(t)
-	mysqlDB := db.Session(&gorm.Session{})
-	mysqlDB.Dialector = namedDialector{Dialector: db.Dialector, name: "mysql"}
+	db := openSchemaFakeMySQL(t)
+	mysqlDB := db
 	blueprint := NewBlueprint("schema_defaults", createTable)
 	blueprint.Id()
 	blueprint.String("name")
@@ -472,15 +325,15 @@ func TestDefaultStringLengthAffectsSyncModelsCreateSQL(t *testing.T) {
 }
 
 func TestUnsupportedDialectAndCallbackError(t *testing.T) {
-	db := openSQLite(t)
+	db := openSchemaFakeMySQL(t)
 	db.Dialector = namedDialector{Dialector: db.Dialector, name: "postgres"}
 	builder := New(db)
 	if err := builder.Create("schema_unsupported", func(table *Blueprint) { table.Id() }); !errors.Is(err, ErrUnsupportedFeature) {
 		t.Fatalf("expected unsupported feature error, got %v", err)
 	}
 
-	db = openSQLite(t)
-	builder = New(db)
+	controller := &foreignKeyControllerDialector{Dialector: db.Dialector}
+	builder = New(&gorm.DB{Config: &gorm.Config{Dialector: controller}})
 	wantErr := errors.New("callback failed")
 	err := builder.WithoutForeignKeyConstraints(func() error { return wantErr })
 	if !errors.Is(err, wantErr) {
@@ -489,32 +342,13 @@ func TestUnsupportedDialectAndCallbackError(t *testing.T) {
 }
 
 func TestSyncModelsDropAndNilBuilderBranches(t *testing.T) {
-	type syncWidget struct {
-		ID   uint
-		Code string
-	}
-	db := openSQLite(t)
-	builder := New(db)
-	if err := builder.SyncModels(&syncWidget{}); err != nil {
-		t.Fatalf("sync model: %v", err)
-	}
-	if !builder.HasTable("sync_widgets") {
-		t.Fatal("expected sync_widgets table")
-	}
-	if err := builder.Drop("sync_widgets"); err != nil {
-		t.Fatalf("drop synced table: %v", err)
-	}
-	if err := builder.Drop("sync_widgets"); err != nil {
-		t.Fatalf("drop missing table should be no-op: %v", err)
-	}
 	if err := (*Builder)(nil).Drop("x"); err == nil || !strings.Contains(err.Error(), "nil builder") {
 		t.Fatalf("expected nil builder error, got %v", err)
 	}
 }
 
 func TestCompileAlterMySQLIndexAndForeignBranches(t *testing.T) {
-	db := openSQLite(t)
-	db.Dialector = namedDialector{Dialector: db.Dialector, name: "mysql"}
+	db := openSchemaFakeMySQL(t)
 
 	blueprint := NewBlueprint("schema_alter_mysql", alterTable)
 	if blueprint.TableName() != "schema_alter_mysql" {
@@ -556,26 +390,6 @@ func TestCompileAlterMySQLIndexAndForeignBranches(t *testing.T) {
 	}
 }
 
-func TestCompileSQLiteAlterDropAndRenameIndexBranches(t *testing.T) {
-	db := openSQLite(t)
-	blueprint := NewBlueprint("schema_alter_sqlite", alterTable)
-	blueprint.String("name").Nullable()
-	blueprint.IndexNamed("idx_schema_alter_sqlite_name", "name")
-	blueprint.DropIndex("idx_missing")
-	blueprint.RenameIndex("idx_from", "idx_to")
-	sqls, err := blueprint.Compile(db)
-	if err != nil {
-		t.Fatalf("compile sqlite alter: %v", err)
-	}
-	joined := strings.Join(sqls, "\n")
-	if !strings.Contains(joined, "ADD COLUMN `name` text") {
-		t.Fatalf("expected add column SQL, got %s", joined)
-	}
-	if !strings.Contains(joined, "CREATE INDEX IF NOT EXISTS `idx_schema_alter_sqlite_name`") {
-		t.Fatalf("expected create index SQL, got %s", joined)
-	}
-}
-
 func TestConnectionAndUnsupportedResolveBranches(t *testing.T) {
 	registry := container.NewContainer()
 	container.SetProvider(func() *container.Container { return registry })
@@ -596,342 +410,8 @@ func TestConnectionAndUnsupportedResolveBranches(t *testing.T) {
 	}
 }
 
-func TestFacadeFunctionsDelegateToDefaultBuilder(t *testing.T) {
-	db := openSQLite(t)
-	registry := useIsolatedFacadeRegistry(t)
-
-	builder := New(db)
-	if err := registry.Instance(serviceKey, builder); err != nil {
-		t.Fatalf("bind facade builder: %v", err)
-	}
-	if Resolve() != builder {
-		t.Fatal("expected Resolve to return the configured builder")
-	}
-	if err := Create("schema_facades", func(table *Blueprint) {
-		table.Id()
-		table.String("name").Nullable()
-	}); err != nil {
-		t.Fatalf("facade create: %v", err)
-	}
-	if !HasTable("schema_facades") || !HasColumn("schema_facades", "name") {
-		t.Fatal("expected facade-created table and column")
-	}
-	if err := Table("schema_facades", func(table *Blueprint) {
-		table.String("code").Nullable()
-		table.IndexNamed("idx_schema_facades_code", "code")
-	}); err != nil {
-		t.Fatalf("facade table: %v", err)
-	}
-	if !HasIndex("schema_facades", "idx_schema_facades_code") {
-		t.Fatal("expected facade-created index")
-	}
-	if err := Rename("schema_facades", "schema_facades_renamed"); err != nil {
-		t.Fatalf("facade rename: %v", err)
-	}
-	if err := DisableForeignKeyConstraints(); err != nil {
-		t.Fatalf("facade disable constraints: %v", err)
-	}
-	if err := EnableForeignKeyConstraints(); err != nil {
-		t.Fatalf("facade enable constraints: %v", err)
-	}
-	if err := WithoutForeignKeyConstraints(func() error { return nil }); err != nil {
-		t.Fatalf("facade without constraints: %v", err)
-	}
-	if err := DropIfExists("schema_facades_renamed"); err != nil {
-		t.Fatalf("facade drop if exists: %v", err)
-	}
-	if err := Drop("schema_facades_renamed"); err != nil {
-		t.Fatalf("facade drop missing: %v", err)
-	}
-}
-
-func TestFacadeInspectionAndConditionalHelpers(t *testing.T) {
-	db := openSQLite(t)
-	registry := useIsolatedFacadeRegistry(t)
-	if err := registry.Instance(serviceKey, New(db)); err != nil {
-		t.Fatalf("bind facade builder: %v", err)
-	}
-
-	if err := Create("schema_facade_inspections", func(table *Blueprint) {
-		table.Id()
-		table.String("name")
-	}); err != nil {
-		t.Fatalf("create facade inspection table: %v", err)
-	}
-	ran := false
-	if err := WhenTableHasColumn("schema_facade_inspections", "name", func() error {
-		ran = true
-		return nil
-	}); err != nil || !ran {
-		t.Fatalf("expected WhenTableHasColumn to run, ran=%v err=%v", ran, err)
-	}
-	ran = false
-	if err := WhenTableDoesntHaveColumn("schema_facade_inspections", "missing", func() error {
-		ran = true
-		return nil
-	}); err != nil || !ran {
-		t.Fatalf("expected WhenTableDoesntHaveColumn to run, ran=%v err=%v", ran, err)
-	}
-	columns, err := GetColumns("schema_facade_inspections")
-	if err != nil || len(columns) == 0 {
-		t.Fatalf("expected columns, got %#v err=%v", columns, err)
-	}
-	listing, err := GetColumnListing("schema_facade_inspections")
-	if err != nil || len(listing) != len(columns) {
-		t.Fatalf("expected column listing, got %#v err=%v", listing, err)
-	}
-	func() {
-		defer func() {
-			recovered := recover()
-			if recovered == nil {
-				t.Fatal("Connection without config facade did not panic")
-			}
-			if got := strings.TrimSpace(recovered.(error).Error()); got != `container "config.default": container factory is not registered` {
-				t.Fatalf("panic = %q, want config.default not registered", got)
-			}
-		}()
-		_ = Connection("mysql")
-	}()
-}
-
-func TestPackageFacadeFullSurfaceAndUseRegistersBuilder(t *testing.T) {
-	db := openSQLite(t)
-	registry := useIsolatedFacadeRegistry(t)
-
-	builder := New(db)
-	if err := registry.Instance(serviceKey, builder); err != nil {
-		t.Fatalf("bind builder: %v", err)
-	}
-	if Resolve() != builder {
-		t.Fatal("Resolve should return the provided builder")
-	}
-	bound := Bind(db)
-	if bound == builder || bound.db != db {
-		t.Fatal("Bind should return a local builder bound to the provided connection")
-	}
-	if Resolve() != builder {
-		t.Fatal("Bind should not replace the current facade builder")
-	}
-	if Resolve() == nil {
-		t.Fatal("resolve facade builder returned nil")
-	}
-	if err := Create("schema_facade_surface", func(table *Blueprint) {
-		table.Id()
-		table.String("name")
-		table.String("code").Nullable()
-		table.IndexNamed("idx_schema_facade_surface_code", "code")
-	}); err != nil {
-		t.Fatalf("facade create surface table: %v", err)
-	}
-	if err := db.Exec("CREATE VIEW schema_facade_surface_view AS SELECT id FROM schema_facade_surface").Error; err != nil {
-		t.Fatalf("create facade surface view: %v", err)
-	}
-	if _, err := GetSchemas(); err != nil {
-		t.Fatalf("facade get schemas: %v", err)
-	}
-	if _, err := GetTables(nil); err != nil {
-		t.Fatalf("facade get tables: %v", err)
-	}
-	if _, err := GetTableListing(nil, false); err != nil {
-		t.Fatalf("facade get table listing: %v", err)
-	}
-	if !HasTable("schema_facade_surface") || !HasView("schema_facade_surface_view") {
-		t.Fatal("facade table/view lookup failed")
-	}
-	if _, err := GetViews(nil); err != nil {
-		t.Fatalf("facade get views: %v", err)
-	}
-	if _, err := GetTypes(nil); err != nil {
-		t.Fatalf("facade get types: %v", err)
-	}
-	if !HasColumns("schema_facade_surface", []string{"id", "name"}) {
-		t.Fatal("facade has columns failed")
-	}
-	if _, err := GetColumnType("schema_facade_surface", "name", true); err != nil {
-		t.Fatalf("facade get column type: %v", err)
-	}
-	if _, err := GetIndexes("schema_facade_surface"); err != nil {
-		t.Fatalf("facade get indexes: %v", err)
-	}
-	if _, err := GetIndexListing("schema_facade_surface"); err != nil {
-		t.Fatalf("facade get index listing: %v", err)
-	}
-	if !HasIndex("schema_facade_surface", []any{"code"}) {
-		t.Fatal("facade has index by []any failed")
-	}
-	ran := false
-	if err := WhenTableHasIndex("schema_facade_surface", "idx_schema_facade_surface_code", func() error {
-		ran = true
-		return nil
-	}); err != nil || !ran {
-		t.Fatalf("facade WhenTableHasIndex failed, ran=%v err=%v", ran, err)
-	}
-	ran = false
-	if err := WhenTableDoesntHaveIndex("schema_facade_surface", "idx_missing_surface", func() error {
-		ran = true
-		return nil
-	}); err != nil || !ran {
-		t.Fatalf("facade WhenTableDoesntHaveIndex failed, ran=%v err=%v", ran, err)
-	}
-	if _, err := GetForeignKeys("schema_facade_surface"); err != nil {
-		t.Fatalf("facade get foreign keys: %v", err)
-	}
-	if err := EnsureVectorExtensionExists(); !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("facade vector extension should be unsupported, got %v", err)
-	}
-	if err := EnsureExtensionExists("vector"); !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("facade extension should be unsupported, got %v", err)
-	}
-	if err := Table("schema_facade_surface", func(table *Blueprint) {
-		table.DropIndex("idx_schema_facade_surface_code")
-	}); err != nil {
-		t.Fatalf("facade drop code index: %v", err)
-	}
-	if err := DropColumns("schema_facade_surface", "code"); err != nil {
-		t.Fatalf("facade drop columns: %v", err)
-	}
-	if HasColumn("schema_facade_surface", "code") {
-		t.Fatal("expected facade drop columns to remove code")
-	}
-	if err := DropAllViews(); err != nil {
-		t.Fatalf("facade drop all views: %v", err)
-	}
-	if err := DropAllTypes(); err != nil {
-		t.Fatalf("facade drop all types: %v", err)
-	}
-	if err := DropAllTables(); err != nil {
-		t.Fatalf("facade drop all tables: %v", err)
-	}
-}
-
-func TestSQLiteMetadataInspectionHelpers(t *testing.T) {
-	db := openSQLite(t)
-	builder := New(db)
-	if err := builder.Create("schema_meta_widgets", func(table *Blueprint) {
-		table.Id()
-		table.String("name", 64)
-		table.String("code", 32).Nullable()
-		table.UniqueNamed("uix_schema_meta_widgets_name", "name")
-		table.IndexNamed("idx_schema_meta_widgets_code", "code")
-	}); err != nil {
-		t.Fatalf("create metadata table: %v", err)
-	}
-	if err := db.Exec("CREATE VIEW schema_meta_widget_view AS SELECT id, name FROM schema_meta_widgets").Error; err != nil {
-		t.Fatalf("create view: %v", err)
-	}
-	if err := db.Exec("CREATE TABLE schema_meta_parents (id integer primary key)").Error; err != nil {
-		t.Fatalf("create parent table: %v", err)
-	}
-	if err := db.Exec("CREATE TABLE schema_meta_children (id integer primary key, parent_id integer, CONSTRAINT fk_schema_meta_parent FOREIGN KEY(parent_id) REFERENCES schema_meta_parents(id) ON DELETE CASCADE ON UPDATE NO ACTION)").Error; err != nil {
-		t.Fatalf("create child table: %v", err)
-	}
-
-	schemas, err := builder.GetSchemas()
-	if err != nil || len(schemas) == 0 {
-		t.Fatalf("expected sqlite schemas, got %#v err=%v", schemas, err)
-	}
-	tables, err := builder.GetTables(nil)
-	if err != nil || !tableInfoContains(tables, "schema_meta_widgets") {
-		t.Fatalf("expected metadata table, got %#v err=%v", tables, err)
-	}
-	listing, err := builder.GetTableListing(nil, false)
-	if err != nil || !stringContains(listing, "schema_meta_widgets") {
-		t.Fatalf("expected table listing, got %#v err=%v", listing, err)
-	}
-	qualified, err := builder.GetTableListing(nil)
-	if err != nil || !stringContains(qualified, "main.schema_meta_widgets") {
-		t.Fatalf("expected qualified table listing, got %#v err=%v", qualified, err)
-	}
-	if !builder.HasView("schema_meta_widget_view") || !builder.HasView("main.schema_meta_widget_view") {
-		t.Fatal("expected view lookup to support plain and schema-qualified names")
-	}
-	views, err := builder.GetViews(nil)
-	if err != nil || !viewInfoContains(views, "schema_meta_widget_view") {
-		t.Fatalf("expected view listing, got %#v err=%v", views, err)
-	}
-	types, err := builder.GetTypes(nil)
-	if err != nil || len(types) != 0 {
-		t.Fatalf("expected empty sqlite types, got %#v err=%v", types, err)
-	}
-	columns, err := builder.GetColumns("schema_meta_widgets")
-	if err != nil || !columnInfoContains(columns, "name") {
-		t.Fatalf("expected column details, got %#v err=%v", columns, err)
-	}
-	columnType, err := builder.GetColumnType("schema_meta_widgets", "name")
-	if err != nil || columnType == "" {
-		t.Fatalf("expected column type, got %q err=%v", columnType, err)
-	}
-	if _, err := builder.GetColumnType("schema_meta_widgets", "missing"); err == nil {
-		t.Fatal("expected missing column type error")
-	}
-	if !builder.HasColumns("schema_meta_widgets", []string{"id", "name"}) {
-		t.Fatal("expected HasColumns to pass")
-	}
-	if builder.HasColumns("schema_meta_widgets", []string{"id", "missing"}) {
-		t.Fatal("expected HasColumns to fail for missing column")
-	}
-	indexes, err := builder.GetIndexes("schema_meta_widgets")
-	if err != nil || !indexInfoContains(indexes, "uix_schema_meta_widgets_name") {
-		t.Fatalf("expected indexes, got %#v err=%v", indexes, err)
-	}
-	indexListing, err := builder.GetIndexListing("schema_meta_widgets")
-	if err != nil || !stringContains(indexListing, "idx_schema_meta_widgets_code") {
-		t.Fatalf("expected index listing, got %#v err=%v", indexListing, err)
-	}
-	if !builder.HasIndex("schema_meta_widgets", "uix_schema_meta_widgets_name", "unique") {
-		t.Fatal("expected unique index by name")
-	}
-	if !builder.HasIndex("schema_meta_widgets", []string{"code"}) {
-		t.Fatal("expected index by column list")
-	}
-	ran := false
-	if err := builder.WhenTableHasIndex("schema_meta_widgets", []string{"code"}, func() error {
-		ran = true
-		return nil
-	}); err != nil || !ran {
-		t.Fatalf("expected WhenTableHasIndex to run, ran=%v err=%v", ran, err)
-	}
-	ran = false
-	if err := builder.WhenTableDoesntHaveIndex("schema_meta_widgets", "idx_missing", func() error {
-		ran = true
-		return nil
-	}); err != nil || !ran {
-		t.Fatalf("expected WhenTableDoesntHaveIndex to run, ran=%v err=%v", ran, err)
-	}
-	foreignKeys, err := builder.GetForeignKeys("schema_meta_children")
-	if err != nil || len(foreignKeys) == 0 || foreignKeys[0].ForeignTable != "schema_meta_parents" {
-		t.Fatalf("expected sqlite foreign keys, got %#v err=%v", foreignKeys, err)
-	}
-}
-
-func TestDropAllSQLiteObjectsAndUnsupportedMetadata(t *testing.T) {
-	db := openSQLite(t)
-	builder := New(db)
-	if err := builder.Create("schema_drop_all_widgets", func(table *Blueprint) {
-		table.Id()
-		table.String("name")
-	}); err != nil {
-		t.Fatalf("create drop-all table: %v", err)
-	}
-	if err := db.Exec("CREATE VIEW schema_drop_all_view AS SELECT id FROM schema_drop_all_widgets").Error; err != nil {
-		t.Fatalf("create drop-all view: %v", err)
-	}
-	if err := builder.DropAllViews(); err != nil {
-		t.Fatalf("drop all views: %v", err)
-	}
-	if builder.HasView("schema_drop_all_view") {
-		t.Fatal("expected view to be dropped")
-	}
-	if err := builder.DropAllTables(); err != nil {
-		t.Fatalf("drop all tables: %v", err)
-	}
-	if builder.HasTable("schema_drop_all_widgets") {
-		t.Fatal("expected table to be dropped")
-	}
-	if err := builder.DropAllTypes(); err != nil {
-		t.Fatalf("drop all types should be a no-op on sqlite: %v", err)
-	}
-
+func TestUnsupportedMetadata(t *testing.T) {
+	db := openSchemaFakeMySQL(t)
 	unsupportedDB := db.Session(&gorm.Session{})
 	unsupportedDB.Dialector = namedDialector{Dialector: db.Dialector, name: "postgres"}
 	unsupported := New(unsupportedDB)
@@ -959,10 +439,7 @@ func TestDropAllSQLiteObjectsAndUnsupportedMetadata(t *testing.T) {
 }
 
 func TestMySQLMetadataBranchesCompileAgainstNamedDialect(t *testing.T) {
-	db := openSQLite(t)
-	mysqlDB := db.Session(&gorm.Session{})
-	mysqlDB.Dialector = namedDialector{Dialector: db.Dialector, name: "mysql"}
-	builder := New(mysqlDB)
+	builder := New(openSchemaFakeMySQL(t))
 
 	for name, fn := range map[string]func() error{
 		"create database": func() error { _, err := builder.CreateDatabase("schema_meta_demo"); return err },
@@ -972,43 +449,13 @@ func TestMySQLMetadataBranchesCompileAgainstNamedDialect(t *testing.T) {
 		"get views":       func() error { _, err := builder.GetViews("main"); return err },
 		"foreign keys":    func() error { _, err := builder.GetForeignKeys("schema_meta_widgets"); return err },
 	} {
-		if err := fn(); err == nil {
-			t.Fatalf("%s should return sqlite execution error on named mysql dialect", name)
+		if err := fn(); err != nil {
+			t.Fatalf("%s error = %v, want nil from built-in MySQL adapter", name, err)
 		}
 	}
 }
 
 func TestNoopAndHelperBranches(t *testing.T) {
-	db := openSQLite(t)
-	builder := New(db)
-	if err := builder.Create("schema_noop_a", func(table *Blueprint) { table.Id() }); err != nil {
-		t.Fatalf("create noop source: %v", err)
-	}
-	if err := builder.Create("schema_noop_b", func(table *Blueprint) { table.Id() }); err != nil {
-		t.Fatalf("create noop target: %v", err)
-	}
-	if err := builder.Rename("schema_missing_source", "schema_noop_c"); err != nil {
-		t.Fatalf("rename missing should no-op: %v", err)
-	}
-	if err := builder.Rename("schema_noop_a", "schema_noop_b"); err != nil {
-		t.Fatalf("rename to existing should no-op: %v", err)
-	}
-	ran := false
-	if err := builder.WhenTableHasColumn("schema_noop_a", "missing", func() error {
-		ran = true
-		return nil
-	}); err != nil || ran {
-		t.Fatalf("WhenTableHasColumn should skip missing column, ran=%v err=%v", ran, err)
-	}
-	if err := builder.WhenTableDoesntHaveColumn("schema_noop_a", "id", func() error {
-		ran = true
-		return nil
-	}); err != nil || ran {
-		t.Fatalf("WhenTableDoesntHaveColumn should skip existing column, ran=%v err=%v", ran, err)
-	}
-	if builder.HasColumn("missing_table", "missing") {
-		t.Fatal("HasColumn should return false for missing table")
-	}
 	if got := normalizeSchemas(123); got != nil {
 		t.Fatalf("unexpected schemas for unsupported filter: %#v", got)
 	}
@@ -1027,31 +474,13 @@ func TestNoopAndHelperBranches(t *testing.T) {
 }
 
 func TestValidationResolveAndConstraintBranches(t *testing.T) {
-	db := openSQLite(t)
-	builder := New(db)
+	builder := New()
 	if _, err := builder.CreateDatabase(""); err == nil || !strings.Contains(err.Error(), "database name") {
 		t.Fatalf("expected create database validation error, got %v", err)
 	}
 	if _, err := builder.DropDatabaseIfExists(""); err == nil || !strings.Contains(err.Error(), "database name") {
 		t.Fatalf("expected drop database validation error, got %v", err)
 	}
-	if err := builder.Create("schema_existing_branch", func(table *Blueprint) { table.Id() }); err != nil {
-		t.Fatalf("create existing branch table: %v", err)
-	}
-	if err := builder.Create("schema_existing_branch", func(table *Blueprint) { table.String("ignored") }); err != nil {
-		t.Fatalf("create existing table should no-op: %v", err)
-	}
-
-	mysqlDB := db.Session(&gorm.Session{})
-	mysqlDB.Dialector = namedDialector{Dialector: db.Dialector, name: "mysql"}
-	mysqlBuilder := New(mysqlDB)
-	if err := mysqlBuilder.EnableForeignKeyConstraints(); err == nil {
-		t.Fatal("named mysql enable constraints should hit sqlite execution error")
-	}
-	if err := mysqlBuilder.DisableForeignKeyConstraints(); err == nil {
-		t.Fatal("named mysql disable constraints should hit sqlite execution error")
-	}
-
 	errBuilder := New(errorDB(errors.New("boom")))
 	for name, fn := range map[string]func() error{
 		"schemas":        func() error { _, err := errBuilder.GetSchemas(); return err },
@@ -1070,36 +499,8 @@ func TestValidationResolveAndConstraintBranches(t *testing.T) {
 	}
 }
 
-func TestSyncModelsAddsMissingColumns(t *testing.T) {
-	db := openSQLite(t)
-	builder := New(db)
-	if err := builder.SyncModels(&syncBaseWidget{}); err != nil {
-		t.Fatalf("sync base model: %v", err)
-	}
-	if builder.HasColumn("schema_sync_widgets", "code") {
-		t.Fatal("code should not exist before expanded sync")
-	}
-	if err := builder.SyncModels(&syncExpandedWidget{}); err != nil {
-		t.Fatalf("sync expanded model: %v", err)
-	}
-	if !builder.HasColumn("schema_sync_widgets", "code") {
-		t.Fatal("expected SyncModels to add missing code column")
-	}
-	useIsolatedFacadeRegistry(t)
-	defer func() {
-		recovered := recover()
-		if recovered == nil {
-			t.Fatal("package SyncModels without facade binding did not panic")
-		}
-		if got := strings.TrimSpace(recovered.(error).Error()); got != `container "database.schema": container factory is not registered` {
-			t.Fatalf("panic = %q, want database.schema not registered", got)
-		}
-	}()
-	_ = SyncModels(&syncExpandedWidget{})
-}
-
 func TestBuilderCloseMethod(t *testing.T) {
-	db := openSQLite(t)
+	db := openSchemaFakeMySQL(t)
 	builder := New(db)
 
 	// Close 方法应该存在且可以调用
@@ -1117,9 +518,7 @@ func TestBuilderCloseMethod(t *testing.T) {
 }
 
 func TestBlueprintAliasAndModifierCoverage(t *testing.T) {
-	db := openSQLite(t)
-	mysqlDB := db.Session(&gorm.Session{})
-	mysqlDB.Dialector = namedDialector{Dialector: db.Dialector, name: "mysql"}
+	mysqlDB := openSchemaFakeMySQL(t)
 
 	blueprint := NewBlueprint("schema_aliases", createTable)
 	blueprint.Id("custom_id")
@@ -1148,15 +547,13 @@ func TestBlueprintAliasAndModifierCoverage(t *testing.T) {
 	drop.DropUnique("uix_old")
 	drop.DropFullText("ft_old")
 	drop.DropSpatialIndex("sp_old")
-	if _, err := drop.Compile(db); err != nil {
+	if _, err := drop.Compile(mysqlDB); err != nil {
 		t.Fatalf("compile drop aliases: %v", err)
 	}
 }
 
 func TestCompilerErrorAndHelperBranches(t *testing.T) {
-	db := openSQLite(t)
-	mysqlDB := db.Session(&gorm.Session{})
-	mysqlDB.Dialector = namedDialector{Dialector: db.Dialector, name: "mysql"}
+	mysqlDB := openSchemaFakeMySQL(t)
 
 	empty := NewBlueprint("schema_empty", createTable)
 	if _, err := empty.Compile(mysqlDB); err == nil || !strings.Contains(err.Error(), "no columns") {
@@ -1167,17 +564,8 @@ func TestCompilerErrorAndHelperBranches(t *testing.T) {
 	if _, err := changeMissing.Compile(mysqlDB); err == nil || !strings.Contains(err.Error(), "cannot change missing column") {
 		t.Fatalf("expected missing change error, got %v", err)
 	}
-	badRename := NewBlueprint("schema_bad_rename", alterTable)
-	badRename.RenameColumn("", "name")
-	if _, err := badRename.Compile(db); err == nil || !strings.Contains(err.Error(), "rename column requires") {
-		t.Fatalf("expected rename validation error, got %v", err)
-	}
-
 	if got := (&IndexDefinition{kind: "plain", name: "idx_plain", columns: []string{"name"}}).inlineSQL(); !strings.Contains(got, "KEY `idx_plain`") {
 		t.Fatalf("expected plain inline index, got %s", got)
-	}
-	if got := (&IndexDefinition{kind: "plain"}).inlineSQLiteSQL(); got != "" {
-		t.Fatalf("expected empty sqlite inline index, got %s", got)
 	}
 	if got := (&IndexDefinition{kind: "index", name: "idx", columns: []string{"name"}}).alterMySQL("schema_indexes"); !strings.Contains(got, "ADD INDEX") {
 		t.Fatalf("expected mysql index alter, got %s", got)
@@ -1205,29 +593,8 @@ func TestCompilerErrorAndHelperBranches(t *testing.T) {
 	}
 }
 
-func TestSQLiteTypeBranchesAndForeignActions(t *testing.T) {
-	db := openSQLite(t)
-	builder := New(db)
-	err := builder.Create("schema_sqlite_types", func(table *Blueprint) {
-		table.Id()
-		table.Boolean("enabled")
-		table.Float("ratio")
-		table.Decimal("amount")
-		table.Binary("blob_value")
-		table.Date("business_date")
-		table.String("name")
-		table.ForeignId("user_id").Constrained("users").NoActionOnDelete().NoActionOnUpdate()
-	})
-	if err != nil {
-		t.Fatalf("create sqlite type table: %v", err)
-	}
-	if !builder.HasTable("schema_sqlite_types") {
-		t.Fatal("expected schema_sqlite_types")
-	}
-}
-
 func TestUnsupportedConstraintBranches(t *testing.T) {
-	db := openSQLite(t)
+	db := openSchemaFakeMySQL(t)
 	db.Dialector = namedDialector{Dialector: db.Dialector, name: "postgres"}
 	builder := New(db)
 	if err := builder.EnableForeignKeyConstraints(); !errors.Is(err, ErrUnsupportedFeature) {
@@ -1245,49 +612,4 @@ func TestUnsupportedConstraintBranches(t *testing.T) {
 	if _, err := New(errorDB(errors.New("boom"))).GetColumns("x"); err == nil {
 		t.Fatal("expected GetColumns to return resolve error")
 	}
-}
-
-func tableInfoContains(items []TableInfo, name string) bool {
-	for _, item := range items {
-		if item.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func viewInfoContains(items []ViewInfo, name string) bool {
-	for _, item := range items {
-		if item.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func columnInfoContains(items []ColumnInfo, name string) bool {
-	for _, item := range items {
-		if item.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func indexInfoContains(items []IndexInfo, name string) bool {
-	for _, item := range items {
-		if item.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func stringContains(items []string, value string) bool {
-	for _, item := range items {
-		if item == value {
-			return true
-		}
-	}
-	return false
 }

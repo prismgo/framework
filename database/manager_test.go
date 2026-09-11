@@ -7,7 +7,6 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/prismgo/framework/container"
 	"gorm.io/driver/mysql"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -24,14 +23,7 @@ func bindDatabaseManagerForTest(t *testing.T) *container.Container {
 }
 
 func newTestDatabaseManager() *Manager {
-	manager := NewManager()
-	manager.Extend("sqlite", func(ctx DriverContext) (gorm.Dialector, error) {
-		return sqlite.Open(ctx.DSN), nil
-	})
-	manager.Extend("sqlite3", func(ctx DriverContext) (gorm.Dialector, error) {
-		return sqlite.Open(ctx.DSN), nil
-	})
-	return manager
+	return NewManager()
 }
 
 func TestManagerExtendUsesLatestDialectorFactory(t *testing.T) {

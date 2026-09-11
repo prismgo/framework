@@ -6,7 +6,6 @@ import (
 
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -15,10 +14,7 @@ func TestFacadeUseAndCurrent(t *testing.T) {
 	container.SetProvider(func() *container.Container { return registry })
 	t.Cleanup(func() { container.SetProvider(nil) })
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite failed: %v", err)
-	}
+	db := &gorm.DB{}
 
 	if err := registry.Instance("database.default", db); err != nil {
 		t.Fatalf("bind db: %v", err)
@@ -37,10 +33,7 @@ func TestFacadeSetDefaultDelegatesToUse(t *testing.T) {
 	container.SetProvider(func() *container.Container { return registry })
 	t.Cleanup(func() { container.SetProvider(nil) })
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite failed: %v", err)
-	}
+	db := &gorm.DB{}
 
 	if err := registry.Instance("database.default", db); err != nil {
 		t.Fatalf("bind db: %v", err)

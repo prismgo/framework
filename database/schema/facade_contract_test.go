@@ -3,6 +3,7 @@ package schema
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/prismgo/framework/container"
@@ -29,7 +30,7 @@ func TestResolveRequiresCurrentRegistry(t *testing.T) {
 func TestDefaultResolvesRegisteredFactoryBeforeFallbackBuilder(t *testing.T) {
 	registry := useIsolatedFacadeRegistry(t)
 
-	builder := New(openSQLite(t))
+	builder := New(openSchemaFakeMySQL(t))
 	calls := 0
 	if err := registry.Singleton(serviceKey, func(containercontract.Resolver) (any, error) {
 		calls++
@@ -47,8 +48,11 @@ func TestDefaultResolvesRegisteredFactoryBeforeFallbackBuilder(t *testing.T) {
 	if err := Create("schema_facade_contract", func(table *Blueprint) { table.Id() }); err != nil {
 		t.Fatalf("package Create via factory builder: %v", err)
 	}
-	if !builder.HasTable("schema_facade_contract") {
-		t.Fatal("expected package Create to use factory builder")
+	schemaFakeMySQLMu.Lock()
+	joined := strings.Join(schemaFakeMySQLExecs, "\n")
+	schemaFakeMySQLMu.Unlock()
+	if !strings.Contains(joined, "CREATE TABLE `schema_facade_contract`") {
+		t.Fatalf("package Create SQL = %q, want factory builder CREATE TABLE", joined)
 	}
 }
 
@@ -80,7 +84,7 @@ func TestServiceProviderAndFacadeSmallWrappers(t *testing.T) {
 	container.SetProvider(func() *container.Container { return registry })
 
 	DefaultMorphKeyType("uuid")
-	Bind(openSQLite(t))
+	Bind(openSchemaFakeMySQL(t))
 	if _, err := CreateDatabase(""); err == nil {
 		t.Fatal("expected CreateDatabase validation error")
 	}
