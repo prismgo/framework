@@ -178,6 +178,68 @@ func TestBuilderCreatePanicsWhenProviderRegistrationFails(t *testing.T) {
 	}
 }
 
+func TestBuilderOrdersExtensionProvidersBetweenDefaultsAndBusinessProviders(t *testing.T) {
+	var calls []string
+	extension := builderOrderProvider{
+		name: "extension",
+		register: func(app providercontract.Application) error {
+			if !app.Container().Bound("database.default") {
+				t.Fatal("extension Register ran before framework default providers")
+			}
+			calls = append(calls, "extension.Register")
+			return app.Container().Instance("test.extension.ready", true)
+		},
+		boot: func(providercontract.Application) error {
+			calls = append(calls, "extension.Boot")
+			return nil
+		},
+	}
+	business := builderOrderProvider{
+		name: "business",
+		register: func(app providercontract.Application) error {
+			if !app.Container().Bound("test.extension.ready") {
+				t.Fatal("business Register ran before extension Register")
+			}
+			calls = append(calls, "business.Register")
+			return nil
+		},
+		boot: func(providercontract.Application) error {
+			calls = append(calls, "business.Boot")
+			return nil
+		},
+	}
+
+	app := Configure().
+		WithExtensionProviders(extension).
+		WithProviders(business).
+		Create()
+	t.Cleanup(func() { _ = app.Close() })
+	if err := app.Boot(); err != nil {
+		t.Fatalf("Boot failed: %v", err)
+	}
+
+	want := []string{"extension.Register", "business.Register", "extension.Boot", "business.Boot"}
+	if fmt.Sprint(calls) != fmt.Sprint(want) {
+		t.Fatalf("provider calls = %v, want %v", calls, want)
+	}
+}
+
+type builderOrderProvider struct {
+	name     string
+	register func(providercontract.Application) error
+	boot     func(providercontract.Application) error
+}
+
+func (p builderOrderProvider) Name() string { return "test.builder." + p.name }
+
+func (p builderOrderProvider) Register(app providercontract.Application) error {
+	return p.register(app)
+}
+
+func (p builderOrderProvider) Boot(app providercontract.Application) error {
+	return p.boot(app)
+}
+
 func TestApplicationShutdownCancelsLifecycleContext(t *testing.T) {
 	app := NewApplication()
 	boom := errors.New("manual shutdown")

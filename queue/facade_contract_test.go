@@ -21,22 +21,12 @@ func TestResolveRequiresCurrentRegistry(t *testing.T) {
 	assertPanics(t, func() { _ = Resolve() })
 }
 
-func TestExtendDoesNotRequireCurrentRegistry(t *testing.T) {
+func TestExtendRequiresCurrentManager(t *testing.T) {
 	container.SetProvider(nil)
 	t.Cleanup(func() { container.SetProvider(nil) })
-
-	driver := "facade-package-extend-no-registry"
-	connector := &capturingConnector{queue: &contractOnlyQueue{}}
-	Extend(driver, connector)
-
-	manager := newSyncManager()
-	manager.connectionSpecs["facade-package"] = ConnectionConfig{Driver: driver}
-	if _, err := manager.Queue("facade-package"); err != nil {
-		t.Fatalf("queue via package extend without registry: %v", err)
-	}
-	if got := connector.calls.Load(); got != 1 {
-		t.Fatalf("connector calls = %d, want 1", got)
-	}
+	assertPanics(t, func() {
+		Extend("facade-package-extend-no-registry", connectorResolver(&capturingConnector{queue: &contractOnlyQueue{}}))
+	})
 }
 
 func assertPanics(t *testing.T, fn func()) {

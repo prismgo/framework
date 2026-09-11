@@ -1,9 +1,8 @@
 package helper
 
 import (
-	"strings"
-
 	queuecontract "github.com/prismgo/framework/contracts/queue"
+	queuedriver "github.com/prismgo/framework/queue/driver"
 )
 
 // NormalizeQueues 统一清理 worker 和 driver 的队列输入。
@@ -14,27 +13,7 @@ import (
 // 参数说明：queues 是调用方传入的原始队列列表；defaultQueue 是清理后为空时使用的默认队列。
 // 返回值：去除空白名称、去重并保留首次出现顺序后的队列列表；全空时返回默认队列。
 func NormalizeQueues(queues []string, defaultQueue string) []string {
-	defaultQueue = strings.TrimSpace(defaultQueue)
-	if defaultQueue == "" {
-		defaultQueue = "default"
-	}
-	normalized := make([]string, 0, len(queues))
-	seen := make(map[string]struct{}, len(queues))
-	for _, queue := range queues {
-		queue = strings.TrimSpace(queue)
-		if queue == "" {
-			continue
-		}
-		if _, ok := seen[queue]; ok {
-			continue
-		}
-		seen[queue] = struct{}{}
-		normalized = append(normalized, queue)
-	}
-	if len(normalized) == 0 {
-		return []string{defaultQueue}
-	}
-	return normalized
+	return queuedriver.NormalizeQueues(queues, defaultQueue)
 }
 
 // NormalizePopWaitMode 统一 Pop wait mode 默认值。
@@ -44,8 +23,5 @@ func NormalizeQueues(queues []string, defaultQueue string) []string {
 //
 // 参数说明：wait 是可变参数展开后的 wait mode 列表；当前 contract 只读取第一个显式值。
 func NormalizePopWaitMode(wait []queuecontract.PopWaitMode) queuecontract.PopWaitMode {
-	if len(wait) == 0 {
-		return queuecontract.PopWaitAvailable
-	}
-	return wait[0]
+	return queuedriver.NormalizePopWaitMode(wait)
 }

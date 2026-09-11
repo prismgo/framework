@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"time"
@@ -17,6 +18,27 @@ const serviceKey = "filesystem.manager"
 // Resolve 从当前 Application 容器解析文件系统 Manager。
 func Resolve() *Manager {
 	return facade.Resolve[*Manager](serviceKey)
+}
+
+// ManagerFrom resolves the filesystem manager owned by resolver's Application.
+func ManagerFrom(resolver containercontract.Resolver) (*Manager, error) {
+	if resolver == nil {
+		return nil, fmt.Errorf("filesystem: resolver is nil")
+	}
+	raw, err := resolver.Make(serviceKey)
+	if err != nil {
+		return nil, fmt.Errorf("filesystem: resolve manager: %w", err)
+	}
+	manager, ok := raw.(*Manager)
+	if !ok || manager == nil {
+		return nil, fmt.Errorf("filesystem: manager resolved %T, want *filesystem.Manager", raw)
+	}
+	return manager, nil
+}
+
+// Extend installs or replaces a driver factory on the current Application manager.
+func Extend(name string, factory DriverFactory) {
+	Resolve().Extend(name, factory)
 }
 
 // DefaultName 返回全局管理器的默认磁盘名称。

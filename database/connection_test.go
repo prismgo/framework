@@ -93,11 +93,12 @@ func TestBuildMySQLDSNRoundTripsSpecialCharacters(t *testing.T) {
 }
 
 func TestOpenRejectsUnknownDriver(t *testing.T) {
+	bindDatabaseManagerForTest(t)
 	_, err := Open("postgres", "unused", MySQLConfig{})
 	if err == nil {
 		t.Fatalf("expected unsupported driver error")
 	}
-	if !strings.Contains(err.Error(), "unsupported driver") {
+	if !strings.Contains(err.Error(), "driver \"postgres\" is not registered") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -108,6 +109,9 @@ func TestOpenSQLite(t *testing.T) {
 	t.Cleanup(func() { container.SetProvider(nil) })
 	if err := registry.Instance("config.default", configpkg.New()); err != nil {
 		t.Fatalf("bind config: %v", err)
+	}
+	if err := registry.Instance("database.manager", newTestDatabaseManager()); err != nil {
+		t.Fatalf("bind database manager: %v", err)
 	}
 
 	db, err := Open("sqlite", "file:"+filepath.Join(t.TempDir(), "database.sqlite"), MySQLConfig{})

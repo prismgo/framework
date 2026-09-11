@@ -2,9 +2,10 @@ package queue
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	queuecontract "github.com/prismgo/framework/contracts/queue"
+	containercontract "github.com/prismgo/framework/contracts/container"
 	"github.com/prismgo/framework/facade"
 	"github.com/prismgo/framework/queue/payload"
 )
@@ -23,14 +24,30 @@ func Resolve() *Manager {
 	return facade.Resolve[*Manager](serviceKey)
 }
 
-// Extend 注册包级自定义 connector。
-//
-// 参数 name 是 connection 配置中的 driver 名称；connector 负责按连接配置创建底层队列。
-// 需求背景：业务包通常在 init() 中完成 driver 扩展，此时当前 Application 容器可能尚未
-// 绑定 queue manager，因此这里只写入包级 registry，不触发 Resolve()。空名称或 nil
-// connector 会被忽略；同名注册会覆盖先前 connector。
-func Extend(name string, connector queuecontract.Connector) {
-	registerConnector(name, connector)
+// ManagerFrom resolves the queue manager owned by resolver's Application.
+func ManagerFrom(resolver containercontract.Resolver) (*Manager, error) {
+	if resolver == nil {
+		return nil, fmt.Errorf("queue: resolver is nil")
+	}
+	raw, err := resolver.Make(serviceKey)
+	if err != nil {
+		return nil, fmt.Errorf("queue: resolve manager: %w", err)
+	}
+	manager, ok := raw.(*Manager)
+	if !ok || manager == nil {
+		return nil, fmt.Errorf("queue: manager resolved %T, want *queue.Manager", raw)
+	}
+	return manager, nil
+}
+
+// Extend installs or replaces a connector resolver on the current Application manager.
+func Extend(name string, resolver ConnectorResolver) {
+	Resolve().Extend(name, resolver)
+}
+
+// AddConnector installs a connector resolver on the current Application manager.
+func AddConnector(name string, resolver ConnectorResolver) {
+	Resolve().AddConnector(name, resolver)
 }
 
 // UseMiddleware 为全局 Manager 注册任务 middleware。

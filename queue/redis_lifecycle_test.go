@@ -47,12 +47,16 @@ func TestRedisManagerConnectionRequiresSharedRedisFacade(t *testing.T) {
 	server := miniredis.RunT(t)
 	useRedisLifecycleManager(t, server.Addr())
 
-	_, err := NewManager(Config{
+	manager, err := NewManager(Config{
 		Default: "redis",
 		Connections: map[string]ConnectionConfig{
 			"redis": {Driver: "redis", Options: map[string]any{"connection": "queue"}},
 		},
 	}, NewRegistry())
+	if err != nil {
+		t.Fatalf("new lazy manager: %v", err)
+	}
+	_, err = manager.Queue("")
 	if err == nil {
 		t.Fatal("expected redis facade resolution error")
 	}

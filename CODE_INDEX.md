@@ -59,6 +59,7 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 | `application_builder.go` | `Builder` (struct) | Laravel-style app configuration Builder |
 | | `Configure(basePath...) *Builder` | Create a Builder |
 | | `(*Builder) WithProviders(...)` | Declare project-level Providers |
+| | `(*Builder) WithExtensionProviders(...)` | Declare extension Providers between framework defaults and application Providers |
 | | `(*Builder) WithCommands(...)` | Declare console commands |
 | | `(*Builder) WithRouting(configure func(*Routing))` | Declare routes / commands / schedule |
 | | `(*Builder) WithMiddleware(configure func(*Middleware))` | Declare HTTP middleware |
@@ -267,7 +268,7 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 
 | File | Key Symbols | Description |
 |---|---|---|
-| `manager.go` | `Manager` (struct) | Queue connection manager |
+| `manager.go` | `Manager`, `ConnectorResolver`, `(*Manager) Extend`, `(*Manager) AddConnector` | Application-local lazy connection and connector manager |
 | `dispatcher.go` | `Dispatcher` (struct) | Job dispatcher |
 | | `(*Dispatcher) Dispatch(job, options...)` | Dispatch a job |
 | | `(*Dispatcher) Later(seconds, job, options...)` | Delayed dispatch |
@@ -280,9 +281,16 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 | `redis_queue.go` | `redisQueue` | Redis-backed queue connector |
 | `sync_queue.go` | `syncQueue` | Synchronous queue connector |
 | `rabbitmq_queue.go` | `rabbitmqQueue` | RabbitMQ-backed queue connector |
-| `facade.go` | `Resolve() *Manager` | Package-level facade |
+| `facade.go` | `Resolve() *Manager`, `ManagerFrom`, `Extend`, `AddConnector` | Current-application facade and explicit application-local manager access |
 | | `Dispatch`, `Batch`, `Later`, `Extend`, `UseMiddleware`, `Failed`, `RequestRestart`, `Close`, `GetBatchStatus`, `CancelBatch`, `MarkBatchJob`, `DelaySeconds` | Full queue facade API |
 | `service_provider.go` | `ServiceProvider` | Register `queue.manager` lazy singleton |
+
+**Public adapter surface:**
+
+| Package | Key Symbols | Description |
+|---|---|---|
+| `contracts/queue` | `ConnectorConfig`, `Connector`, `Queue`, `ReservedJob` | Typed connector input and stable queue contracts |
+| `queue/driver` | `NormalizeQueues`, `NormalizePopWaitMode`, event and poison-envelope types | Reusable normalization, errors, and observability primitives for external adapters |
 
 ---
 
@@ -396,13 +404,13 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 
 | File | Key Symbols | Description |
 |---|---|---|
-| `manager.go` | `Manager` (struct) | Multi-disk filesystem manager |
+| `manager.go` | `Manager`, `(*Manager) Extend` | Application-local multi-disk manager and driver registration |
 | `repository.go` | `Repository` (struct) | Core filesystem operations |
 | | `(*Repository) Put`, `Get`, `Delete`, `Exists`, `Copy`, `Move`, `URL`, `TemporaryURL`, `Size`, `LastModified`, `Files`, `Directories` | Filesystem operations |
 | `local.go` | `localDriver` | Local filesystem driver |
 | `oss.go` | `ossDriver` | Alibaba Cloud OSS driver |
-| `driver.go` | `Driver`, `DriverFactory`, `Extend(name, factory)` | Driver registration |
-| `facade.go` | `Resolve() *Manager` | Package-level facade |
+| `driver.go` | `Driver`, `DriverFactory` | Driver contracts |
+| `facade.go` | `Resolve() *Manager`, `ManagerFrom`, `Extend` | Current-application facade and explicit application-local manager access |
 | | `Default`, `Disk`, `Put`, `Get`, `Exists`, `Delete`, `Copy`, `Move`, `URL`, `TemporaryURL`, `Size`, `LastModified`, `Files`, `Directories`, `PutFile`, `OpenStream`, `Download`, `MakeDirectory`, `DeleteDirectory` | Full filesystem facade API |
 | `service_provider.go` | `ServiceProvider` | Register `filesystem.manager` lazy singleton |
 | `config.go` | `Config`, `LocalConfig`, `OSSConfig`, `S3Config` | Filesystem configuration types |
@@ -415,9 +423,10 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 
 | File | Key Symbols | Description |
 |---|---|---|
-| `connection.go` | `Open`, `OpenDefaultConnection`, `OpenConnection` | MySQL/SQLite connection construction, DSN and pool configuration |
+| `manager.go` | `Manager`, `DriverContext`, `DialectorFactory`, `NewManager`, `ManagerFrom`, `(*Manager) Extend`, `(*Manager) Open` | Application-local driver registry; MySQL is the only built-in driver |
+| `connection.go` | `Open`, `OpenDefaultConnection`, `OpenConnection` | Manager-backed connection facade, DSN and pool configuration |
 | `facade.go` | `Resolve() *gorm.DB` | Resolve the application database connection |
-| `service_provider.go` | `ServiceProvider` | Register the lazy `database.default` singleton |
+| `service_provider.go` | `ServiceProvider` | Register lazy `database.manager` and `database.default` singletons |
 | `migration.go` | `RegisterMigration`, `RegisterSeeder` | Migration and seeder registries |
 | `migrator.go` | `Migrator` | Migration and index maintenance helpers |
 

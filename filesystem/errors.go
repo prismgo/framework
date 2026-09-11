@@ -3,6 +3,10 @@ package filesystem
 import "errors"
 
 var (
+	// ErrManagerClosed 表示文件系统 Manager 已进入关闭状态，不能再创建磁盘实例。
+	ErrManagerClosed = errors.New("filesystem: manager is closed")
+	// ErrManagerClosing 表示另一个调用者正在执行 Manager 关闭流程。
+	ErrManagerClosing = errors.New("filesystem: manager is closing")
 	// ErrDiskNotFound 表示请求的磁盘未注册或管理器未初始化。
 	ErrDiskNotFound = errors.New("filesystem: disk not found")
 	// ErrUnsupportedDriver 表示当前驱动类型尚未实现。

@@ -23,8 +23,6 @@ func TestArchitectureKeepsManagerAndConnectionConfigLaravelShaped(t *testing.T) 
 		"codec",
 		"middleware",
 		"payloadCipher",
-		"connectors",
-		"connectorsMu",
 	} {
 		if _, ok := managerType.FieldByName(field); ok {
 			t.Fatalf("Manager still has runtime field %q", field)

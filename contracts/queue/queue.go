@@ -3,6 +3,8 @@ package queue
 import (
 	"context"
 	"time"
+
+	"github.com/prismgo/framework/contracts/encoding"
 )
 
 // Payload 是 driver 层传输的已编码 Job payload。
@@ -112,9 +114,20 @@ type ReservedJob interface {
 	Release(ctx context.Context, delay time.Duration) error
 }
 
+// ConnectorConfig describes one immutable connection request passed to an adapter.
+type ConnectorConfig struct {
+	Driver     string
+	Queue      string
+	Prefix     string
+	RetryAfter time.Duration
+	BlockFor   time.Duration
+	Options    map[string]any
+	Codec      encoding.Codec
+}
+
 // Connector 按连接名和配置创建 Queue，供 Manager 注册自定义 driver。
 type Connector interface {
-	Connect(ctx context.Context, name string, config map[string]any) (Queue, error)
+	Connect(ctx context.Context, name string, config ConnectorConfig) (Queue, error)
 }
 
 // Factory 解析默认连接、命名连接和自定义 connector。
