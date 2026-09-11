@@ -277,10 +277,10 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 | `registry.go` | `Registry` (struct) | Job type registry |
 | | `Register/RegisterJob/job` | Job registration |
 | `config.go` | `Config`, `ConnectionConfig` | Queue configuration types |
+| `types.go` | `ErrRabbitMQ*`, `ErrUnsupportedRetryAfter` | Stable sentinels shared with the optional RabbitMQ extension |
 | `middleware.go` | `Middleware` (type) | Queue middleware |
 | `redis_queue.go` | `redisQueue` | Redis-backed queue connector |
 | `sync_queue.go` | `syncQueue` | Synchronous queue connector |
-| `rabbitmq_queue.go` | `rabbitmqQueue` | RabbitMQ-backed queue connector |
 | `facade.go` | `Resolve() *Manager`, `ManagerFrom`, `Extend`, `AddConnector` | Current-application facade and explicit application-local manager access |
 | | `Dispatch`, `Batch`, `Later`, `Extend`, `UseMiddleware`, `Failed`, `RequestRestart`, `Close`, `GetBatchStatus`, `CancelBatch`, `MarkBatchJob`, `DelaySeconds` | Full queue facade API |
 | `service_provider.go` | `ServiceProvider` | Register `queue.manager` lazy singleton |
@@ -291,6 +291,7 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 |---|---|---|
 | `contracts/queue` | `ConnectorConfig`, `Connector`, `Queue`, `ReservedJob` | Typed connector input and stable queue contracts |
 | `queue/driver` | `NormalizeQueues`, `NormalizePopWaitMode`, event and poison-envelope types | Reusable normalization, errors, and observability primitives for external adapters |
+| `github.com/prismgo/rabbitmq` | `ServiceProvider`, `Connector`, `RabbitMQQueue` | Optional RabbitMQ adapter installed through `Manager.Extend` |
 
 ---
 

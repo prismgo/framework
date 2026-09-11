@@ -207,12 +207,6 @@ func defaultConnectionConfigs(repo *configpkg.Config, queueName string) map[stri
 			Queue:  queueName,
 		},
 		"redis": redisConfig,
-		"rabbitmq": {
-			Driver:   "rabbitmq",
-			Queue:    queueName,
-			BlockFor: secondsConfig(repo, "queue.connections.rabbitmq.block_for", 1),
-			Options:  map[string]any{},
-		},
 	}
 }
 
@@ -299,27 +293,6 @@ func castString(value any) string {
 		return typed.String()
 	}
 	return ""
-}
-
-func castBool(value any, fallback bool) bool {
-	switch typed := value.(type) {
-	case bool:
-		return typed
-	case string:
-		switch strings.TrimSpace(strings.ToLower(typed)) {
-		case "1", "true", "yes", "on":
-			return true
-		case "0", "false", "no", "off":
-			return false
-		}
-	case int:
-		return typed != 0
-	case int64:
-		return typed != 0
-	case float64:
-		return typed != 0
-	}
-	return fallback
 }
 
 func firstNonEmpty(values ...string) string {

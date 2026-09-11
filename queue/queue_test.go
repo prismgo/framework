@@ -1972,63 +1972,6 @@ func TestOptionsProvidersAndHelperBranches(t *testing.T) {
 	}
 }
 
-func TestRabbitMQConfigParsingBranches(t *testing.T) {
-	spec := map[string]any{
-		"url":                        "amqp://guest:secret@127.0.0.1:5672/",
-		"scheme":                     "amqps",
-		"host":                       "rabbit.local",
-		"port":                       5671,
-		"username":                   "guest",
-		"password":                   "secret",
-		"vhost":                      "tenant",
-		"exchange":                   "jobs",
-		"exchange_type":              "topic",
-		"declare":                    "true",
-		"exchange_durable":           false,
-		"queue_durable":              "false",
-		"queue_max_priority":         "9",
-		"message_persistent":         "false",
-		"auto_delete":                true,
-		"exclusive":                  "true",
-		"no_wait":                    false,
-		"confirm":                    "true",
-		"delay_mode":                 "ttl_dlx",
-		"delay_buckets":              "1, 5s, bad",
-		"prefetch":                   "3",
-		"heartbeat":                  "2s",
-		"publish_timeout":            4,
-		"publish_channels":           "2",
-		"reconnect_min_delay":        "100ms",
-		"reconnect_max_delay":        "2s",
-		"restart_queue":              "restart",
-		"restart_enabled":            "false",
-		"restart_poll_interval":      "250ms",
-		"topology_cache_ttl":         "30s",
-		"topology_cache_max_entries": "20",
-	}
-	opts := rabbitMQOptionsFromMap(spec)
-	if opts.Exchange != "jobs" || opts.ExchangeType != "topic" || opts.Prefetch != 3 || opts.PublishChannels != 2 {
-		t.Fatalf("rabbit options = %#v", opts)
-	}
-	if opts.QueueMaxPriority != 9 || opts.DelayMode != "ttl_dlx" || len(opts.DelayBuckets) != 1 {
-		t.Fatalf("rabbit numeric options = %#v", opts)
-	}
-	if opts.RestartEnabled.Or(true) || opts.RestartPollInterval != 250*time.Millisecond || opts.TopologyCacheTTL != 30*time.Second {
-		t.Fatalf("rabbit restart/cache options = %#v", opts)
-	}
-	defaulted := rabbitMQOptionsFromMap(map[string]any{"url": "amqp://guest:guest@example.test:5672/%2F"})
-	if defaulted.Confirm.IsSet() || defaulted.Declare.IsSet() || defaulted.RestartEnabled.IsSet() {
-		t.Fatalf("missing rabbit bool keys = %#v, want unset bools for runtime defaults", defaulted)
-	}
-	disabledConfirm := rabbitMQOptionsFromMap(map[string]any{
-		"url":     "amqp://guest:guest@example.test:5672/%2F",
-		"confirm": false,
-	})
-	if !disabledConfirm.Confirm.IsSet() || disabledConfirm.Confirm.Or(true) {
-		t.Fatalf("explicit confirm=false = %#v, want explicit false retained", disabledConfirm)
-	}
-}
-
 func TestAdditionalErrorAndBranchCoverage(t *testing.T) {
 	resetTestLog()
 	bindQueueManagerForTest(t, newSyncManager())

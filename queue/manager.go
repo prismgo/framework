@@ -93,9 +93,6 @@ func NewManager(cfg Config, registry *Registry) (*Manager, error) {
 	manager.AddConnector("redis", func() (queuecontract.Connector, error) {
 		return RedisConnector{}, nil
 	})
-	manager.AddConnector("rabbitmq", func() (queuecontract.Connector, error) {
-		return RabbitMQConnector{}, nil
-	})
 	return manager, nil
 }
 
@@ -246,7 +243,7 @@ func (m *Manager) connector(name string) (queuecontract.Connector, error) {
 
 // runtimeCodec 返回当前 manager runtime 使用的 payload codec。
 //
-// 设计思路：内置 sync/redis/rabbitmq connector 仍需要 manager 创建时解析出的 codec，但
+// 设计思路：内置 sync/redis connector 仍需要 manager 创建时解析出的 codec，但
 // Manager 不再持有 connector registry 字段，因此通过 runtime 读取 codec 并即时构造内置
 // connector，避免把内置 driver 放入包级自定义 registry。
 func (m *Manager) runtimeCodec() encodingcontract.Codec {

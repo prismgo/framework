@@ -1,28 +1,26 @@
 package queue_test
 
 import (
-	"errors"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/prismgo/framework/queue"
 )
 
-func TestRabbitMQRejectsRetryAfterFromPublicConnectionConfig(t *testing.T) {
+func TestRabbitMQRequiresAnExtensionConnector(t *testing.T) {
 	manager, err := queue.NewManager(queue.Config{
 		Default: "rabbitmq",
 		Connections: map[string]queue.ConnectionConfig{
-			"rabbitmq": {Driver: "rabbitmq", RetryAfter: time.Second},
+			"rabbitmq": {Driver: "rabbitmq"},
 		},
 	}, queue.NewRegistry())
-	if manager != nil {
-		t.Cleanup(func() { _ = manager.Close() })
-	}
 	if err != nil {
 		t.Fatalf("NewManager() error = %v, want lazy construction", err)
 	}
+	t.Cleanup(func() { _ = manager.Close() })
+
 	_, err = manager.Queue("")
-	if !errors.Is(err, queue.ErrUnsupportedRetryAfter) {
-		t.Fatalf("Queue() error = %v, want %v", err, queue.ErrUnsupportedRetryAfter)
+	if err == nil || !strings.Contains(err.Error(), `unknown driver "rabbitmq"`) {
+		t.Fatalf("Queue() error = %v, want unknown rabbitmq driver", err)
 	}
 }

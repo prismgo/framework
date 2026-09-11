@@ -14,7 +14,6 @@ import (
 	queuecontract "github.com/prismgo/framework/contracts/queue"
 	queueerrors "github.com/prismgo/framework/queue/internal/errors"
 	"github.com/prismgo/framework/queue/payload"
-	rabbitmqdriver "github.com/prismgo/framework/queue/rabbitmq"
 )
 
 var (
@@ -31,28 +30,28 @@ var (
 	// ErrManagerClosed 表示队列管理器已经关闭，不能再解析或返回连接。
 	ErrManagerClosed = errors.New("queue: manager closed")
 	// ErrConnectionClosed 表示连接已经关闭，后续操作不能继续执行。
-	ErrConnectionClosed = rabbitmqdriver.ErrConnectionClosed
+	ErrConnectionClosed = errors.New("queue: connection closed")
 	// ErrUnsupportedOperation 表示当前 driver 尚未支持对应语义或操作。
-	ErrUnsupportedOperation = rabbitmqdriver.ErrUnsupportedOperation
+	ErrUnsupportedOperation = errors.New("queue: unsupported operation")
 	// ErrPoisonEnvelope 表示 driver 已取到原始消息，但消息体无法按当前 Payload Encoding 解码为 Prismgo Envelope。
-	ErrPoisonEnvelope = rabbitmqdriver.ErrPoisonEnvelope
+	ErrPoisonEnvelope = queueerrors.ErrPoisonEnvelope
 	// ErrUnsupportedRetryAfter 表示 RabbitMQ driver 不支持 Redis 风格的 retry_after visibility timeout。
 	ErrUnsupportedRetryAfter = errors.New("queue: rabbitmq does not support retry_after visibility timeout")
 	// ErrRabbitMQDialFailed 表示 RabbitMQ driver 初始化阶段建立 AMQP 连接失败。
-	ErrRabbitMQDialFailed = rabbitmqdriver.ErrRabbitMQDialFailed
+	ErrRabbitMQDialFailed = errors.New("queue: rabbitmq dial failed")
 	// ErrRabbitMQTopologyMissing 表示关闭自动声明后，RabbitMQ 目标 exchange 或 queue 不存在。
-	ErrRabbitMQTopologyMissing = rabbitmqdriver.ErrRabbitMQTopologyMissing
+	ErrRabbitMQTopologyMissing = errors.New("queue: rabbitmq topology missing")
 	// ErrRabbitMQPublishNacked 表示 RabbitMQ broker 明确拒绝了本次 publisher confirm。
-	ErrRabbitMQPublishNacked = rabbitmqdriver.ErrRabbitMQPublishNacked
+	ErrRabbitMQPublishNacked = errors.New("queue: rabbitmq publish not acknowledged")
 	// ErrRabbitMQPublishTimeout 表示等待 RabbitMQ publisher confirm 超时。
-	ErrRabbitMQPublishTimeout = rabbitmqdriver.ErrRabbitMQPublishTimeout
+	ErrRabbitMQPublishTimeout = errors.New("queue: rabbitmq publish confirmation timeout")
 	// ErrRabbitMQPublishConfirmClosed 表示等待 RabbitMQ publisher confirm 时确认通道已经关闭。
-	ErrRabbitMQPublishConfirmClosed = rabbitmqdriver.ErrRabbitMQPublishConfirmClosed
+	ErrRabbitMQPublishConfirmClosed = errors.New("queue: rabbitmq publish confirmation channel closed")
 	// ErrRabbitMQPublishUnrouted 表示 mandatory RabbitMQ 发布没有路由到任何队列。
 	// 调用方可通过 errors.Is 判断该错误，并检查 exchange、routing key、binding 或 declare=false 预建 topology。
-	ErrRabbitMQPublishUnrouted = rabbitmqdriver.ErrRabbitMQPublishUnrouted
+	ErrRabbitMQPublishUnrouted = errors.New("queue: rabbitmq publish unrouted")
 	// ErrRabbitMQReleaseRepublishFailed 表示 RabbitMQ release 已 ack 原 delivery，但替换发布或 confirm 失败。
-	ErrRabbitMQReleaseRepublishFailed = rabbitmqdriver.ErrRabbitMQReleaseRepublishFailed
+	ErrRabbitMQReleaseRepublishFailed = errors.New("queue: rabbitmq release republish failed")
 )
 
 // Job 是可投递任务的最小契约。
