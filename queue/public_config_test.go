@@ -18,7 +18,11 @@ func TestRabbitMQRejectsRetryAfterFromPublicConnectionConfig(t *testing.T) {
 	if manager != nil {
 		t.Cleanup(func() { _ = manager.Close() })
 	}
+	if err != nil {
+		t.Fatalf("NewManager() error = %v, want lazy construction", err)
+	}
+	_, err = manager.Queue("")
 	if !errors.Is(err, queue.ErrUnsupportedRetryAfter) {
-		t.Fatalf("NewManager() error = %v, want %v", err, queue.ErrUnsupportedRetryAfter)
+		t.Fatalf("Queue() error = %v, want %v", err, queue.ErrUnsupportedRetryAfter)
 	}
 }

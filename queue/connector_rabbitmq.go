@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	encodingcontract "github.com/prismgo/framework/contracts/encoding"
 	queuecontract "github.com/prismgo/framework/contracts/queue"
 	rabbitmqdriver "github.com/prismgo/framework/queue/rabbitmq"
 )
@@ -15,19 +14,13 @@ import (
 //
 // RabbitMQ 不是 Laravel core driver，但在 Prismgo 中仍通过同一 Queue contract
 // 暴露传输能力；failed/batch/restart state 不从 AMQP 配置派生。
-type RabbitMQConnector struct {
-	codec encodingcontract.Codec
-}
+type RabbitMQConnector struct{}
 
-func (c RabbitMQConnector) Connect(_ context.Context, name string, config map[string]any) (queuecontract.Queue, error) {
-	spec, err := connectorSpec(name, config)
-	if err != nil {
-		return nil, err
-	}
-	if spec.RetryAfter > 0 {
+func (RabbitMQConnector) Connect(_ context.Context, name string, config queuecontract.ConnectorConfig) (queuecontract.Queue, error) {
+	if config.RetryAfter > 0 {
 		return nil, fmt.Errorf("queue: connection %q: %w", name, ErrUnsupportedRetryAfter)
 	}
-	return rabbitmqdriver.NewRabbitMQQueue(name, rabbitMQOptionsFromMap(spec.Options), c.codec, spec.BlockFor)
+	return rabbitmqdriver.NewRabbitMQQueue(name, rabbitMQOptionsFromMap(config.Options), config.Codec, config.BlockFor)
 }
 
 func rabbitMQOptionsFromMap(spec map[string]any) rabbitmqdriver.Options {

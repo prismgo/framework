@@ -6,11 +6,11 @@ import (
 	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
-	"github.com/glebarez/sqlite"
 	configpkg "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
 	"gorm.io/driver/mysql"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -95,6 +95,9 @@ func TestOpenDefaultConnectionSupportsSQLite(t *testing.T) {
 	container.SetProvider(func() *container.Container { return registry })
 	t.Cleanup(func() { container.SetProvider(nil) })
 	useDatabaseConfig(t, registry, "sqlite", "sqlite")
+	if err := registry.Instance("database.manager", newTestDatabaseManager()); err != nil {
+		t.Fatalf("bind database manager: %v", err)
+	}
 	db, err := OpenDefaultConnection()
 	if err != nil {
 		t.Fatalf("open default sqlite connection: %v", err)

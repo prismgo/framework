@@ -1,6 +1,9 @@
 package filesystem
 
 import (
+	"fmt"
+
+	configpkg "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
 	providercontract "github.com/prismgo/framework/contracts/provider"
@@ -27,8 +30,16 @@ func (ServiceProvider) Register(app providerApplication) error {
 	if c.Bound("filesystem.manager") {
 		return nil
 	}
-	return c.Singleton("filesystem.manager", func(containercontract.Resolver) (any, error) {
-		cfg, err := buildConfig()
+	return c.Singleton("filesystem.manager", func(resolver containercontract.Resolver) (any, error) {
+		raw, err := resolver.Make("config.default")
+		if err != nil {
+			return nil, fmt.Errorf("filesystem: resolve config: %w", err)
+		}
+		config, ok := raw.(*configpkg.Config)
+		if !ok || config == nil {
+			return nil, fmt.Errorf("filesystem: config resolved %T, want *config.Config", raw)
+		}
+		cfg, err := buildConfigFromRepository(config)
 		if err != nil {
 			return nil, err
 		}

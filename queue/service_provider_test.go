@@ -2,8 +2,10 @@ package queue
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
+	configpkg "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
 	eventcontract "github.com/prismgo/framework/contracts/event"
@@ -26,6 +28,38 @@ func TestServiceProviderRegistersLazyQueueFactory(t *testing.T) {
 	}
 	if registry.Resolved(queuecontract.DispatcherServiceKey) {
 		t.Fatal("provider Register should not construct queue dispatcher")
+	}
+}
+
+func TestServiceProviderBuildsManagerFromApplicationConfigWithoutCurrentFacade(t *testing.T) {
+	container.SetProvider(nil)
+	t.Cleanup(func() { container.SetProvider(nil) })
+	configpkg.Add("queue", func() map[string]any {
+		return map[string]any{
+			"default": "external",
+			"connections": map[string]any{
+				"external": map[string]any{"driver": "external"},
+			},
+		}
+	})
+	cfg := configpkg.New()
+	if err := cfg.ReloadFromFile(filepath.Join(t.TempDir(), ".env")); err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	registry := container.NewContainer()
+	if err := registry.Instance("config.default", cfg); err != nil {
+		t.Fatalf("bind config: %v", err)
+	}
+	if err := (ServiceProvider{}).Register(providerTestApp{registry: registry}); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	manager, err := ManagerFrom(registry)
+	if err != nil {
+		t.Fatalf("resolve manager without current facade: %v", err)
+	}
+	if _, err := manager.Queue(""); err == nil {
+		t.Fatal("first Queue should report the unregistered external driver")
 	}
 }
 

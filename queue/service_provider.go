@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	configpkg "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
 	eventcontract "github.com/prismgo/framework/contracts/event"
@@ -27,8 +28,16 @@ func (ServiceProvider) Name() string { return "queue" }
 func (ServiceProvider) Register(app providerApplication) error {
 	c := app.Container()
 	if !c.Bound(serviceKey) {
-		if err := c.Singleton(serviceKey, func(containercontract.Resolver) (any, error) {
-			return NewManagerFromConfig()
+		if err := c.Singleton(serviceKey, func(resolver containercontract.Resolver) (any, error) {
+			raw, err := resolver.Make("config.default")
+			if err != nil {
+				return nil, fmt.Errorf("queue: resolve config: %w", err)
+			}
+			cfg, ok := raw.(*configpkg.Config)
+			if !ok || cfg == nil {
+				return nil, fmt.Errorf("queue: config resolved %T, want *config.Config", raw)
+			}
+			return newManagerFromRepository(cfg)
 		}, container.WithCloser(func(m *Manager) error {
 			return m.Close()
 		})); err != nil {

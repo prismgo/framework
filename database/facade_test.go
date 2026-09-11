@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/glebarez/sqlite"
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 

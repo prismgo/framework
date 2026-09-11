@@ -3,7 +3,6 @@ package queue
 import (
 	"context"
 
-	encodingcontract "github.com/prismgo/framework/contracts/encoding"
 	queuecontract "github.com/prismgo/framework/contracts/queue"
 	redisqueue "github.com/prismgo/framework/queue/redis"
 )
@@ -12,18 +11,12 @@ import (
 //
 // failed/batch/restart state repository 不从这里构造，避免 Redis transport
 // connection 重新承载 Laravel 13 已拆开的 queue-adjacent state。
-type RedisConnector struct {
-	codec encodingcontract.Codec
-}
+type RedisConnector struct{}
 
-func (c RedisConnector) Connect(_ context.Context, name string, config map[string]any) (queuecontract.Queue, error) {
-	spec, err := connectorSpec(name, config)
-	if err != nil {
-		return nil, err
-	}
-	options := redisOptionsFromSpec(spec)
+func (RedisConnector) Connect(_ context.Context, name string, config queuecontract.ConnectorConfig) (queuecontract.Queue, error) {
+	options := redisOptionsFromSpec(config)
 	options.Name = name
-	options.Codec = c.codec
+	options.Codec = config.Codec
 	client, err := redisqueue.ResolveQueueClient(options)
 	if err != nil {
 		return nil, err
@@ -31,7 +24,7 @@ func (c RedisConnector) Connect(_ context.Context, name string, config map[strin
 	return redisqueue.NewRedisQueueFromClient(client, options), nil
 }
 
-func redisOptionsFromSpec(spec ConnectionConfig) redisqueue.RedisOptions {
+func redisOptionsFromSpec(spec queuecontract.ConnectorConfig) redisqueue.RedisOptions {
 	options := redisqueue.RedisOptions{
 		Connection: firstNonEmpty(castString(spec.Options["connection"]), "default"),
 		Prefix:     firstNonEmpty(castString(spec.Options["prefix"]), spec.Prefix, "prismgo_queue"),

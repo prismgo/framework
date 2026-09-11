@@ -15,6 +15,8 @@ import (
 type Manager struct {
 	defaultConnection string
 	connectionSpecs   map[string]ConnectionConfig
+	connectorsMu      sync.RWMutex
+	connectors        map[string]ConnectorResolver
 	queuesMu          sync.RWMutex
 	closed            bool
 	queues            map[string]queuecontract.Queue
@@ -54,7 +56,7 @@ func NewManager(cfg Config, registry *Registry) (*Manager, error) {
 		return nil, fmt.Errorf("queue.encoding: %w", err)
 	}
 	cfg.Encoding = codec.Name()
-	connectionSpecs, defaultQueueConn, failed, batch, err := buildConnections(cfg, codec)
+	connectionSpecs, _, failed, batch, err := buildConnections(cfg, codec)
 	if err != nil {
 		return nil, err
 	}
@@ -72,6 +74,7 @@ func NewManager(cfg Config, registry *Registry) (*Manager, error) {
 	manager := &Manager{
 		defaultConnection: def,
 		connectionSpecs:   connectionSpecs,
+		connectors:        make(map[string]ConnectorResolver),
 		queues:            make(map[string]queuecontract.Queue),
 		runtime: &Runtime{
 			defaultConnection: def,
@@ -84,15 +87,38 @@ func NewManager(cfg Config, registry *Registry) (*Manager, error) {
 			payloadEncrypter:  cfg.PayloadEncrypter,
 		},
 	}
-	if defaultQueueConn != nil {
-		manager.queues[def] = defaultQueueConn
-	}
-	if defaultQueueConn == nil {
-		if _, err := manager.Queue(def); err != nil {
-			return nil, err
-		}
-	}
+	manager.AddConnector("sync", func() (queuecontract.Connector, error) {
+		return SyncConnector{}, nil
+	})
+	manager.AddConnector("redis", func() (queuecontract.Connector, error) {
+		return RedisConnector{}, nil
+	})
+	manager.AddConnector("rabbitmq", func() (queuecontract.Connector, error) {
+		return RabbitMQConnector{}, nil
+	})
 	return manager, nil
+}
+
+// Extend installs or replaces a connector resolver on this manager.
+func (m *Manager) Extend(name string, resolver ConnectorResolver) {
+	m.AddConnector(name, resolver)
+}
+
+// AddConnector installs or replaces a connector resolver on this manager.
+func (m *Manager) AddConnector(name string, resolver ConnectorResolver) {
+	if m == nil || resolver == nil {
+		return
+	}
+	name = normalizeDriverName(name)
+	if name == "" {
+		return
+	}
+	m.connectorsMu.Lock()
+	if m.connectors == nil {
+		m.connectors = make(map[string]ConnectorResolver)
+	}
+	m.connectors[name] = resolver
+	m.connectorsMu.Unlock()
 }
 
 // Registry 返回任务注册表。
@@ -148,10 +174,6 @@ func (m *Manager) Queue(name string) (queuecontract.Queue, error) {
 	if driver == "" {
 		driver = "sync"
 	}
-	connector := m.connector(driver)
-	if connector == nil {
-		return nil, fmt.Errorf("unknown driver %q", driver)
-	}
 	m.queuesMu.Lock()
 	if m.closed {
 		m.queuesMu.Unlock()
@@ -174,9 +196,19 @@ func (m *Manager) Queue(name string) (queuecontract.Queue, error) {
 	m.queueBuilds[name] = build
 	m.queuesMu.Unlock()
 
-	built, err := connector.Connect(context.Background(), name, connectorConfig(spec))
+	var built queuecontract.Queue
+	connector, err := m.connector(driver)
 	if err != nil {
-		err = fmt.Errorf("queue: build connection %s: %w", name, err)
+		err = fmt.Errorf("queue: resolve connector %q: %w", driver, err)
+	} else if connector == nil {
+		err = fmt.Errorf("unknown driver %q", driver)
+	} else {
+		built, err = connector.Connect(context.Background(), name, connectorConfig(spec, m.runtimeCodec()))
+		if err != nil {
+			err = fmt.Errorf("queue: build connection %s: %w", name, err)
+		} else if built == nil {
+			err = fmt.Errorf("queue: connector %q returned a nil queue", driver)
+		}
 	}
 
 	m.queuesMu.Lock()
@@ -202,15 +234,14 @@ func (m *Manager) Queue(name string) (queuecontract.Queue, error) {
 	return build.queue, build.err
 }
 
-func (m *Manager) connector(name string) queuecontract.Connector {
-	if connector := builtinConnector(name, m.runtimeCodec()); connector != nil {
-		return connector
+func (m *Manager) connector(name string) (queuecontract.Connector, error) {
+	m.connectorsMu.RLock()
+	resolver := m.connectors[normalizeDriverName(name)]
+	m.connectorsMu.RUnlock()
+	if resolver == nil {
+		return nil, nil
 	}
-	connector, ok := lookupConnector(name)
-	if !ok {
-		return nil
-	}
-	return connector
+	return resolver()
 }
 
 // runtimeCodec 返回当前 manager runtime 使用的 payload codec。
@@ -223,23 +254,6 @@ func (m *Manager) runtimeCodec() encodingcontract.Codec {
 		return nil
 	}
 	return m.runtime.codec
-}
-
-// builtinConnector 返回框架内置 driver connector。
-//
-// 参数 name 是 connection driver 名称，codec 是 manager 配置解析后的编码器。这里只处理
-// sync、redis、rabbitmq 三个内置 driver；其他名称交给包级自定义 registry 查找。
-func builtinConnector(name string, codec encodingcontract.Codec) queuecontract.Connector {
-	switch normalizeDriverName(name) {
-	case "sync":
-		return SyncConnector{codec: codec}
-	case "redis":
-		return RedisConnector{codec: codec}
-	case "rabbitmq":
-		return RabbitMQConnector{codec: codec}
-	default:
-		return nil
-	}
 }
 
 // Failed 返回失败任务存储。

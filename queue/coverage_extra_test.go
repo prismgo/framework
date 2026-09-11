@@ -302,21 +302,14 @@ func TestContractDispatchOptionsCoverAdvancedFields(t *testing.T) {
 }
 
 func TestConnectorAndCacheHelperBoundaries(t *testing.T) {
-	// 测试目的：connector 入口必须拒绝缺失的规范化配置；cache helper 则要稳定清理
-	// 控制字符和默认 TTL，避免 driver 侧生成非法 key。
-	if _, err := connectorSpec("sync", nil); err == nil {
-		t.Fatal("connectorSpec without _spec should fail")
-	}
-	if _, err := (SyncConnector{}).Connect(context.Background(), "sync", nil); err == nil {
-		t.Fatal("sync connector without _spec should fail")
-	}
-	if _, err := (SyncConnector{}).Connect(context.Background(), "sync", connectorConfig(ConnectionConfig{Driver: "sync"})); err != nil {
+	// 测试目的：connector 接收公开配置 DTO；cache helper 则要稳定清理控制字符和默认 TTL。
+	if _, err := (SyncConnector{}).Connect(context.Background(), "sync", connectorConfig(ConnectionConfig{Driver: "sync"}, nil)); err != nil {
 		t.Fatalf("sync connector with spec: %v", err)
 	}
 	_, err := (RabbitMQConnector{}).Connect(context.Background(), "rabbit", connectorConfig(ConnectionConfig{
 		Driver:     "rabbitmq",
 		RetryAfter: time.Second,
-	}))
+	}, nil))
 	if !errors.Is(err, ErrUnsupportedRetryAfter) {
 		t.Fatalf("rabbit retry_after error = %v, want ErrUnsupportedRetryAfter", err)
 	}

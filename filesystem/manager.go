@@ -1,6 +1,8 @@
 package filesystem
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 
 	configpkg "github.com/prismgo/framework/config"
 	fscontract "github.com/prismgo/framework/contracts/filesystem"
+	"github.com/prismgo/framework/exception"
 	"github.com/prismgo/framework/support"
 )
 
@@ -22,11 +25,21 @@ import (
 // 3. 本地临时 URL 的签名校验也统一放在这里管理。
 type Manager struct {
 	mu          sync.Mutex
+	closed      bool
+	closeDone   chan struct{}
+	closeErr    error
 	defaultName string
 	cloudName   string
 	specs       map[string]DiskConfig
 	disks       map[string]*Repository
+	diskBuilds  map[string]*diskBuildCall
+	factories   map[string]DriverFactory
 	tempURL     TemporaryURLConfig
+}
+
+type diskBuildCall struct {
+	done chan struct{}
+	repo *Repository
 }
 
 // NewManager 根据配置构建一个新的文件系统管理器。
@@ -45,13 +58,41 @@ func NewManager(cfg Config) (*Manager, error) {
 	for name, disk := range cfg.Disks {
 		specs[strings.TrimSpace(name)] = cloneDiskConfig(disk)
 	}
-	return &Manager{
+	manager := &Manager{
 		defaultName: defaultName,
 		cloudName:   strings.TrimSpace(cfg.Cloud),
 		specs:       specs,
 		disks:       make(map[string]*Repository),
+		diskBuilds:  make(map[string]*diskBuildCall),
+		factories:   make(map[string]DriverFactory),
 		tempURL:     cfg.TemporaryURL,
-	}, nil
+	}
+	localFactory := func(ctx DriverFactoryContext) (Driver, error) {
+		return newLocalDriver(ctx.Config)
+	}
+	manager.Extend("local", localFactory)
+	manager.Extend("public", localFactory)
+	manager.Extend("oss", func(ctx DriverFactoryContext) (Driver, error) {
+		return newOSSDriver(ctx.Config.OSS)
+	})
+	return manager, nil
+}
+
+// Extend installs or replaces a driver factory on this manager.
+func (m *Manager) Extend(name string, factory DriverFactory) {
+	if m == nil || factory == nil {
+		return
+	}
+	name = normalizeDriverName(name)
+	if name == "" {
+		return
+	}
+	m.mu.Lock()
+	if m.factories == nil {
+		m.factories = make(map[string]DriverFactory)
+	}
+	m.factories[name] = factory
+	m.mu.Unlock()
 }
 
 // DefaultName 返回默认磁盘名称。
@@ -92,36 +133,119 @@ func (m *Manager) diskRepository(name string) *Repository {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
+	if m.closed {
+		m.mu.Unlock()
+		return newErrorRepository(name, ErrManagerClosed, m)
+	}
 	if repo, ok := m.disks[name]; ok {
+		m.mu.Unlock()
 		return repo
+	}
+	if build := m.diskBuilds[name]; build != nil {
+		m.mu.Unlock()
+		<-build.done
+		return build.repo
 	}
 	cfg, ok := m.specs[name]
 	if !ok {
+		m.mu.Unlock()
 		return newErrorRepository(name, fmt.Errorf("%w: %s", ErrDiskNotFound, name), m)
 	}
-	repo, err := m.buildRepository(name, cfg)
-	if err != nil {
-		return newErrorRepository(name, err, m)
+	driverName := normalizeDriverName(cfg.Driver)
+	if driverName == "" {
+		driverName = "local"
 	}
-	m.disks[name] = repo
+	factory := m.factories[driverName]
+	if factory == nil {
+		m.mu.Unlock()
+		return newErrorRepository(name, fmt.Errorf("%w: %s", ErrUnsupportedDriver, driverName), m)
+	}
+	build := &diskBuildCall{done: make(chan struct{})}
+	m.diskBuilds[name] = build
+	m.mu.Unlock()
+
+	repo, err := m.buildRepository(name, cfg, factory)
+	if err != nil {
+		repo = newErrorRepository(name, err, m)
+	}
+	builtRepo := repo
+	m.mu.Lock()
+	closed := m.closed
+	if closed {
+		if err == nil {
+			repo = newErrorRepository(name, ErrManagerClosed, m)
+		}
+	} else if err == nil {
+		m.disks[name] = repo
+	}
+	build.repo = repo
+	delete(m.diskBuilds, name)
+	close(build.done)
+	m.mu.Unlock()
+	if closed && err == nil {
+		if closeErr := builtRepo.Close(); closeErr != nil {
+			m.recordCloseError(closeErr)
+			exception.Report(context.Background(), closeErr, map[string]any{
+				"component": "filesystem",
+				"disk":      name,
+				"operation": "close_after_manager_shutdown",
+			})
+		}
+	}
 	return repo
 }
 
 // Close 关闭所有已经创建过的磁盘实例。
 func (m *Manager) Close() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	if m.closed {
+		if m.closeDone != nil {
+			select {
+			case <-m.closeDone:
+			default:
+				m.mu.Unlock()
+				return ErrManagerClosing
+			}
+		}
+		err := m.closeErr
+		m.mu.Unlock()
+		return err
+	}
+	m.closed = true
+	m.closeDone = make(chan struct{})
+	disks := make([]*Repository, 0, len(m.disks))
+	for _, disk := range m.disks {
+		disks = append(disks, disk)
+	}
+	m.disks = make(map[string]*Repository)
+	m.mu.Unlock()
 
 	var firstErr error
-	for _, disk := range m.disks {
-		if err := disk.Close(); err != nil && firstErr == nil {
+	for _, disk := range disks {
+		if err := disk.Close(); err != nil && !errors.Is(err, ErrManagerClosing) && firstErr == nil {
 			firstErr = err
 		}
 	}
-	m.disks = make(map[string]*Repository)
-	return firstErr
+	m.mu.Lock()
+	if m.closeErr == nil {
+		m.closeErr = firstErr
+	}
+	result := m.closeErr
+	close(m.closeDone)
+	m.mu.Unlock()
+	return result
+}
+
+func (m *Manager) recordCloseError(err error) {
+	if err == nil {
+		return
+	}
+	m.mu.Lock()
+	if m.closeErr == nil {
+		m.closeErr = err
+	}
+	m.mu.Unlock()
 }
 
 // VerifyTemporaryURL 校验本地临时链接的签名和过期时间。
@@ -142,28 +266,14 @@ func (m *Manager) VerifyTemporaryURL(disk, key string, expires time.Time, signat
 }
 
 // buildRepository 根据磁盘配置构造统一仓储实例。
-func (m *Manager) buildRepository(name string, cfg DiskConfig) (*Repository, error) {
+func (m *Manager) buildRepository(name string, cfg DiskConfig, factory DriverFactory) (*Repository, error) {
 	driverName := normalizeDriverName(cfg.Driver)
 	if driverName == "" {
 		driverName = "local"
 	}
 	cfg.Visibility = ensureVisibility(cfg.Visibility, VisibilityPrivate)
 
-	var drv Driver
-	var err error
-	switch driverName {
-	case "local", "public":
-		drv, err = newLocalDriver(cfg)
-	case "oss":
-		drv, err = newOSSDriver(cfg.OSS)
-	default:
-		factory, ok := lookupDriverFactory(driverName)
-		if !ok {
-			err = fmt.Errorf("%w: %s", ErrUnsupportedDriver, driverName)
-			break
-		}
-		drv, err = buildCustomDriver(name, driverName, cfg, factory)
-	}
+	drv, err := buildCustomDriver(name, driverName, cfg, factory)
 	if err != nil {
 		return nil, err
 	}
@@ -226,17 +336,24 @@ func NewManagerFromConfig(...any) (func() error, *Manager, error) {
 }
 
 func buildConfig() (Config, error) {
-	rawDisks := configpkg.GetStringMap("filesystem.disks")
+	return buildConfigFromRepository(configpkg.Resolve())
+}
+
+func buildConfigFromRepository(repo *configpkg.Config) (Config, error) {
+	if repo == nil {
+		return Config{}, fmt.Errorf("filesystem: config is not initialized")
+	}
+	rawDisks := repo.GetStringMap("filesystem.disks")
 	if len(rawDisks) == 0 {
 		return Config{}, fmt.Errorf("filesystem.disks is empty")
 	}
 
 	disks := make(map[string]DiskConfig, len(rawDisks))
-	tempKey := strings.TrimSpace(configpkg.GetString("filesystem.temporary_url.signing_key", ""))
+	tempKey := strings.TrimSpace(repo.GetString("filesystem.temporary_url.signing_key", ""))
 	if tempKey == "" {
-		tempKey = configpkg.GetString("app.key", "")
+		tempKey = repo.GetString("app.key", "")
 	}
-	appURL := strings.TrimRight(strings.TrimSpace(configpkg.GetString("app.url", "")), "/")
+	appURL := strings.TrimRight(strings.TrimSpace(repo.GetString("app.url", "")), "/")
 	for name, raw := range rawDisks {
 		spec, ok := raw.(map[string]any)
 		if !ok {
@@ -282,10 +399,10 @@ func buildConfig() (Config, error) {
 	}
 
 	cfg := Config{
-		Default: configpkg.GetString("filesystem.default", "local"),
-		Cloud:   configpkg.GetString("filesystem.cloud", "oss"),
+		Default: repo.GetString("filesystem.default", "local"),
+		Cloud:   repo.GetString("filesystem.cloud", "oss"),
 		Disks:   disks,
-		Links:   buildLinksConfig(configpkg.GetStringMap("filesystem.links")),
+		Links:   buildLinksConfig(repo.GetStringMap("filesystem.links")),
 		TemporaryURL: TemporaryURLConfig{
 			SigningKey: tempKey,
 		},

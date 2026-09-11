@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -66,37 +65,6 @@ type DriverFactoryContext struct {
 
 // DriverFactory 是用户自定义 filesystem driver 的工厂函数。
 type DriverFactory func(DriverFactoryContext) (Driver, error)
-
-var (
-	driverFactoryMu sync.RWMutex
-	driverFactories = map[string]DriverFactory{}
-)
-
-// Extend 注册一个自定义 filesystem driver 工厂。
-//
-// 注册后可在 filesystem.disks.*.driver 中使用该 driver 名称。空名称或 nil 工厂会被忽略，
-// 同名注册会覆盖先前工厂，保持和 Laravel Storage::extend 一致的后注册生效语义。
-func Extend(name string, factory DriverFactory) {
-	registerDriverFactory(name, factory)
-}
-
-func registerDriverFactory(name string, factory DriverFactory) {
-	name = normalizeDriverName(name)
-	if name == "" || factory == nil {
-		return
-	}
-	driverFactoryMu.Lock()
-	driverFactories[name] = factory
-	driverFactoryMu.Unlock()
-}
-
-func lookupDriverFactory(name string) (DriverFactory, bool) {
-	name = normalizeDriverName(name)
-	driverFactoryMu.RLock()
-	factory, ok := driverFactories[name]
-	driverFactoryMu.RUnlock()
-	return factory, ok
-}
 
 func normalizeDriverName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))

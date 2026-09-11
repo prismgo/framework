@@ -61,8 +61,12 @@ type ConnectionConfig struct {
 // 但不再暴露旧的 Application 装配命名，避免调用方误以为这是启动注册入口。
 func NewManagerFromConfig() (*Manager, error) {
 	repo := configpkg.Resolve()
+	return newManagerFromRepository(repo)
+}
+
+func newManagerFromRepository(repo *configpkg.Config) (*Manager, error) {
 	if repo == nil {
-		return nil, fmt.Errorf("queue: config facade not initialized")
+		return nil, fmt.Errorf("queue: config is not initialized")
 	}
 	cfg := buildConfigFromRepository(repo)
 	codec, err := resolveQueueEncodingCodec(repo)

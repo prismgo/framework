@@ -414,7 +414,7 @@ func TestFacadeExposesManagerMethods(t *testing.T) {
 	}
 	manager.connectionSpecs["facade-custom"] = ConnectionConfig{Driver: "facade-custom-driver"}
 	facadeConnector := &capturingConnector{queue: &contractOnlyQueue{}}
-	Extend("facade-custom-driver", facadeConnector)
+	Extend("facade-custom-driver", connectorResolver(facadeConnector))
 	if _, err := manager.Queue("facade-custom"); err != nil {
 		t.Fatalf("facade extend queue: %v", err)
 	}
@@ -1098,7 +1098,7 @@ func TestCustomConnectorBuildsQueueWithOptions(t *testing.T) {
 	t.Cleanup(func() { _ = manager.Close() })
 	connector := &capturingConnector{queue: &contractOnlyQueue{}}
 	manager.connectionSpecs["primary"] = connectionSpec
-	Extend(driverName, connector)
+	manager.Extend(driverName, connectorResolver(connector))
 
 	if _, err := NewDispatcher(manager).Dispatch(context.Background(), &testJob{Key: "custom-driver"}, OnConnection("primary").OnQueue("emails")); err != nil {
 		t.Fatalf("dispatch custom driver: %v", err)
@@ -1109,12 +1109,8 @@ func TestCustomConnectorBuildsQueueWithOptions(t *testing.T) {
 	if connector.name != "primary" {
 		t.Fatalf("custom connector name = %q, want primary", connector.name)
 	}
-	spec, ok := connector.config["_spec"].(ConnectionConfig)
-	if !ok {
-		t.Fatalf("custom connector config missing _spec: %#v", connector.config)
-	}
-	if spec.Queue != "emails" || spec.Prefix != "custom-prefix" || spec.Options["endpoint"] != "in-memory" {
-		t.Fatalf("unexpected custom connector spec: %#v", spec)
+	if connector.config.Queue != "emails" || connector.config.Prefix != "custom-prefix" || connector.config.Options["endpoint"] != "in-memory" {
+		t.Fatalf("unexpected custom connector config: %#v", connector.config)
 	}
 	if err := NewWorker(manager).Work(context.Background(), WorkerOptions{Connection: "primary", Queues: []string{"emails"}, Once: true}); err != nil {
 		t.Fatalf("work custom driver: %v", err)
@@ -1127,37 +1123,40 @@ func TestCustomConnectorBuildsQueueWithOptions(t *testing.T) {
 	}
 }
 
-func TestPackageExtendBeforeManagerCreationRegistersCustomConnector(t *testing.T) {
-	driverName := "custom-queue-before-manager"
-	connector := &capturingConnector{queue: &contractOnlyQueue{}}
-	Extend(driverName, connector)
-
+func TestNewManagerDoesNotResolveDefaultConnection(t *testing.T) {
 	manager, err := NewManager(Config{
-		Default: "primary",
+		Default: "external",
 		Connections: map[string]ConnectionConfig{
-			"primary": {Driver: strings.ToUpper(driverName), Queue: "emails"},
+			"external": {Driver: "external"},
 		},
-	}, newTestRegistry())
+	}, NewRegistry())
 	if err != nil {
-		t.Fatalf("new manager with package connector: %v", err)
+		t.Fatalf("NewManager failed before first Queue call: %v", err)
 	}
-	t.Cleanup(func() { _ = manager.Close() })
+	if manager == nil {
+		t.Fatal("NewManager returned nil manager")
+	}
+	if _, err := manager.Queue(""); err == nil {
+		t.Fatal("first Queue call should report the unregistered external driver")
+	}
+}
 
-	if got := connector.calls.Load(); got != 1 {
-		t.Fatalf("connector calls = %d, want 1", got)
-	}
-	if connector.name != "primary" {
-		t.Fatalf("connector name = %q, want primary", connector.name)
-	}
+func TestPackageExtendBeforeManagerCreationRegistersCustomConnector(t *testing.T) {
+	container.SetProvider(nil)
+	t.Cleanup(func() { container.SetProvider(nil) })
+	assertPanics(t, func() {
+		Extend("custom-queue-before-manager", connectorResolver(&capturingConnector{queue: &contractOnlyQueue{}}))
+	})
 }
 
 func TestPackageExtendAfterManagerCreationBeforeFirstQueue(t *testing.T) {
 	driverName := "custom-queue-late-before-first"
 	manager := newSyncManager()
+	bindQueueManagerForTest(t, manager)
 	manager.connectionSpecs["late"] = ConnectionConfig{Driver: driverName}
 
 	connector := &capturingConnector{queue: &contractOnlyQueue{}}
-	Extend(driverName, connector)
+	Extend(driverName, connectorResolver(connector))
 
 	if _, err := manager.Queue("late"); err != nil {
 		t.Fatalf("late package connector queue: %v", err)
@@ -1169,24 +1168,18 @@ func TestPackageExtendAfterManagerCreationBeforeFirstQueue(t *testing.T) {
 
 func TestPackageExtendIgnoresEmptyNilAndReplacesByNormalizedName(t *testing.T) {
 	emptyConnector := &capturingConnector{queue: &contractOnlyQueue{}}
-	Extend("", emptyConnector)
-	if _, ok := lookupConnector(""); ok {
-		t.Fatal("empty connector name should be ignored")
-	}
+	manager := newSyncManager()
+	manager.Extend("", connectorResolver(emptyConnector))
 
 	nilDriver := "custom-queue-nil-ignored"
-	Extend(nilDriver, nil)
-	if _, ok := lookupConnector(nilDriver); ok {
-		t.Fatal("nil connector should be ignored")
-	}
+	manager.Extend(nilDriver, nil)
 
 	driverName := "custom-queue-replace"
 	first := &capturingConnector{queue: &contractOnlyQueue{}}
 	second := &capturingConnector{queue: &contractOnlyQueue{}}
-	Extend(driverName, first)
-	Extend(strings.ToUpper(driverName), second)
+	manager.Extend(driverName, connectorResolver(first))
+	manager.Extend(strings.ToUpper(driverName), connectorResolver(second))
 
-	manager := newSyncManager()
 	manager.connectionSpecs["replace"] = ConnectionConfig{Driver: driverName}
 	if queueConn, err := manager.Queue("replace"); err != nil {
 		t.Fatalf("replacement queue: %v", err)
@@ -1207,15 +1200,15 @@ func TestPackageExtendReplacementDoesNotAffectCachedConnection(t *testing.T) {
 	secondQueue := &contractOnlyQueue{}
 	first := &capturingConnector{queue: firstQueue}
 	second := &capturingConnector{queue: secondQueue}
-	Extend(driverName, first)
 
 	manager := newSyncManager()
+	manager.Extend(driverName, connectorResolver(first))
 	manager.connectionSpecs["cached"] = ConnectionConfig{Driver: driverName}
 	queueConn, err := manager.Queue("cached")
 	if err != nil {
 		t.Fatalf("initial cached queue: %v", err)
 	}
-	Extend(driverName, second)
+	manager.Extend(driverName, connectorResolver(second))
 	again, err := manager.Queue("cached")
 	if err != nil {
 		t.Fatalf("cached queue after replacement: %v", err)
@@ -1498,13 +1491,13 @@ func (v *workerSessionProbeView) Close() error {
 func TestCustomConnectorUnknownNilAndError(t *testing.T) {
 	manager := newSyncManager()
 	manager.connectionSpecs["custom"] = ConnectionConfig{Driver: "custom-queue-ignored-nil"}
-	Extend("custom-queue-ignored-nil", nil)
+	manager.Extend("custom-queue-ignored-nil", nil)
 	if _, err := manager.Queue("custom"); err == nil || !strings.Contains(err.Error(), "unknown driver") {
 		t.Fatalf("ignored custom connector err = %v, want unknown driver", err)
 	}
 
 	manager.connectionSpecs["custom-error"] = ConnectionConfig{Driver: "custom-queue-error"}
-	Extend("custom-queue-error", errorConnector{err: errors.New("factory failed")})
+	manager.Extend("custom-queue-error", connectorResolver(errorConnector{err: errors.New("factory failed")}))
 	if _, err := manager.Queue("custom-error"); err == nil || !strings.Contains(err.Error(), "factory failed") {
 		t.Fatalf("factory error connector err = %v, want factory failed", err)
 	}
@@ -1514,7 +1507,7 @@ func TestManagerQueueDeduplicatesConcurrentConnectByName(t *testing.T) {
 	manager := newSyncManager()
 	manager.connectionSpecs["custom"] = ConnectionConfig{Driver: "custom-queue-dedupe"}
 	connector := &blockingConnector{queue: &contractOnlyQueue{}, started: make(chan struct{}), release: make(chan struct{})}
-	Extend("custom-queue-dedupe", connector)
+	manager.Extend("custom-queue-dedupe", connectorResolver(connector))
 
 	start := make(chan struct{})
 	entered := make(chan struct{}, 8)
@@ -1561,7 +1554,7 @@ func TestManagerQueueSharesBuildErrorAndAllowsRetry(t *testing.T) {
 	manager := newSyncManager()
 	manager.connectionSpecs["custom"] = ConnectionConfig{Driver: "custom-queue-retry"}
 	connector := &flakyConnector{err: errors.New("factory failed"), queue: &contractOnlyQueue{}, started: make(chan struct{}), release: make(chan struct{})}
-	Extend("custom-queue-retry", connector)
+	manager.Extend("custom-queue-retry", connectorResolver(connector))
 
 	start := make(chan struct{})
 	entered := make(chan struct{}, 6)
@@ -2749,7 +2742,7 @@ func TestManagerCloseWinsOverInFlightQueueBuild(t *testing.T) {
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	Extend("blocking", connector)
+	manager.Extend("blocking", connectorResolver(connector))
 	manager.connectionSpecs["blocking"] = ConnectionConfig{Driver: "blocking", Queue: "default"}
 
 	result := make(chan error, 1)
@@ -2783,7 +2776,7 @@ func TestManagerClosePropagatesToConcurrentQueueWaiters(t *testing.T) {
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	Extend("blocking", connector)
+	manager.Extend("blocking", connectorResolver(connector))
 	manager.connectionSpecs["blocking"] = ConnectionConfig{Driver: "blocking", Queue: "default"}
 
 	first := make(chan error, 1)
@@ -3390,22 +3383,27 @@ func (j *testReservedJob) envelope() *payload.Envelope {
 type capturingConnector struct {
 	calls  atomic.Int32
 	name   string
-	config map[string]any
+	config queuecontract.ConnectorConfig
 	queue  *contractOnlyQueue
 }
 
-func (c *capturingConnector) Connect(_ context.Context, name string, config map[string]any) (queuecontract.Queue, error) {
+func (c *capturingConnector) Connect(_ context.Context, name string, config queuecontract.ConnectorConfig) (queuecontract.Queue, error) {
 	c.calls.Add(1)
 	c.name = name
-	c.config = cloneAnyMap(config)
+	c.config = config
+	c.config.Options = cloneAnyMap(config.Options)
 	return c.queue, nil
+}
+
+func connectorResolver(connector queuecontract.Connector) ConnectorResolver {
+	return func() (queuecontract.Connector, error) { return connector, nil }
 }
 
 type errorConnector struct {
 	err error
 }
 
-func (c errorConnector) Connect(context.Context, string, map[string]any) (queuecontract.Queue, error) {
+func (c errorConnector) Connect(context.Context, string, queuecontract.ConnectorConfig) (queuecontract.Queue, error) {
 	return nil, c.err
 }
 
@@ -3417,7 +3415,7 @@ type blockingConnector struct {
 	once    sync.Once
 }
 
-func (c *blockingConnector) Connect(context.Context, string, map[string]any) (queuecontract.Queue, error) {
+func (c *blockingConnector) Connect(context.Context, string, queuecontract.ConnectorConfig) (queuecontract.Queue, error) {
 	c.calls.Add(1)
 	c.once.Do(func() { close(c.started) })
 	<-c.release
@@ -3433,7 +3431,7 @@ type flakyConnector struct {
 	err     error
 }
 
-func (c *flakyConnector) Connect(context.Context, string, map[string]any) (queuecontract.Queue, error) {
+func (c *flakyConnector) Connect(context.Context, string, queuecontract.ConnectorConfig) (queuecontract.Queue, error) {
 	c.calls.Add(1)
 	c.mu.Lock()
 	started := c.started

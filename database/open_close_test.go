@@ -102,6 +102,7 @@ func TestConfigureConnection_ValidatesBeforeSQL(t *testing.T) {
 
 // TestOpen_RejectsUnsupportedDriver 验证 Open 函数拒绝不支持的驱动
 func TestOpen_RejectsUnsupportedDriver(t *testing.T) {
+	bindDatabaseManagerForTest(t)
 	db, err := Open("postgres", "unused", MySQLConfig{})
 	if err == nil {
 		t.Fatal("expected error for unsupported driver, got nil")
@@ -109,7 +110,7 @@ func TestOpen_RejectsUnsupportedDriver(t *testing.T) {
 	if db != nil {
 		t.Error("expected nil db for unsupported driver")
 	}
-	if !strings.Contains(err.Error(), "unsupported driver") {
-		t.Errorf("expected 'unsupported driver' error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "driver \"postgres\" is not registered") {
+		t.Errorf("expected unregistered driver error, got %q", err.Error())
 	}
 }

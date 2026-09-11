@@ -14,16 +14,6 @@ func TestApplicationManagerBuildConfigWithCustomDriver(t *testing.T) {
 	registry := useFilesystemTestContainer(t)
 
 	var captured DriverFactoryContext
-	Extend("config-custom-driver", func(factoryCtx DriverFactoryContext) (Driver, error) {
-		captured = factoryCtx
-		return &fakeDriver{
-			files:      make(map[string]fakeFile),
-			pathPrefix: t.TempDir(),
-			publicBase: "http://example.test/config-custom",
-			tempBase:   "http://example.test/config-temp",
-			visibility: VisibilityPrivate,
-		}, nil
-	})
 
 	root := t.TempDir()
 	configpkg.Add("app", func() map[string]any {
@@ -73,6 +63,16 @@ func TestApplicationManagerBuildConfigWithCustomDriver(t *testing.T) {
 	if manager == nil {
 		t.Fatal("resolve application filesystem manager returned nil")
 	}
+	manager.Extend("config-custom-driver", func(factoryCtx DriverFactoryContext) (Driver, error) {
+		captured = factoryCtx
+		return &fakeDriver{
+			files:      make(map[string]fakeFile),
+			pathPrefix: t.TempDir(),
+			publicBase: "http://example.test/config-custom",
+			tempBase:   "http://example.test/config-temp",
+			visibility: VisibilityPrivate,
+		}, nil
+	})
 	if manager.DefaultName() != "custom" || manager.CloudName() != "custom" {
 		t.Fatalf("unexpected disk aliases: default=%s cloud=%s", manager.DefaultName(), manager.CloudName())
 	}

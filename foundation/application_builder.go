@@ -19,7 +19,9 @@ import (
 // Builder 提供 Laravel 风格的应用配置入口。
 type Builder struct {
 	basePath string
-	// providers 保存项目级 Application Provider，框架 default providers 会在 Create 中自动前置。
+	// extensionProviders 保存外部扩展 Provider，并在框架 default providers 之后注册。
+	extensionProviders []contractprovider.ServiceProvider
+	// providers 保存项目级 Application Provider，并在扩展 Provider 之后注册。
 	providers  []contractprovider.ServiceProvider
 	commands   []console.CommandFactory
 	routing    Routing
@@ -38,6 +40,14 @@ func Configure(basePath ...string) *Builder {
 // 避免业务 bootstrap 手动混入 cache/database/schema 等框架包。
 func (b *Builder) WithProviders(providers ...contractprovider.ServiceProvider) *Builder {
 	b.providers = append(b.providers, providers...)
+	return b
+}
+
+// WithExtensionProviders 声明外部扩展 Provider。
+//
+// 扩展 Provider 在框架 default providers 之后、业务 Provider 之前进入应用生命周期。
+func (b *Builder) WithExtensionProviders(providers ...contractprovider.ServiceProvider) *Builder {
+	b.extensionProviders = append(b.extensionProviders, providers...)
 	return b
 }
 
@@ -76,8 +86,8 @@ func (b *Builder) WithExceptions(configure func(*Exceptions)) *Builder {
 
 // Create 构建并装配 Application。
 //
-// 需求背景：该方法对应 Laravel configured providers bootstrap。它先放入框架
-// default providers，再放入业务 providers，保证业务 provider 可以覆盖或使用框架能力。
+// 需求背景：该方法对应 Laravel configured providers bootstrap。它依次放入框架
+// default、扩展、业务 providers，保证扩展可依赖核心且业务 provider 可覆盖前两层能力。
 //
 // v4 异常处理重构：统一使用 prismgo/exception.Handler，同时服务 HTTP 和非 HTTP 上下文。
 //
@@ -99,6 +109,11 @@ func (b *Builder) registerProvider(app *Application) {
 	// Create 保持 Laravel 风格的无错误返回签名；provider 声明错误属于启动装配失败，
 	// 必须立即 panic，避免返回一个半装配的 Application 继续运行。
 	for _, provider := range providerpkg.DefaultProviders() {
+		if err := app.RegisterProvider(provider); err != nil {
+			panic(fmt.Errorf("register provider %s: %w", providerIdentity(provider), err))
+		}
+	}
+	for _, provider := range b.extensionProviders {
 		if err := app.RegisterProvider(provider); err != nil {
 			panic(fmt.Errorf("register provider %s: %w", providerIdentity(provider), err))
 		}

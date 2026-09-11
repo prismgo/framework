@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
 	"github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 	"gorm.io/driver/mysql"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 

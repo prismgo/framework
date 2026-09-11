@@ -11,15 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/glebarez/sqlite"
 	mysqldriver "github.com/go-sql-driver/mysql"
 	configpkg "github.com/prismgo/framework/config"
+	"github.com/prismgo/framework/container"
 	"github.com/prismgo/framework/exception"
 	"github.com/prismgo/framework/internal/version"
-	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-	"gorm.io/gorm/schema"
 )
 
 // SSLConfig 描述 SSL/TLS 连接配置。
@@ -212,43 +210,11 @@ type MySQLConfig struct {
 // Open 根据 driver 字符串打开 GORM 数据库连接。
 // cfg 用于传递 TablePrefix 等连接级配置到 GORM。
 func Open(driver, dsn string, cfg MySQLConfig) (*gorm.DB, error) {
-	driver = strings.ToLower(strings.TrimSpace(driver))
-	switch driver {
-	case "", "mysql":
-		db, err := gorm.Open(mysql.New(mysql.Config{
-			DSN:                       dsn,
-			SkipInitializeWithVersion: true,
-		}), &gorm.Config{
-			DisableAutomaticPing: true,
-			Logger:               gormLoggerFromDebug(configpkg.GetBool("app.debug", false)),
-			NamingStrategy: schema.NamingStrategy{
-				TablePrefix: cfg.Schema.TablePrefix,
-			},
-		})
-		if err != nil {
-			return nil, err
-		}
-		if err := configureConnection(db, cfg); err != nil {
-			// 配置失败时统一关闭连接
-			if sqlDB, closeErr := db.DB(); closeErr == nil {
-				if closeErr = sqlDB.Close(); closeErr != nil {
-					exception.Report(context.Background(), closeErr, map[string]any{"component": "database", "operation": "close_on_config_failure"})
-				}
-			}
-			return nil, err
-		}
-		return db, nil
-	case "sqlite", "sqlite3":
-		return gorm.Open(sqlite.Open(dsn), &gorm.Config{
-			DisableAutomaticPing: true,
-			Logger:               gormLoggerFromDebug(configpkg.GetBool("app.debug", false)),
-			NamingStrategy: schema.NamingStrategy{
-				TablePrefix: cfg.Schema.TablePrefix,
-			},
-		})
-	default:
-		return nil, fmt.Errorf("database: unsupported driver: %s", driver)
+	manager, err := container.Make[*Manager]("database.manager")
+	if err != nil {
+		return nil, fmt.Errorf("database: resolve manager: %w", err)
 	}
+	return manager.Open(driver, dsn, cfg)
 }
 
 // validIsolationLevels 定义 MySQL 支持的事务隔离级别白名单。
@@ -661,7 +627,7 @@ func buildDSNByDriver(driver string, cfg MySQLConfig) string {
 	case "sqlite", "sqlite3":
 		return defaultIfBlank(cfg.Connection.DSN, cfg.Connection.Database)
 	default:
-		return ""
+		return defaultIfBlank(cfg.Connection.DSN, cfg.Connection.Database)
 	}
 }
 
@@ -723,21 +689,38 @@ func OpenDefaultConnection() (*gorm.DB, error) {
 
 // OpenConnection 根据给定连接名创建数据库连接，连接配置来源于 database.connections.{name}。
 func OpenConnection(connection string) (*gorm.DB, error) {
+	return openConnectionWithManager(nil, connection)
+}
+
+func openConnectionWithManager(manager *Manager, connection string) (*gorm.DB, error) {
+	return openConnectionWithManagerAndConfig(manager, configpkg.Resolve(), connection)
+}
+
+func openConnectionWithManagerAndConfig(manager *Manager, repo *configpkg.Config, connection string) (*gorm.DB, error) {
+	if repo == nil {
+		return nil, fmt.Errorf("database: config is not initialized")
+	}
 	connection = strings.TrimSpace(connection)
 	if connection == "" {
-		connection = configpkg.GetString("database.default", "mysql")
+		connection = repo.GetString("database.default", "mysql")
 	}
 	prefix := "database.connections." + connection
-	driver := configpkg.GetString(prefix+".driver", "mysql")
-	mysqlCfg := readMySQLConfig(prefix)
+	driver := repo.GetString(prefix+".driver", "mysql")
+	mysqlCfg := readMySQLConfigFromRepository(repo, prefix)
 
 	dsn := buildDSNByDriver(driver, mysqlCfg)
 
-	db, err := Open(driver, dsn, mysqlCfg)
+	var db *gorm.DB
+	var err error
+	if manager == nil {
+		db, err = Open(driver, dsn, mysqlCfg)
+	} else {
+		db, err = manager.Open(driver, dsn, mysqlCfg)
+	}
 	if err != nil {
 		return nil, err
 	}
-	if err := applyConnectionPoolConfig(db, readPoolConfig(prefix)); err != nil {
+	if err := applyConnectionPoolConfig(db, readPoolConfigFromRepository(repo, prefix)); err != nil {
 		if sqlDB, closeErr := db.DB(); closeErr == nil {
 			if closeErr = sqlDB.Close(); closeErr != nil {
 				exception.Report(context.Background(), closeErr, map[string]any{"component": "database", "operation": "close_on_pool_config_failure"})
@@ -756,43 +739,43 @@ func (cfg *MySQLConfig) setOption(key, value string) {
 	cfg.Driver.Options[key] = value
 }
 
-// readMySQLDriverOptions 读取 MySQL 驱动级配置选项。
-func readMySQLDriverOptions(prefix string, cfg *MySQLConfig) {
+// readMySQLDriverOptionsFromRepository 读取 MySQL 驱动级配置选项。
+func readMySQLDriverOptionsFromRepository(repo *configpkg.Config, prefix string, cfg *MySQLConfig) {
 	// 读取 AllowNativePasswords 配置
 	// 允许使用 MySQL 原生密码认证，对应 go-sql-driver/mysql 的 Config.AllowNativePasswords。
 	// 默认 false 以遵循安全默认原则，推荐使用 caching_sha2_password（MySQL 8.0+ 默认）。
 	// 需要兼容旧版 MySQL 用户时，显式配置 allow_native_passwords=true。
-	cfg.Driver.AllowNativePasswords = configpkg.GetBool(prefix+".options.allow_native_passwords", false)
+	cfg.Driver.AllowNativePasswords = repo.GetBool(prefix+".options.allow_native_passwords", false)
 
 	// 读取 CheckConnLiveness 配置
 	// 是否在使用连接前检查其活性，对应 go-sql-driver/mysql 的 Config.CheckConnLiveness。
 	// 默认 true 以匹配 go-sql-driver/mysql NewConfig() 的默认行为。
-	cfg.Driver.CheckConnLiveness = configpkg.GetBool(prefix+".options.check_conn_liveness", true)
+	cfg.Driver.CheckConnLiveness = repo.GetBool(prefix+".options.check_conn_liveness", true)
 
 	// 读取 RejectReadOnly 配置
 	// 是否拒绝连接到只读 MySQL 实例，对应 go-sql-driver/mysql 的 Config.RejectReadOnly。
 	// 默认 false。
-	cfg.Driver.RejectReadOnly = configpkg.GetBool(prefix+".options.reject_read_only", false)
+	cfg.Driver.RejectReadOnly = repo.GetBool(prefix+".options.reject_read_only", false)
 
 	// 读取 ClientFoundRows 配置
 	// UPDATE 语句返回匹配行数而非实际修改行数，对应 go-sql-driver/mysql 的 Config.ClientFoundRows。
 	// 默认 false。
-	cfg.Driver.ClientFoundRows = configpkg.GetBool(prefix+".options.client_found_rows", false)
+	cfg.Driver.ClientFoundRows = repo.GetBool(prefix+".options.client_found_rows", false)
 
 	// 读取 MultiStatements 配置
 	// 是否允许单个查询中包含多条 SQL 语句，对应 go-sql-driver/mysql 的 Config.MultiStatements。
 	// 默认 false。
-	cfg.Driver.MultiStatements = configpkg.GetBool(prefix+".options.multi_statements", false)
+	cfg.Driver.MultiStatements = repo.GetBool(prefix+".options.multi_statements", false)
 
 	// 读取 ColumnsWithAlias 配置
 	// 列名包含表别名，对应 go-sql-driver/mysql 的 Config.ColumnsWithAlias。
 	// 默认 false。
-	cfg.Driver.ColumnsWithAlias = configpkg.GetBool(prefix+".options.columns_with_alias", false)
+	cfg.Driver.ColumnsWithAlias = repo.GetBool(prefix+".options.columns_with_alias", false)
 
 	// 读取 InterpolateParams 配置
 	// 是否将占位符插值到查询字符串中，对应 go-sql-driver/mysql 的 Config.InterpolateParams。
 	// 默认 false。
-	cfg.Driver.InterpolateParams = configpkg.GetBool(prefix+".options.interpolate_params", false)
+	cfg.Driver.InterpolateParams = repo.GetBool(prefix+".options.interpolate_params", false)
 
 	// 读取 MaxAllowedPacket 配置
 	// 最大数据包大小（字节），对应 go-sql-driver/mysql 的 Config.MaxAllowedPacket。
@@ -800,7 +783,7 @@ func readMySQLDriverOptions(prefix string, cfg *MySQLConfig) {
 	// 注意：默认值 0 会在每次连接建立时执行额外查询，增加约 1 次网络 RTT。
 	// 在高并发短连接场景下，建议显式设置固定值以避免此开销。
 	// 负值或超过 1GB 的值无意义，归零处理以回退到自动检测模式。
-	cfg.Driver.MaxAllowedPacket = configpkg.GetInt(prefix+".options.max_allowed_packet", 0)
+	cfg.Driver.MaxAllowedPacket = repo.GetInt(prefix+".options.max_allowed_packet", 0)
 	if cfg.Driver.MaxAllowedPacket < 0 || cfg.Driver.MaxAllowedPacket > 1<<30 {
 		cfg.Driver.MaxAllowedPacket = 0
 	}
@@ -810,41 +793,45 @@ func readMySQLDriverOptions(prefix string, cfg *MySQLConfig) {
 	// 默认 false。
 	// 注意：压缩会减少网络带宽但增加 CPU 开销。对于大结果集或慢速网络环境有益，
 	// 但对于小查询或局域网环境可能降低整体性能。
-	if compress := configpkg.GetBool(prefix+".options.compress", false); compress {
+	if compress := repo.GetBool(prefix+".options.compress", false); compress {
 		cfg.setOption("compress", "true")
 	}
 }
 
 // readMySQLConfig 从配置中读取 MySQL 连接配置。
 func readMySQLConfig(prefix string) MySQLConfig {
+	return readMySQLConfigFromRepository(configpkg.Resolve(), prefix)
+}
+
+func readMySQLConfigFromRepository(repo *configpkg.Config, prefix string) MySQLConfig {
 	cfg := MySQLConfig{
 		Connection: MySQLConnectionConfig{
-			DSN:        configpkg.GetString(prefix+".dsn", ""),
-			Host:       configpkg.GetString(prefix+".host", "127.0.0.1"),
-			Port:       configpkg.GetString(prefix+".port", "3306"),
-			Username:   configpkg.GetString(prefix+".username", "root"),
-			Password:   configpkg.GetString(prefix+".password", ""),
-			Database:   configpkg.GetString(prefix+".database", "prismgo"),
-			UnixSocket: configpkg.GetString(prefix+".unix_socket", ""),
+			DSN:        repo.GetString(prefix+".dsn", ""),
+			Host:       repo.GetString(prefix+".host", "127.0.0.1"),
+			Port:       repo.GetString(prefix+".port", "3306"),
+			Username:   repo.GetString(prefix+".username", "root"),
+			Password:   repo.GetString(prefix+".password", ""),
+			Database:   repo.GetString(prefix+".database", "prismgo"),
+			UnixSocket: repo.GetString(prefix+".unix_socket", ""),
 		},
 		Session: MySQLSessionConfig{
-			Charset:        configpkg.GetString(prefix+".charset", "utf8mb4"),
-			ParseTime:      configpkg.GetString(prefix+".parse_time", "true"),
-			Loc:            configpkg.GetString(prefix+".loc", "Local"),
-			Collation:      configpkg.GetString(prefix+".collation", ""),
-			Timezone:       configpkg.GetString(prefix+".timezone", ""),
-			Strict:         configpkg.GetBool(prefix+".strict", true),
-			IsolationLevel: configpkg.GetString(prefix+".isolation_level", ""),
+			Charset:        repo.GetString(prefix+".charset", "utf8mb4"),
+			ParseTime:      repo.GetString(prefix+".parse_time", "true"),
+			Loc:            repo.GetString(prefix+".loc", "Local"),
+			Collation:      repo.GetString(prefix+".collation", ""),
+			Timezone:       repo.GetString(prefix+".timezone", ""),
+			Strict:         repo.GetBool(prefix+".strict", true),
+			IsolationLevel: repo.GetString(prefix+".isolation_level", ""),
 		},
 		Schema: MySQLSchemaConfig{
-			TablePrefix:   configpkg.GetString(prefix+".prefix", ""),
-			Engine:        configpkg.GetString(prefix+".engine", ""),
-			PrefixIndexes: configpkg.GetBool(prefix+".prefix_indexes", false),
+			TablePrefix:   repo.GetString(prefix+".prefix", ""),
+			Engine:        repo.GetString(prefix+".engine", ""),
+			PrefixIndexes: repo.GetBool(prefix+".prefix_indexes", false),
 		},
 	}
 
 	// 读取 modes 配置（逗号分隔的字符串数组）
-	if modesStr := configpkg.GetString(prefix+".modes", ""); modesStr != "" {
+	if modesStr := repo.GetString(prefix+".modes", ""); modesStr != "" {
 		cfg.Session.Modes = strings.Split(modesStr, ",")
 		for i := range cfg.Session.Modes {
 			cfg.Session.Modes[i] = strings.TrimSpace(cfg.Session.Modes[i])
@@ -853,37 +840,41 @@ func readMySQLConfig(prefix string) MySQLConfig {
 
 	// 读取 SSL 配置
 	cfg.Schema.SSL = SSLConfig{
-		CA:                 configpkg.GetString(prefix+".ssl.ca", ""),
-		Cert:               configpkg.GetString(prefix+".ssl.cert", ""),
-		Key:                configpkg.GetString(prefix+".ssl.key", ""),
-		InsecureSkipVerify: configpkg.GetBool(prefix+".ssl.insecure_skip_verify", false),
+		CA:                 repo.GetString(prefix+".ssl.ca", ""),
+		Cert:               repo.GetString(prefix+".ssl.cert", ""),
+		Key:                repo.GetString(prefix+".ssl.key", ""),
+		InsecureSkipVerify: repo.GetBool(prefix+".ssl.insecure_skip_verify", false),
 	}
 
 	// 读取 Options 配置（通用 DSN 参数）
 	// 注意：configpkg 不支持 map[string]string，需要通过 JSON 或其他方式读取
 	// 当前实现：从 options 前缀读取常见参数
-	if timeout := configpkg.GetString(prefix+".options.timeout", ""); timeout != "" {
+	if timeout := repo.GetString(prefix+".options.timeout", ""); timeout != "" {
 		cfg.setOption("timeout", timeout)
 	}
-	if readTimeout := configpkg.GetString(prefix+".options.read_timeout", ""); readTimeout != "" {
+	if readTimeout := repo.GetString(prefix+".options.read_timeout", ""); readTimeout != "" {
 		cfg.setOption("readTimeout", readTimeout)
 	}
-	if writeTimeout := configpkg.GetString(prefix+".options.write_timeout", ""); writeTimeout != "" {
+	if writeTimeout := repo.GetString(prefix+".options.write_timeout", ""); writeTimeout != "" {
 		cfg.setOption("writeTimeout", writeTimeout)
 	}
 
 	// 读取驱动级配置选项
-	readMySQLDriverOptions(prefix, &cfg)
+	readMySQLDriverOptionsFromRepository(repo, prefix, &cfg)
 
 	return cfg
 }
 
 // readPoolConfig 从配置中读取连接池配置。
 func readPoolConfig(prefix string) connectionPoolConfig {
+	return readPoolConfigFromRepository(configpkg.Resolve(), prefix)
+}
+
+func readPoolConfigFromRepository(repo *configpkg.Config, prefix string) connectionPoolConfig {
 	return connectionPoolConfig{
-		MaxOpenConns:    configpkg.GetInt(prefix+".max_open_conns", 30),
-		MaxIdleConns:    configpkg.GetInt(prefix+".max_idle_conns", 10),
-		ConnMaxLifetime: parseDurationSecondsOrText(configpkg.GetString(prefix+".conn_max_lifetime", "1h"), time.Hour),
-		ConnMaxIdleTime: parseDurationSecondsOrText(configpkg.GetString(prefix+".conn_max_idle_time", "10m"), 10*time.Minute),
+		MaxOpenConns:    repo.GetInt(prefix+".max_open_conns", 30),
+		MaxIdleConns:    repo.GetInt(prefix+".max_idle_conns", 10),
+		ConnMaxLifetime: parseDurationSecondsOrText(repo.GetString(prefix+".conn_max_lifetime", "1h"), time.Hour),
+		ConnMaxIdleTime: parseDurationSecondsOrText(repo.GetString(prefix+".conn_max_idle_time", "10m"), 10*time.Minute),
 	}
 }

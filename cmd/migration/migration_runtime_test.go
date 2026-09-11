@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/glebarez/sqlite"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	dbregistry "github.com/prismgo/framework/database"

@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	redisqueue "github.com/prismgo/framework/queue/redis"
 	"strings"
 	"testing"
 	"time"
+
+	redisqueue "github.com/prismgo/framework/queue/redis"
 
 	miniredis "github.com/alicebob/miniredis/v2"
 	queuecontract "github.com/prismgo/framework/contracts/queue"
@@ -108,6 +109,9 @@ func TestRedisManagerConnectionUsesConfiguredNameInLifecycleEvents(t *testing.T)
 		t.Fatalf("new manager: %v", err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
+	if _, err := manager.Queue(""); err != nil {
+		t.Fatalf("resolve default queue: %v", err)
+	}
 
 	if len(*events) != 2 {
 		t.Fatalf("events = %d, want connecting and connected", len(*events))
