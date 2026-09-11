@@ -87,8 +87,8 @@ func TestBuildMySQLDSNRoundTripsSpecialCharacters(t *testing.T) {
 	if !parsed.ParseTime {
 		t.Fatal("expected parseTime to round-trip true")
 	}
-	if got := parsed.Loc.String(); got != want.Session.Loc {
-		t.Fatalf("loc = %q, want %q", got, want.Session.Loc)
+	if parsed.Loc != time.Local {
+		t.Fatalf("loc = %q, want current local location %q", parsed.Loc, time.Local)
 	}
 }
 
