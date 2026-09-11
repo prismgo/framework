@@ -23,7 +23,7 @@ PrismGo 使用 Gin、GORM、Cobra、Viper、Logrus 和 go-redis 等成熟组件�
 |---|---|
 | HTTP 与路由 | `http/`、`route/`、`responsekit/` |
 | 数据与存储 | `database/`、`filesystem/`、`storage/`、`redis/` |
-| 异步与运行时 | `queue/`、`event/`、`routine/`、`timer/`、`process/`、`horizon/` |
+| 异步与运行时 | `queue/`、`event/`、`routine/`、`timer/`、`process/` |
 | 应用服务 | `config/`、`cache/`、`session/`、`cookie/`、`logger/`、`translation/` |
 | 基础能力 | `encoding/`、`encryption/`、`exception/`、`ratelimit/`、`support/` |
 

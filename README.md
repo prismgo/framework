@@ -93,7 +93,7 @@ go run . serve
 | `exception` | 统一异常处理器，Report + Render + 日志级别映射 | `exception.Report(ctx, err, fields)` |
 | `filesystem` | 文件系统抽象：local/public/OSS | `filesystem.Disk("public").Put(...)` |
 | `foundation` | 应用启动、Provider 注册、生命周期、资源关闭 | `foundation.NewApplication()` |
-| `horizon` | 队列监控面板，worker 管理、任务指标、Dashboard | `go run . horizon` |
+| [`github.com/prismgo/horizon`](https://github.com/prismgo/horizon) | 可选 Horizon 扩展：队列监控、worker 管理、任务指标与 Dashboard | 注册 `horizon.ServiceProvider{}` |
 | `kernel` | CLI Kernel，命令注册、调度、互调 | `kernel.RegisterLazy("xxx", factory)` |
 | `logger` | 多通道日志：stack/single/daily/stderr/null | `logger.Channel("daily").Info("msg")` |
 | `queue` | 任务队列：Redis/RabbitMQ/Sync | `queue.Dispatch(ctx, job)` |
