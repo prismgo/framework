@@ -18,6 +18,50 @@ const (
 	alterTable  tableCommand = "alter"
 )
 
+// BlueprintCompiler compiles a Blueprint for a dialect carried by a GORM Dialector.
+type BlueprintCompiler interface {
+	CompileBlueprint(db *gorm.DB, blueprint *Blueprint) ([]string, error)
+}
+
+// BlueprintDefinition is an immutable snapshot exposed to dialect compilers.
+type BlueprintDefinition struct {
+	Table    string
+	Creating bool
+	Columns  []BlueprintColumn
+	Indexes  []BlueprintIndex
+	Commands []BlueprintCommand
+}
+
+// BlueprintColumn describes a column exposed to dialect compilers.
+type BlueprintColumn struct {
+	Name          string
+	Kind          string
+	Nullable      bool
+	AutoIncrement bool
+	Primary       bool
+	Unique        bool
+	DefaultValue  *string
+	Change        bool
+}
+
+// BlueprintIndex describes an index exposed to dialect compilers.
+type BlueprintIndex struct {
+	Kind    string
+	Name    string
+	Columns []string
+	Drop    bool
+	Rename  string
+}
+
+// BlueprintCommand describes a raw or column command exposed to dialect compilers.
+type BlueprintCommand struct {
+	SQL   string
+	Kind  string
+	From  string
+	To    string
+	Names []string
+}
+
 // Blueprint 描述一次表创建或表结构变更。
 //
 // 使用方式：在 schema.Create/schema.Table 的回调中通过 Blueprint 声明字段、索引、
@@ -115,6 +159,52 @@ func (b *Blueprint) TableName() string {
 	return b.table
 }
 
+// Definition returns a detached snapshot for a dialect compiler.
+func (b *Blueprint) Definition() BlueprintDefinition {
+	definition := BlueprintDefinition{
+		Table:    b.table,
+		Creating: b.command == createTable,
+		Columns:  make([]BlueprintColumn, 0, len(b.columns)),
+		Indexes:  make([]BlueprintIndex, 0, len(b.indexes)),
+		Commands: make([]BlueprintCommand, 0, len(b.commands)),
+	}
+	for _, column := range b.columns {
+		item := BlueprintColumn{
+			Name:          column.name,
+			Kind:          column.kind,
+			Nullable:      column.nullable,
+			AutoIncrement: column.autoIncrement,
+			Primary:       column.primary,
+			Unique:        column.unique,
+			Change:        column.change,
+		}
+		if column.defaultValue != nil {
+			value := *column.defaultValue
+			item.DefaultValue = &value
+		}
+		definition.Columns = append(definition.Columns, item)
+	}
+	for _, index := range b.indexes {
+		definition.Indexes = append(definition.Indexes, BlueprintIndex{
+			Kind:    index.kind,
+			Name:    index.name,
+			Columns: append([]string(nil), index.columns...),
+			Drop:    index.drop,
+			Rename:  index.rename,
+		})
+	}
+	for _, command := range b.commands {
+		definition.Commands = append(definition.Commands, BlueprintCommand{
+			SQL:   command.sql,
+			Kind:  command.kind,
+			From:  command.from,
+			To:    command.to,
+			Names: append([]string(nil), command.names...),
+		})
+	}
+	return definition
+}
+
 // Raw 追加原始 SQL 命令。
 //
 // 仅应用于 Schema DSL 无法表达的驱动特定修复，例如历史表结构的一次性补丁；
@@ -201,13 +291,14 @@ func (b *Blueprint) DropForeignIdFor(column string) {
 
 // Compile 将 Blueprint 编译为当前数据库方言的 SQL。
 //
-// 当前支持 MySQL 与 SQLite；其它方言返回 ErrUnsupportedFeature，避免生成不可控 SQL。
+// framework 内置 MySQL 编译器；其它方言必须由 Dialector 携带 BlueprintCompiler。
 func (b *Blueprint) Compile(db *gorm.DB) ([]string, error) {
+	if compiler, ok := db.Dialector.(BlueprintCompiler); ok {
+		return compiler.CompileBlueprint(db, b)
+	}
 	switch dialect(db) {
 	case "mysql":
 		return b.compileMySQL(db)
-	case "sqlite", "sqlite3":
-		return b.compileSQLite(db)
 	default:
 		return nil, unsupported("compile blueprint", db)
 	}
@@ -221,8 +312,8 @@ func (b *Blueprint) compileMySQL(db *gorm.DB) ([]string, error) {
 		for _, col := range b.columns {
 			parts = append(parts, col.compileMySQL())
 		}
-		parts = append(parts, b.inlineIndexSQL("mysql")...)
-		parts = append(parts, b.inlineForeignSQL("mysql")...)
+		parts = append(parts, b.inlineIndexSQL()...)
+		parts = append(parts, b.inlineForeignSQL()...)
 		if len(parts) == 0 {
 			return nil, fmt.Errorf("schema: create table %s has no columns", b.table)
 		}
@@ -245,44 +336,8 @@ func (b *Blueprint) compileMySQL(db *gorm.DB) ([]string, error) {
 			}
 			sqls = append(sqls, fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN %s", b.table, col.compileMySQL()))
 		}
-		sqls = append(sqls, b.alterIndexSQL(db, "mysql")...)
-		sqls = append(sqls, b.alterForeignSQL("mysql")...)
-		for _, cmd := range b.commands {
-			compiled, err := b.compileCommand(db, cmd)
-			if err != nil {
-				return nil, err
-			}
-			sqls = append(sqls, compiled...)
-		}
-	}
-	return sqls, nil
-}
-
-func (b *Blueprint) compileSQLite(db *gorm.DB) ([]string, error) {
-	var sqls []string
-	switch b.command {
-	case createTable:
-		parts := make([]string, 0, len(b.columns)+len(b.indexes))
-		for _, col := range b.columns {
-			parts = append(parts, col.compileSQLite())
-		}
-		parts = append(parts, b.inlineIndexSQL("sqlite")...)
-		if len(parts) == 0 {
-			return nil, fmt.Errorf("schema: create table %s has no columns", b.table)
-		}
-		sqls = append(sqls, fmt.Sprintf("CREATE TABLE `%s` (%s)", b.table, strings.Join(parts, ", ")))
-		sqls = append(sqls, b.sqliteCreateIndexSQL()...)
-	case alterTable:
-		for _, col := range b.columns {
-			if col.change {
-				return nil, unsupported("change column", db)
-			}
-			if db.Migrator().HasColumn(b.table, col.name) {
-				continue
-			}
-			sqls = append(sqls, fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN %s", b.table, col.compileSQLite()))
-		}
-		sqls = append(sqls, b.alterIndexSQL(db, "sqlite")...)
+		sqls = append(sqls, b.alterIndexSQL(db)...)
+		sqls = append(sqls, b.alterForeignSQL()...)
 		for _, cmd := range b.commands {
 			compiled, err := b.compileCommand(db, cmd)
 			if err != nil {
@@ -535,7 +590,7 @@ func (b *Blueprint) Binary(name string) *ColumnDefinition { return b.addColumn("
 // Json 新增 JSON 字段。
 func (b *Blueprint) Json(name string) *ColumnDefinition { return b.addColumn("json", name) }
 
-// Jsonb 新增 JSONB 字段；MySQL/SQLite 下按 JSON 兼容处理。
+// Jsonb 新增 JSONB 字段；MySQL 下按 JSON 兼容处理。
 func (b *Blueprint) Jsonb(name string) *ColumnDefinition { return b.addColumn("json", name) }
 
 // Uuid 新增 UUID 字段。
@@ -764,7 +819,7 @@ func (c *ColumnDefinition) Invisible() *ColumnDefinition { c.invisible = true; r
 
 // From 保留 Laravel integer 起始值修饰符入口。
 //
-// 当前 MySQL/SQLite 编译器不依赖该值，因此方法只保持链式 API 兼容。
+// framework 的 MySQL 编译器不依赖该值，因此方法只保持链式 API 兼容。
 func (c *ColumnDefinition) From(_ int) *ColumnDefinition { return c }
 
 // Instant 保留 Laravel instant algorithm 修饰符入口。
@@ -774,13 +829,12 @@ func (c *ColumnDefinition) Instant() *ColumnDefinition { return c }
 
 // Lock 保留 Laravel lock 修饰符入口。
 //
-// 当前实现不自动拼接 LOCK 子句，避免 SQLite 测试环境不可执行。
+// 当前实现不自动拼接 LOCK 子句；需要时可使用 Raw。
 func (c *ColumnDefinition) Lock(_ string) *ColumnDefinition { return c }
 
 // Change 将字段声明标记为对既有字段的修改。
 //
-// MySQL 会编译为 ALTER TABLE ... MODIFY COLUMN；SQLite 不支持直接修改字段类型、
-// 可空性和默认值，因此返回明确的不支持错误，避免隐式重建表导致约束丢失。
+// MySQL 会编译为 ALTER TABLE ... MODIFY COLUMN；其它方言由 Dialector adapter 决定。
 func (c *ColumnDefinition) Change() *ColumnDefinition {
 	c.change = true
 	return c
@@ -844,26 +898,6 @@ func (c *ColumnDefinition) compileMySQL() string {
 	}
 	if c.after != "" {
 		parts = append(parts, "AFTER "+quote(c.after))
-	}
-	return strings.Join(parts, " ")
-}
-
-func (c *ColumnDefinition) compileSQLite() string {
-	parts := []string{quote(c.name), c.sqliteType()}
-	if c.primary {
-		parts = append(parts, "PRIMARY KEY")
-	}
-	if c.autoIncrement && c.primary {
-		parts = append(parts, "AUTOINCREMENT")
-	}
-	if !c.nullable && !c.primary {
-		parts = append(parts, "NOT NULL")
-	}
-	if c.defaultValue != nil {
-		parts = append(parts, "DEFAULT "+*c.defaultValue)
-	}
-	if c.unique {
-		parts = append(parts, "UNIQUE")
 	}
 	return strings.Join(parts, " ")
 }
@@ -940,23 +974,6 @@ func (c *ColumnDefinition) mysqlType() string {
 	}
 }
 
-func (c *ColumnDefinition) sqliteType() string {
-	switch c.kind {
-	case "tinyInteger", "smallInteger", "mediumInteger", "integer", "bigInteger", "boolean":
-		return "integer"
-	case "float", "double":
-		return "real"
-	case "decimal":
-		return "numeric"
-	case "binary":
-		return "blob"
-	case "date", "dateTime", "time", "timestamp", "year":
-		return "datetime"
-	default:
-		return "text"
-	}
-}
-
 // IndexDefinition 描述一次索引操作。
 //
 // 支持创建、删除、重命名普通索引、唯一索引、全文索引、空间索引和主键索引。
@@ -985,14 +1002,14 @@ func (b *Blueprint) Index(columns ...string) *IndexDefinition {
 
 // FullText 新增全文索引。
 //
-// MySQL 使用 FULLTEXT INDEX；SQLite 测试环境降级为普通索引，保证迁移可执行。
+// MySQL 使用 FULLTEXT INDEX；其它方言由 Dialector adapter 决定。
 func (b *Blueprint) FullText(columns ...string) *IndexDefinition {
 	return b.addIndex("fulltext", defaultIndexName(b.table, "fulltext", columns), columns...)
 }
 
 // SpatialIndex 新增空间索引。
 //
-// MySQL 使用 SPATIAL INDEX；SQLite 测试环境降级为普通索引，保证迁移可执行。
+// MySQL 使用 SPATIAL INDEX；其它方言由 Dialector adapter 决定。
 func (b *Blueprint) SpatialIndex(columns ...string) *IndexDefinition {
 	return b.addIndex("spatial", defaultIndexName(b.table, "spatial", columns), columns...)
 }
@@ -1028,7 +1045,7 @@ func (b *Blueprint) DropSpatialIndex(name string) { b.DropIndex(name) }
 
 // RenameIndex 重命名索引。
 //
-// 当前仅 MySQL 编译为 RENAME INDEX；SQLite 会跳过该操作，因为其原生重命名索引支持有限。
+// MySQL 编译为 RENAME INDEX；其它方言由 Dialector adapter 决定。
 func (b *Blueprint) RenameIndex(from, to string) {
 	b.indexes = append(b.indexes, &IndexDefinition{name: from, rename: to})
 }
@@ -1045,22 +1062,13 @@ func (i *IndexDefinition) Name(name string) *IndexDefinition {
 	return i
 }
 
-func (b *Blueprint) inlineIndexSQL(driver string) []string {
+func (b *Blueprint) inlineIndexSQL() []string {
 	var sqls []string
 	for _, idx := range b.indexes {
 		if idx.drop || idx.rename != "" {
 			continue
 		}
 		if idx.kind == "index" || idx.kind == "fulltext" || idx.kind == "spatial" {
-			continue
-		}
-		if driver == "sqlite" && idx.kind == "primary" && len(idx.columns) == 1 {
-			continue
-		}
-		if driver == "sqlite" {
-			if sql := idx.inlineSQLiteSQL(); sql != "" {
-				sqls = append(sqls, sql)
-			}
 			continue
 		}
 		sqls = append(sqls, idx.inlineSQL())
@@ -1079,60 +1087,28 @@ func (i *IndexDefinition) inlineSQL() string {
 	}
 }
 
-func (i *IndexDefinition) inlineSQLiteSQL() string {
-	switch i.kind {
-	case "primary":
-		return "PRIMARY KEY (" + quotedColumns(i.columns) + ")"
-	case "unique":
-		return "UNIQUE (" + quotedColumns(i.columns) + ")"
-	default:
-		return ""
-	}
-}
-
-func (b *Blueprint) alterIndexSQL(db *gorm.DB, driver string) []string {
+func (b *Blueprint) alterIndexSQL(db *gorm.DB) []string {
 	var sqls []string
 	for _, idx := range b.indexes {
 		if idx.drop {
 			if !db.Migrator().HasIndex(b.table, idx.name) && idx.name != "PRIMARY" {
 				continue
 			}
-			if driver == "mysql" {
-				if idx.name == "PRIMARY" {
-					sqls = append(sqls, fmt.Sprintf("ALTER TABLE `%s` DROP PRIMARY KEY", b.table))
-				} else {
-					sqls = append(sqls, fmt.Sprintf("ALTER TABLE `%s` DROP INDEX `%s`", b.table, idx.name))
-				}
+			if idx.name == "PRIMARY" {
+				sqls = append(sqls, fmt.Sprintf("ALTER TABLE `%s` DROP PRIMARY KEY", b.table))
 			} else {
-				sqls = append(sqls, fmt.Sprintf("DROP INDEX IF EXISTS `%s`", idx.name))
+				sqls = append(sqls, fmt.Sprintf("ALTER TABLE `%s` DROP INDEX `%s`", b.table, idx.name))
 			}
 			continue
 		}
 		if idx.rename != "" {
-			if driver == "mysql" {
-				sqls = append(sqls, fmt.Sprintf("ALTER TABLE `%s` RENAME INDEX `%s` TO `%s`", b.table, idx.name, idx.rename))
-			}
+			sqls = append(sqls, fmt.Sprintf("ALTER TABLE `%s` RENAME INDEX `%s` TO `%s`", b.table, idx.name, idx.rename))
 			continue
 		}
 		if db.Migrator().HasIndex(b.table, idx.name) {
 			continue
 		}
-		if driver == "mysql" {
-			sqls = append(sqls, idx.alterMySQL(b.table))
-		} else {
-			sqls = append(sqls, idx.createSQLite(b.table))
-		}
-	}
-	return sqls
-}
-
-func (b *Blueprint) sqliteCreateIndexSQL() []string {
-	var sqls []string
-	for _, idx := range b.indexes {
-		if idx.drop || idx.rename != "" || idx.kind == "primary" {
-			continue
-		}
-		sqls = append(sqls, idx.createSQLite(b.table))
+		sqls = append(sqls, idx.alterMySQL(b.table))
 	}
 	return sqls
 }
@@ -1150,14 +1126,6 @@ func (i *IndexDefinition) alterMySQL(table string) string {
 	default:
 		return fmt.Sprintf("ALTER TABLE `%s` ADD INDEX `%s` (%s)", table, i.name, quotedColumns(i.columns))
 	}
-}
-
-func (i *IndexDefinition) createSQLite(table string) string {
-	unique := ""
-	if i.kind == "unique" {
-		unique = "UNIQUE "
-	}
-	return fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS `%s` ON `%s` (%s)", unique, i.name, table, quotedColumns(i.columns))
 }
 
 // ForeignKeyDefinition 描述一次外键操作。
@@ -1242,10 +1210,7 @@ func (f *ForeignKeyDefinition) NoActionOnUpdate() *ForeignKeyDefinition {
 	return f.OnUpdate("NO ACTION")
 }
 
-func (b *Blueprint) inlineForeignSQL(driver string) []string {
-	if driver != "mysql" {
-		return nil
-	}
+func (b *Blueprint) inlineForeignSQL() []string {
 	var sqls []string
 	for _, fk := range b.foreignKeys {
 		if fk.drop {
@@ -1256,10 +1221,7 @@ func (b *Blueprint) inlineForeignSQL(driver string) []string {
 	return sqls
 }
 
-func (b *Blueprint) alterForeignSQL(driver string) []string {
-	if driver != "mysql" {
-		return nil
-	}
+func (b *Blueprint) alterForeignSQL() []string {
 	var sqls []string
 	for _, fk := range b.foreignKeys {
 		if fk.drop {

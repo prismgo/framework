@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/mysql"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -107,14 +107,9 @@ func openFakeMySQL(t *testing.T) *gorm.DB {
 	return db
 }
 
-func TestMigratorSQLiteBranches(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	if err := db.AutoMigrate(&migratorWidget{}); err != nil {
-		t.Fatalf("auto migrate: %v", err)
-	}
+func TestMigratorNonMySQLBranches(t *testing.T) {
+	db := openFakeMySQL(t)
+	db.Dialector = namedDialector{Dialector: db.Dialector, name: "custom"}
 
 	names, err := ManagedTableNames(db, []any{&migratorWidget{}})
 	if err != nil {
@@ -125,66 +120,35 @@ func TestMigratorSQLiteBranches(t *testing.T) {
 	}
 
 	if err := EnsureInnoDB(db, []any{&migratorWidget{}}); err != nil {
-		t.Fatalf("sqlite should skip innodb enforcement: %v", err)
-	}
-	if err := EnsureCompositeIndexes(db, []CompositeIndex{{
-		Table:   "migrator_widgets",
-		Name:    "idx_migrator_widgets_tenant_status",
-		Columns: "`tenant_id`, `status`",
-	}}); err != nil {
-		t.Fatalf("ensure sqlite composite index: %v", err)
-	}
-	if err := EnsureCompositeUniqueIndexes(db, []CompositeUniqueIndex{{
-		Table:   "migrator_widgets",
-		Name:    "idx_migrator_widgets_tenant_code",
-		Columns: "`tenant_id`, `code`",
-	}}); err != nil {
-		t.Fatalf("ensure sqlite composite unique index: %v", err)
+		t.Fatalf("non-MySQL should skip innodb enforcement: %v", err)
 	}
 	if err := DropObsoleteIndexes(db, []DropIndex{{
 		Table: "migrator_widgets",
 		Name:  "idx_legacy",
 	}}); err != nil {
-		t.Fatalf("sqlite should skip drop obsolete indexes: %v", err)
-	}
-}
-
-func TestMigratorInformationSchemaQueriesReturnErrorsOnSQLite(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-
-	if _, err := IndexExists(db, "missing", "idx_missing"); err == nil {
-		t.Fatal("expected sqlite information_schema error from IndexExists")
-	}
-	if _, err := PrimaryKeyColumns(db, "missing"); err == nil {
-		t.Fatal("expected sqlite information_schema error from PrimaryKeyColumns")
-	}
-	if _, err := currentMySQLTableEngine(db, "missing"); err == nil {
-		t.Fatal("expected sqlite information_schema error from currentMySQLTableEngine")
+		t.Fatalf("non-MySQL should skip obsolete indexes: %v", err)
 	}
 }
 
 func TestManagedTableNamesRejectsInvalidModel(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	db := openFakeMySQL(t)
 	if _, err := ManagedTableNames(db, []any{42}); err == nil {
 		t.Fatal("expected invalid model parse error")
 	}
 }
 
 func TestMigratorMySQLBranchesReturnContextualErrors(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	sqlDB, _, err := sqlmock.New()
 	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
+		t.Fatalf("open sqlmock: %v", err)
 	}
-	if err := db.AutoMigrate(&migratorWidget{}); err != nil {
-		t.Fatalf("auto migrate: %v", err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
+		DisableAutomaticPing: true,
+	})
+	if err != nil {
+		t.Fatalf("open gorm: %v", err)
 	}
-	db.Dialector = namedDialector{Dialector: db.Dialector, name: "mysql"}
 
 	if err := EnsureInnoDB(db, []any{&migratorWidget{}}); err == nil || !strings.Contains(err.Error(), "query table migrator_widgets engine failed") {
 		t.Fatalf("expected contextual innodb error, got %v", err)

@@ -82,6 +82,11 @@ type CompositeUniqueIndex struct {
 	Columns string
 }
 
+// CompositeUniqueIndexEnsurer creates composite unique indexes for a dialect carried by a GORM Dialector.
+type CompositeUniqueIndexEnsurer interface {
+	EnsureCompositeUniqueIndexes(db *gorm.DB, indexes []CompositeUniqueIndex) error
+}
+
 // CompositeIndex 描述一条普通（非唯一）联合索引声明。
 // 用于跨嵌入 struct 的联合索引，GORM AutoMigrate 无法自动处理此类索引。
 type CompositeIndex struct {
@@ -93,9 +98,16 @@ type CompositeIndex struct {
 	Columns string
 }
 
-// EnsureCompositeIndexes 为 MySQL 和 SQLite 创建普通联合索引（幂等）。
-// 其它 dialect 会被直接忽略，便于在测试环境（如 sqlite）下平滑运行。
+// CompositeIndexEnsurer creates composite indexes for a dialect carried by a GORM Dialector.
+type CompositeIndexEnsurer interface {
+	EnsureCompositeIndexes(db *gorm.DB, indexes []CompositeIndex) error
+}
+
+// EnsureCompositeIndexes 为 MySQL 或 Dialector adapter 创建普通联合索引（幂等）。
 func EnsureCompositeIndexes(db *gorm.DB, indexes []CompositeIndex) error {
+	if ensurer, ok := db.Dialector.(CompositeIndexEnsurer); ok {
+		return ensurer.EnsureCompositeIndexes(db, indexes)
+	}
 	dialect := strings.ToLower(strings.TrimSpace(db.Name()))
 	switch dialect {
 	case "mysql":
@@ -115,23 +127,15 @@ func EnsureCompositeIndexes(db *gorm.DB, indexes []CompositeIndex) error {
 				return fmt.Errorf("create index %s.%s failed: %w", idx.Table, idx.Name, err)
 			}
 		}
-	case "sqlite", "sqlite3":
-		for _, idx := range indexes {
-			sql := fmt.Sprintf(
-				"CREATE INDEX IF NOT EXISTS %s ON %s (%s)",
-				quoteIdentifier(idx.Name), quoteIdentifier(idx.Table), idx.Columns,
-			)
-			if err := db.Exec(sql).Error; err != nil {
-				return fmt.Errorf("create sqlite index %s.%s failed: %w", idx.Table, idx.Name, err)
-			}
-		}
 	}
 	return nil
 }
 
-// EnsureCompositeUniqueIndexes 为 MySQL 和 SQLite 创建联合唯一索引（幂等）。
-// 其它 dialect 会被直接忽略，便于在测试环境（如 sqlite）下平滑运行。
+// EnsureCompositeUniqueIndexes 为 MySQL 或 Dialector adapter 创建联合唯一索引（幂等）。
 func EnsureCompositeUniqueIndexes(db *gorm.DB, indexes []CompositeUniqueIndex) error {
+	if ensurer, ok := db.Dialector.(CompositeUniqueIndexEnsurer); ok {
+		return ensurer.EnsureCompositeUniqueIndexes(db, indexes)
+	}
 	dialect := strings.ToLower(strings.TrimSpace(db.Name()))
 	switch dialect {
 	case "mysql":
@@ -151,17 +155,6 @@ func EnsureCompositeUniqueIndexes(db *gorm.DB, indexes []CompositeUniqueIndex) e
 				return fmt.Errorf("create index %s.%s failed: %w", idx.Table, idx.Name, err)
 			}
 		}
-	case "sqlite", "sqlite3":
-		// SQLite: CREATE UNIQUE INDEX IF NOT EXISTS（幂等，无需预先检查）。
-		for _, idx := range indexes {
-			sql := fmt.Sprintf(
-				"CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s (%s)",
-				quoteIdentifier(idx.Name), quoteIdentifier(idx.Table), idx.Columns,
-			)
-			if err := db.Exec(sql).Error; err != nil {
-				return fmt.Errorf("create sqlite index %s.%s failed: %w", idx.Table, idx.Name, err)
-			}
-		}
 	}
 	return nil
 }
@@ -174,7 +167,7 @@ type DropIndex struct {
 	Name string
 }
 
-// DropObsoleteIndexes 删除废弃索引（幂等）。仅在 MySQL 下执行，SQLite 跳过（测试库每次重建无需清理）。
+// DropObsoleteIndexes 删除废弃索引（幂等）。非 MySQL 方言保持空操作。
 func DropObsoleteIndexes(db *gorm.DB, indexes []DropIndex) error {
 	if TableOptions(db.Name(), "InnoDB") == "" {
 		return nil

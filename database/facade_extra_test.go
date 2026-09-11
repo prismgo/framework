@@ -1,16 +1,13 @@
 package database
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
-	configpkg "github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
 	"gorm.io/driver/mysql"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -19,10 +16,7 @@ func TestFacadeLazyFactoryAndServiceProvider(t *testing.T) {
 	container.SetProvider(func() *container.Container { return registry })
 	t.Cleanup(func() { container.SetProvider(nil) })
 
-	expected, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	expected := &gorm.DB{}
 
 	calls := 0
 	_ = registry.Singleton("database.default", func(containercontract.Resolver) (any, error) {
@@ -90,60 +84,17 @@ func TestServiceProviderLazyOpenDefaultConnection(t *testing.T) {
 	_ = sqlDB2.Close()
 }
 
-func TestOpenDefaultConnectionSupportsSQLite(t *testing.T) {
-	registry := container.NewContainer()
-	container.SetProvider(func() *container.Container { return registry })
-	t.Cleanup(func() { container.SetProvider(nil) })
-	useDatabaseConfig(t, registry, "sqlite", "sqlite")
-	if err := registry.Instance("database.manager", newTestDatabaseManager()); err != nil {
-		t.Fatalf("bind database manager: %v", err)
-	}
-	db, err := OpenDefaultConnection()
+func TestApplyConnectionPoolConfigWithGormDB(t *testing.T) {
+	sqlDB, _, err := sqlmock.New()
 	if err != nil {
-		t.Fatalf("open default sqlite connection: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get sqlite sql.DB: %v", err)
+		t.Fatalf("open sqlmock: %v", err)
 	}
 	t.Cleanup(func() { _ = sqlDB.Close() })
-}
-
-func useDatabaseConfig(t *testing.T, registry *container.Container, connection, driver string) {
-	t.Helper()
-	dsn := "root:secret@tcp(127.0.0.1:1)/prismgo?charset=utf8mb4&parseTime=true&loc=Local"
-	if driver == "sqlite" || driver == "sqlite3" {
-		dsn = filepath.Join(t.TempDir(), "database.sqlite")
-	}
-	configpkg.Add("database", func() map[string]any {
-		return map[string]any{
-			"default": connection,
-			"connections": map[string]any{
-				connection: map[string]any{
-					"driver":             driver,
-					"dsn":                dsn,
-					"conn_max_lifetime":  "2m",
-					"conn_max_idle_time": "30",
-					"max_open_conns":     4,
-					"max_idle_conns":     2,
-					"strict":             false, // 禁用 SQL 模式设置，避免连接失败时 panic
-				},
-			},
-		}
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
+		DisableAutomaticPing: true,
 	})
-	cfg := configpkg.New()
-	if err := cfg.ReloadFromFile(filepath.Join(t.TempDir(), ".env")); err != nil {
-		t.Fatalf("reload config: %v", err)
-	}
-	if err := registry.Instance("config.default", cfg); err != nil {
-		t.Fatalf("bind config: %v", err)
-	}
-}
-
-func TestApplyConnectionPoolConfigWithGormDB(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
+		t.Fatalf("open gorm: %v", err)
 	}
 	err = applyConnectionPoolConfig(db, connectionPoolConfig{
 		MaxOpenConns:    8,
@@ -154,7 +105,7 @@ func TestApplyConnectionPoolConfigWithGormDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply connection pool config: %v", err)
 	}
-	sqlDB, err := db.DB()
+	sqlDB, err = db.DB()
 	if err != nil {
 		t.Fatalf("sql db: %v", err)
 	}

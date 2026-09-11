@@ -9,21 +9,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/spf13/cobra"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
 	"github.com/prismgo/framework/config"
 	"github.com/prismgo/framework/console"
 	dbregistry "github.com/prismgo/framework/database"
 )
-
-type renamedDialector struct {
-	gorm.Dialector
-	name string
-}
-
-func (d renamedDialector) Name() string { return d.name }
 
 func resetMigrationRegistriesForTest() {}
 
@@ -66,6 +60,38 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+type migrationNamedDialector struct {
+	gorm.Dialector
+	name string
+}
+
+func (d migrationNamedDialector) Name() string { return d.name }
+
+func TestDropAllTypesPreservesPostgresFallback(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v, want nil", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{DisableAutomaticPing: true})
+	if err != nil {
+		t.Fatalf("gorm.Open() error = %v, want nil", err)
+	}
+	db.Dialector = migrationNamedDialector{Dialector: db.Dialector, name: "postgres"}
+	if err := dropAllViews(db); err != nil {
+		t.Fatalf("dropAllViews() error = %v, want nil for unsupported legacy dialect", err)
+	}
+	mock.ExpectQuery("SELECT typname FROM pg_type").WillReturnRows(sqlmock.NewRows([]string{"typname"}).AddRow("status"))
+	mock.ExpectExec("DROP TYPE IF EXISTS \\\"status\\\" CASCADE").WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := dropAllTypes(db); err != nil {
+		t.Fatalf("dropAllTypes() error = %v, want nil", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("dropAllTypes() SQL mismatch: %v", err)
+	}
 }
 
 func TestResolveSourcePathsRelativeDefaultAndEmptyBranches(t *testing.T) {
@@ -164,111 +190,6 @@ func TestCommandOpenDBErrorBranches(t *testing.T) {
 	seed.openDB = func(string) (dbSession, error) { return dbSession{}, openErr }
 	if err := seed.Handle(newMigrationCmdContext(t, seed, fakeInput{}, "db:seed")); !errors.Is(err, openErr) {
 		t.Fatalf("db:seed expected open error, got %v", err)
-	}
-}
-
-func TestStatusRollbackAndResetNoTableBranches(t *testing.T) {
-	cfg := config.New()
-	if err := useMigrationTestContainer(t).Instance("config.default", cfg); err != nil {
-		t.Fatalf("bind config: %v", err)
-	}
-	t.Setenv("APP_ENV", "local")
-
-	db, err := gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite failed: %v", err)
-	}
-	dir := t.TempDir()
-	file := filepath.Join(dir, "202604280701_empty.go")
-	if err := os.WriteFile(file, []byte("package migrations"), 0o644); err != nil {
-		t.Fatalf("write migration file failed: %v", err)
-	}
-
-	deps := MigrationDependencies{
-		MigrationPaths: func() []string { return []string{dir} },
-	}
-
-	status := NewMigrateStatusCommand(deps)
-	status.openDB = func(string) (dbSession, error) { return dbSession{DB: db}, nil }
-	if err := status.Handle(newMigrationCmdContext(t, status, fakeInput{}, "migrate:status")); err != nil {
-		t.Fatalf("migrate:status no-table branch failed: %v", err)
-	}
-
-	rollback := NewMigrateRollbackCommand(deps)
-	rollback.openDB = func(string) (dbSession, error) { return dbSession{DB: db}, nil }
-	if err := rollback.Handle(newMigrationCmdContext(t, rollback, fakeInput{}, "migrate:rollback")); err != nil {
-		t.Fatalf("migrate:rollback no-table branch failed: %v", err)
-	}
-
-	reset := NewMigrateResetCommand(deps)
-	reset.openDB = func(string) (dbSession, error) { return dbSession{DB: db}, nil }
-	if err := reset.Handle(newMigrationCmdContext(t, reset, fakeInput{}, "migrate:reset")); err != nil {
-		t.Fatalf("migrate:reset no-table branch failed: %v", err)
-	}
-}
-
-func TestMigrateStepModeAndNoPendingBranch(t *testing.T) {
-	resetMigrationRegistriesForTest()
-	t.Cleanup(resetMigrationRegistriesForTest)
-
-	cfg := config.New()
-	if err := useMigrationTestContainer(t).Instance("config.default", cfg); err != nil {
-		t.Fatalf("bind config: %v", err)
-	}
-	t.Setenv("APP_ENV", "local")
-
-	db, err := gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite failed: %v", err)
-	}
-
-	dir := t.TempDir()
-	m1 := "202604280801_create_step_a"
-	m2 := "202604280802_create_step_b"
-	_ = os.WriteFile(filepath.Join(dir, m1+".go"), []byte("package migrations"), 0o644)
-	_ = os.WriteFile(filepath.Join(dir, m2+".go"), []byte("package migrations"), 0o644)
-	dbregistry.RegisterMigrationAs(m1, func(tx *gorm.DB) error { return tx.Exec("CREATE TABLE step_a (id integer primary key)").Error }, func(tx *gorm.DB) error { return tx.Exec("DROP TABLE step_a").Error })
-	dbregistry.RegisterMigrationAs(m2, func(tx *gorm.DB) error { return tx.Exec("CREATE TABLE step_b (id integer primary key)").Error }, func(tx *gorm.DB) error { return tx.Exec("DROP TABLE step_b").Error })
-
-	migrate := NewMigrateCommand(MigrationDependencies{MigrationPaths: func() []string { return []string{dir} }})
-	migrate.openDB = func(string) (dbSession, error) { return dbSession{DB: db}, nil }
-
-	stepCtx := newMigrationCmdContext(t, migrate, fakeInput{bools: map[string]bool{"step": true}}, "migrate")
-	if err := migrate.Handle(stepCtx); err != nil {
-		t.Fatalf("migrate step mode failed: %v", err)
-	}
-
-	store := newMigrationStore(db)
-	applied, err := store.appliedMap()
-	if err != nil {
-		t.Fatalf("applied map failed: %v", err)
-	}
-	if applied[m1].Batch == applied[m2].Batch {
-		t.Fatalf("step mode should assign different batches, got %d and %d", applied[m1].Batch, applied[m2].Batch)
-	}
-
-	noPendingCtx := newMigrationCmdContext(t, migrate, fakeInput{}, "migrate")
-	if err := migrate.Handle(noPendingCtx); err != nil {
-		t.Fatalf("migrate no-pending branch failed: %v", err)
-	}
-}
-
-func TestDropAllViewsAndTypesAlternativeDialectBranches(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite failed: %v", err)
-	}
-
-	mysqlLike := *db
-	mysqlLike.Dialector = renamedDialector{Dialector: db.Dialector, name: "mysql"}
-	if err := dropAllViews(&mysqlLike); err == nil {
-		t.Fatal("expected mysql-like branch query error on sqlite")
-	}
-
-	postgresLike := *db
-	postgresLike.Dialector = renamedDialector{Dialector: db.Dialector, name: "postgres"}
-	if err := dropAllTypes(&postgresLike); err == nil {
-		t.Fatal("expected postgres-like branch query error on sqlite")
 	}
 }
 

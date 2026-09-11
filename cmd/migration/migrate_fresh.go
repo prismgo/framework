@@ -1,12 +1,14 @@
 package migration
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"gorm.io/gorm"
 
 	"github.com/prismgo/framework/console"
+	dbschema "github.com/prismgo/framework/database/schema"
 )
 
 // MigrateFreshCommand 对应 `migrate:fresh` 命令。
@@ -107,70 +109,37 @@ func (c *MigrateFreshCommand) Handle(ctx console.CommandContext) error {
 }
 
 func dropAllTables(db *gorm.DB) error {
-	tables, err := db.Migrator().GetTables()
-	if err != nil {
+	return dbschema.New(db).DropAllTables()
+}
+
+// dropAllViews delegates view discovery and deletion to Schema.
+func dropAllViews(db *gorm.DB) error {
+	err := dbschema.New(db).DropAllViews()
+	if errors.Is(err, dbschema.ErrUnsupportedFeature) {
+		return nil
+	}
+	return err
+}
+
+// dropAllTypes delegates custom type discovery and deletion to Schema.
+func dropAllTypes(db *gorm.DB) error {
+	err := dbschema.New(db).DropAllTypes()
+	if err == nil || !errors.Is(err, dbschema.ErrUnsupportedFeature) {
 		return err
 	}
-	for _, table := range tables {
-		if strings.HasPrefix(strings.ToLower(table), "sqlite_") {
-			continue
-		}
-		if dropErr := db.Migrator().DropTable(table); dropErr != nil {
-			return dropErr
-		}
-	}
-	return nil
-}
-
-// dropAllViews 按当前数据库方言删除视图。
-func dropAllViews(db *gorm.DB) error {
-	dialect := strings.ToLower(strings.TrimSpace(db.Name()))
-	switch dialect {
-	case "sqlite", "sqlite3":
-		type viewRow struct {
-			Name string
-		}
-		var rows []viewRow
-		if err := db.Raw("SELECT name FROM sqlite_master WHERE type='view'").Scan(&rows).Error; err != nil {
-			return err
-		}
-		for _, row := range rows {
-			if err := db.Exec(fmt.Sprintf("DROP VIEW IF EXISTS `%s`", row.Name)).Error; err != nil {
-				return err
-			}
-		}
-	case "mysql":
-		var names []string
-		sql := "SELECT table_name FROM information_schema.views WHERE table_schema = DATABASE()"
-		if err := db.Raw(sql).Scan(&names).Error; err != nil {
-			return err
-		}
-		for _, name := range names {
-			if err := db.Exec(fmt.Sprintf("DROP VIEW IF EXISTS `%s`", name)).Error; err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// dropAllTypes 删除 Postgres enum/type 对象。
-//
-// 说明：仅在 postgres 方言执行，其他方言直接跳过。
-func dropAllTypes(db *gorm.DB) error {
 	if strings.ToLower(strings.TrimSpace(db.Name())) != "postgres" {
 		return nil
 	}
-	type typeRow struct {
-		Name string
+	var rows []struct {
+		Name string `gorm:"column:typname"`
 	}
-	var rows []typeRow
-	sql := "SELECT typname FROM pg_type WHERE typnamespace IN (SELECT oid FROM pg_namespace WHERE nspname = current_schema()) AND typtype = 'e'"
-	if err := db.Raw(sql).Scan(&rows).Error; err != nil {
+	query := "SELECT typname FROM pg_type WHERE typnamespace IN (SELECT oid FROM pg_namespace WHERE nspname = current_schema()) AND typtype = 'e'"
+	if err := db.Raw(query).Scan(&rows).Error; err != nil {
 		return err
 	}
 	for _, row := range rows {
-		if err := db.Exec(fmt.Sprintf("DROP TYPE IF EXISTS \"%s\" CASCADE", row.Name)).Error; err != nil {
+		name := strings.ReplaceAll(row.Name, `"`, `""`)
+		if err := db.Exec(fmt.Sprintf(`DROP TYPE IF EXISTS "%s" CASCADE`, name)).Error; err != nil {
 			return err
 		}
 	}

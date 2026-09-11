@@ -3,7 +3,7 @@
 // 设计目标：
 //  1. 让 Go migration 能使用接近 Laravel Schema / Blueprint 的声明式 API；
 //  2. 统一表结构变更入口，避免业务迁移直接散落 raw SQL 或直接依赖 GORM AutoMigrate；
-//  3. 生产环境优先支持 MySQL，测试环境支持 SQLite，并对不支持的方言显式返回错误。
+//  3. framework 内置 MySQL，并允许其它 Dialector 携带方言能力。
 package schema
 
 import (
@@ -19,9 +19,14 @@ import (
 
 // ErrUnsupportedFeature 表示当前数据库方言无法安全执行请求的 Schema 操作。
 //
-// 例如 SQLite 不支持直接修改列类型，Schema 会返回该错误，而不是隐式重建表导致索引、
-// 外键或约束丢失。
+// 方言无法安全执行操作时应返回该错误，而不是隐式降级并丢失索引、外键或约束。
 var ErrUnsupportedFeature = errors.New("schema: unsupported feature for current dialect")
+
+// ForeignKeyConstraintController toggles foreign key checks for a dialect carried by a GORM Dialector.
+type ForeignKeyConstraintController interface {
+	EnableForeignKeyConstraints(db *gorm.DB) error
+	DisableForeignKeyConstraints(db *gorm.DB) error
+}
 
 // Builder 负责在指定 GORM 连接上执行 Schema 操作。
 //
@@ -195,17 +200,18 @@ func (b *Builder) WhenTableDoesntHaveColumn(table, column string, fn func() erro
 
 // EnableForeignKeyConstraints 启用外键约束检查。
 //
-// MySQL 使用 FOREIGN_KEY_CHECKS，SQLite 使用 PRAGMA foreign_keys。
+// MySQL 使用 FOREIGN_KEY_CHECKS；扩展方言可由 Dialector 携带控制器。
 func (b *Builder) EnableForeignKeyConstraints() error {
 	db, err := b.resolve()
 	if err != nil {
 		return err
 	}
+	if controller, ok := db.Dialector.(ForeignKeyConstraintController); ok {
+		return controller.EnableForeignKeyConstraints(db)
+	}
 	switch dialect(db) {
 	case "mysql":
 		return db.Exec("SET FOREIGN_KEY_CHECKS=1").Error
-	case "sqlite", "sqlite3":
-		return db.Exec("PRAGMA foreign_keys = ON").Error
 	default:
 		return unsupported("enable foreign key constraints", db)
 	}
@@ -219,11 +225,12 @@ func (b *Builder) DisableForeignKeyConstraints() error {
 	if err != nil {
 		return err
 	}
+	if controller, ok := db.Dialector.(ForeignKeyConstraintController); ok {
+		return controller.DisableForeignKeyConstraints(db)
+	}
 	switch dialect(db) {
 	case "mysql":
 		return db.Exec("SET FOREIGN_KEY_CHECKS=0").Error
-	case "sqlite", "sqlite3":
-		return db.Exec("PRAGMA foreign_keys = OFF").Error
 	default:
 		return unsupported("disable foreign key constraints", db)
 	}

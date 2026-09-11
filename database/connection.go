@@ -624,8 +624,6 @@ func buildDSNByDriver(driver string, cfg MySQLConfig) string {
 	switch strings.ToLower(strings.TrimSpace(driver)) {
 	case "mysql", "":
 		return BuildMySQLDSN(cfg)
-	case "sqlite", "sqlite3":
-		return defaultIfBlank(cfg.Connection.DSN, cfg.Connection.Database)
 	default:
 		return defaultIfBlank(cfg.Connection.DSN, cfg.Connection.Database)
 	}

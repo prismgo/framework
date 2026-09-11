@@ -3,8 +3,6 @@ package schema
 import (
 	"strings"
 	"testing"
-
-	"gorm.io/gorm"
 )
 
 func TestDefaultOptionBoundaryBranches(t *testing.T) {
@@ -49,9 +47,7 @@ func TestBlueprintCoversMorphKeyAndColumnIndexBranches(t *testing.T) {
 	oldMorph := defaultMorphKeyType
 	t.Cleanup(func() { defaultMorphKeyType = oldMorph })
 
-	db := openSQLite(t)
-	mysqlDB := db.Session(&gorm.Session{})
-	mysqlDB.Dialector = namedDialector{Dialector: db.Dialector, name: "mysql"}
+	mysqlDB := openSchemaFakeMySQL(t)
 
 	for name, tt := range map[string]struct {
 		setup func()
@@ -78,12 +74,6 @@ func TestBlueprintCoversMorphKeyAndColumnIndexBranches(t *testing.T) {
 	}
 
 	// Passing false to Index removes the default column index during change flows.
-	if err := New(db).Create("schema_index_toggle", func(table *Blueprint) {
-		table.Id()
-		table.String("name").Index()
-	}); err != nil {
-		t.Fatalf("create indexed table: %v", err)
-	}
 	blueprint := NewBlueprint("schema_index_toggle", alterTable)
 	blueprint.String("name").Index(false)
 	sqls, err := blueprint.Compile(mysqlDB)
@@ -96,22 +86,7 @@ func TestBlueprintCoversMorphKeyAndColumnIndexBranches(t *testing.T) {
 }
 
 func TestBlueprintCompilesAdditionalIndexAndForeignBranches(t *testing.T) {
-	db := openSQLite(t)
-	mysqlDB := db.Session(&gorm.Session{})
-	mysqlDB.Dialector = namedDialector{Dialector: db.Dialector, name: "mysql"}
-
-	// Composite primary keys are emitted inline for SQLite create statements.
-	sqliteBlueprint := NewBlueprint("schema_inline_indexes", createTable)
-	sqliteBlueprint.Integer("account_id")
-	sqliteBlueprint.Integer("role_id")
-	sqliteBlueprint.Primary("account_id", "role_id")
-	sqls, err := sqliteBlueprint.Compile(db)
-	if err != nil {
-		t.Fatalf("compile sqlite composite primary key: %v", err)
-	}
-	if joined := strings.Join(sqls, "\n"); !strings.Contains(joined, "PRIMARY KEY (`account_id`, `role_id`)") {
-		t.Fatalf("expected sqlite inline primary key, got %s", joined)
-	}
+	mysqlDB := openSchemaFakeMySQL(t)
 
 	// Named foreign keys with explicit actions cover optional SQL branches used by migrations.
 	mysqlBlueprint := NewBlueprint("schema_foreign_branches", alterTable)
@@ -122,7 +97,7 @@ func TestBlueprintCompilesAdditionalIndexAndForeignBranches(t *testing.T) {
 		NoActionOnDelete().
 		NullOnUpdate()
 	mysqlBlueprint.DropForeign("fk_schema_foreign_old")
-	sqls, err = mysqlBlueprint.Compile(mysqlDB)
+	sqls, err := mysqlBlueprint.Compile(mysqlDB)
 	if err != nil {
 		t.Fatalf("compile mysql foreign branches: %v", err)
 	}
