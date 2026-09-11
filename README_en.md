@@ -95,7 +95,7 @@ Open `http://localhost:8080/api` in your browser.
 | `exception` | Unified exception handler: Report + Render + log level mapping | `exception.Report(ctx, err, fields)` |
 | `filesystem` | Filesystem abstraction: local/public/OSS | `filesystem.Disk("public").Put(...)` |
 | `foundation` | Application startup, Provider registration, lifecycle, resource closing | `foundation.NewApplication()` |
-| `horizon` | Queue monitoring panel, worker management, job metrics, Dashboard | `go run . horizon` |
+| [`github.com/prismgo/horizon`](https://github.com/prismgo/horizon) | Optional Horizon extension: queue monitoring, worker management, job metrics, and Dashboard | Register `horizon.ServiceProvider{}` |
 | `kernel` | CLI Kernel, command registration, scheduling, command-to-command calls | `kernel.RegisterLazy("xxx", factory)` |
 | `logger` | Multi-channel logging: stack/single/daily/stderr/null | `logger.Channel("daily").Info("msg")` |
 | `queue` | Job queue: Redis/RabbitMQ/Sync | `queue.Dispatch(ctx, job)` |

@@ -530,17 +530,6 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 
 ---
 
-## horizon — Queue Dashboard
-
-**Path:** `horizon/`
-
-| File | Key Symbols | Description |
-|---|---|---|
-| `horizon.go` | `Horizon` (struct) | Queue monitoring dashboard |
-| `service_provider.go` | `ServiceProvider` | Register `horizon.dashboard` lazy singleton |
-
----
-
 ## support — Helpers & Utilities
 
 **Path:** `support/`
@@ -673,8 +662,6 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 | `database.manager` | database | `database.ServiceProvider` |
 | `translation.translator` | translation | `translation.ServiceProvider` |
 | `console.command` | console | `console.ServiceProvider` |
-| `horizon.dashboard` | horizon | `horizon.ServiceProvider` |
-
 ---
 
 ## Key Invocation Flows
