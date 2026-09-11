@@ -30,7 +30,7 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 | **Dispatch queue jobs** | `queue/dispatcher.go` → `queue/facade.go` | `Dispatcher`, `queue.Dispatch/Bulk` |
 | **Handle events** | `event/dispatcher.go` → `event/event.go` | `Dispatcher`, `Event`, `Listener` |
 | **Manage sessions** | `session/store.go` → `session/manager.go` | `Store`, `Manager`, `session.Get/Put` |
-| **File storage operations** | `filesystem/repository.go` → `filesystem/facade.go` | `Repository`, `filesystem.Put/Get/URL` |
+| **File storage operations** | `filesystem/repository.go` → `filesystem/facade.go` | `Repository`, `filesystem.Put/Get/URL`, `filesystem.ManagerFrom/Extend` |
 | **Database ORM / migrations** | `database/` → `database/schema/` | `gorm.DB`, `Schema`, `Blueprint` |
 | **Encryption / encoding** | `encryption/encrypter.go` → `encoding/encoding.go` | `Encrypter`, `Codec`, `JSON()/Msgpack()` |
 | **Read configuration** | `config/config.go` → `config/facade.go` | `Config`, `config.Get/GetString` |
@@ -409,12 +409,11 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 | `repository.go` | `Repository` (struct) | Core filesystem operations |
 | | `(*Repository) Put`, `Get`, `Delete`, `Exists`, `Copy`, `Move`, `URL`, `TemporaryURL`, `Size`, `LastModified`, `Files`, `Directories` | Filesystem operations |
 | `local.go` | `localDriver` | Local filesystem driver |
-| `oss.go` | `ossDriver` | Alibaba Cloud OSS driver |
 | `driver.go` | `Driver`, `DriverFactory` | Driver contracts |
 | `facade.go` | `Resolve() *Manager`, `ManagerFrom`, `Extend` | Current-application facade and explicit application-local manager access |
 | | `Default`, `Disk`, `Put`, `Get`, `Exists`, `Delete`, `Copy`, `Move`, `URL`, `TemporaryURL`, `Size`, `LastModified`, `Files`, `Directories`, `PutFile`, `OpenStream`, `Download`, `MakeDirectory`, `DeleteDirectory` | Full filesystem facade API |
 | `service_provider.go` | `ServiceProvider` | Register `filesystem.manager` lazy singleton |
-| `config.go` | `Config`, `LocalConfig`, `OSSConfig`, `S3Config` | Filesystem configuration types |
+| `config.go` | `Config`, `DiskConfig`, `OSSConfig` | Filesystem configuration types |
 
 ---
 

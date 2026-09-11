@@ -72,9 +72,6 @@ func NewManager(cfg Config) (*Manager, error) {
 	}
 	manager.Extend("local", localFactory)
 	manager.Extend("public", localFactory)
-	manager.Extend("oss", func(ctx DriverFactoryContext) (Driver, error) {
-		return newOSSDriver(ctx.Config.OSS)
-	})
 	return manager, nil
 }
 

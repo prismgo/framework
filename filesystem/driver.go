@@ -12,7 +12,7 @@ import (
 //
 // 约束：
 // 1. Repository 只依赖这一层，不感知具体 SDK；
-// 2. local 与 oss 都需要把自身行为适配到统一语义；
+// 2. local 与扩展 driver 都需要把自身行为适配到统一语义；
 // 3. 用户自定义 driver 也必须实现完整接口，才能复用统一 Repository 能力；
 // 4. URL 与 TemporaryURL 由驱动自己决定是否支持。
 type Driver interface {
