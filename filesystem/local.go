@@ -168,6 +168,33 @@ func (d *localDriver) List(ctx context.Context, prefix string, recursive bool) (
 			IsDir:        item.IsDir,
 		})
 	}
+	if recursive {
+		// fileblob returns files for recursive walks but omits directory entries,
+		// including empty directories. Add them from the local tree.
+		walkErr := filepath.WalkDir(d.absolutePath(prefix), func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				if os.IsNotExist(err) && path == d.absolutePath(prefix) {
+					return nil
+				}
+				return err
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !entry.IsDir() || path == d.absolutePath(prefix) {
+				return nil
+			}
+			relative, err := filepath.Rel(d.root, path)
+			if err != nil {
+				return fmt.Errorf("filesystem: relative directory path %q: %w", path, err)
+			}
+			items = append(items, FileInfo{Path: filepath.ToSlash(relative), IsDir: true})
+			return nil
+		})
+		if walkErr != nil {
+			return nil, fmt.Errorf("filesystem: list local directories %q: %w", prefix, walkErr)
+		}
+	}
 	return items, nil
 }
 

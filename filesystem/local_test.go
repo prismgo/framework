@@ -2,10 +2,40 @@ package filesystem
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+// TestLocalDriverRecursiveDirectoryListing checks empty children and absent roots.
+func TestLocalDriverRecursiveDirectoryListing(t *testing.T) {
+	driver, err := newLocalDriver(DiskConfig{Root: t.TempDir(), Visibility: VisibilityPrivate})
+	if err != nil {
+		t.Fatalf("newLocalDriver error = %v, want nil", err)
+	}
+	t.Cleanup(func() {
+		if err := driver.Close(); err != nil {
+			t.Errorf("close local driver error = %v, want nil", err)
+		}
+	})
+	if err := driver.MakeDirectory(t.Context(), "nested/empty"); err != nil {
+		t.Fatalf("MakeDirectory(nested/empty) error = %v, want nil", err)
+	}
+	items, err := driver.List(t.Context(), "nested", true)
+	if err != nil || len(items) != 1 || items[0].Path != "nested/empty" || !items[0].IsDir {
+		t.Fatalf("List(nested, recursive) = %v, error = %v; want one empty directory", items, err)
+	}
+	items, err = driver.List(t.Context(), "missing", true)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("List(missing, recursive) = %v, error = %v; want empty result", items, err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := driver.List(ctx, "nested", true); !errors.Is(err, context.Canceled) {
+		t.Fatalf("List(nested, canceled context) error = %v, want context.Canceled", err)
+	}
+}
 
 // TestLocalDriverMoveIsAtomic verifies that Move uses atomic os.Rename.
 func TestLocalDriverMoveIsAtomic(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -1105,8 +1106,19 @@ func TestLocalDriverIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AllDirectories failed: %v", err)
 	}
-	// fileblob 递归列举时不会像对象存储那样返回目录占位项，这里只验证调用成功。
-	_ = allDirs
+	if got, want := sorted(allDirs), []string{"uploads/images"}; !slices.Equal(got, want) {
+		t.Fatalf("AllDirectories(uploads) = %v, want %v", got, want)
+	}
+	if err := privateDisk.MakeDirectory(context.Background(), "uploads/images/empty"); err != nil {
+		t.Fatalf("MakeDirectory(uploads/images/empty) error = %v, want nil", err)
+	}
+	allDirs, err = privateDisk.AllDirectories(context.Background(), "uploads")
+	if err != nil {
+		t.Fatalf("AllDirectories(uploads) with empty child error = %v, want nil", err)
+	}
+	if got, want := sorted(allDirs), []string{"uploads/images", "uploads/images/empty"}; !slices.Equal(got, want) {
+		t.Fatalf("AllDirectories(uploads) with empty child = %v, want %v", got, want)
+	}
 	if err := privateDisk.DeleteDirectory(context.Background(), "uploads/images"); err != nil {
 		t.Fatalf("DeleteDirectory failed: %v", err)
 	}
