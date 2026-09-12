@@ -3,6 +3,7 @@ package http
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -26,6 +27,24 @@ func TestProcessManagerPIDFileLifecycle(t *testing.T) {
 	}
 	if _, err := os.Stat(pidFile); !os.IsNotExist(err) {
 		t.Fatalf("pid file still exists or stat failed unexpectedly: %v", err)
+	}
+}
+
+func TestProcessManagerRemovePIDPreservesSuccessor(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "server.pid")
+	manager := NewProcessManager(pidFile)
+	if err := manager.SavePID(); err != nil {
+		t.Fatalf("SavePID error = %v, want nil", err)
+	}
+	want := os.Getpid() + 1
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(want)), 0o644); err != nil {
+		t.Fatalf("write successor PID error = %v, want nil", err)
+	}
+	if err := manager.RemovePID(); err != nil {
+		t.Fatalf("RemovePID error = %v, want nil", err)
+	}
+	if got, err := manager.ReadPID(); err != nil || got != want {
+		t.Fatalf("successor PID = %d, error = %v; want %d, nil", got, err, want)
 	}
 }
 

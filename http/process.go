@@ -40,6 +40,14 @@ func (pm *ProcessManager) SavePID() error {
 
 // RemovePID 删除 PID 文件。
 func (pm *ProcessManager) RemovePID() error {
+	pid, err := pm.ReadPID()
+	if err != nil {
+		return err
+	}
+	// Reload/restart may already have replaced the PID file with the successor's PID.
+	if pid != os.Getpid() {
+		return nil
+	}
 	return os.Remove(pm.pidFile)
 }
 

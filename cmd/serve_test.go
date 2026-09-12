@@ -95,6 +95,36 @@ func TestServeCommandStartServerStopsWhenContextCanceled(t *testing.T) {
 	}
 }
 
+func TestServeCommandStartServerListensAndStops(t *testing.T) {
+	setupCommandConfigContainer(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := NewServeCommand(func(context.Context, string) (*http.Server, error) {
+		return &http.Server{Addr: "127.0.0.1:0", Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})}, nil
+	})
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.startServer(ctx, "0", console.NewIO(strings.NewReader(""), io.Discard, io.Discard))
+	}()
+
+	select {
+	case err := <-done:
+		t.Fatalf("startServer returned before cancellation with error = %v, want listening server", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("startServer after cancellation error = %v, want nil", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("startServer did not stop after cancellation; want graceful shutdown")
+	}
+}
+
 func TestServeCommandStartServerPropagatesRouteErrors(t *testing.T) {
 	setupCommandConfigContainer(t)
 

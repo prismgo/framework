@@ -133,6 +133,9 @@ func TestServeCommandProcessControlMethods(t *testing.T) {
 	if !manager.restarted {
 		t.Fatal("expected restart branch to call Restart")
 	}
+	if got := strings.Join(manager.restartArgs, " "); got != "serve --port=8051" {
+		t.Fatalf("restart args = %q, want %q", got, "serve --port=8051")
+	}
 }
 
 func TestRouteListCommandShowsAndFiltersRegisteredRoutes(t *testing.T) {
@@ -421,6 +424,7 @@ type fakeProcessManager struct {
 	stopped      bool
 	reloaded     bool
 	restarted    bool
+	restartArgs  []string
 }
 
 type fakeCronKernel struct {
@@ -444,8 +448,9 @@ func (pm *fakeProcessManager) Reload(pid int) (int, error) {
 	pm.reloaded = pid == pm.pid
 	return pm.reloadedPID, nil
 }
-func (pm *fakeProcessManager) Restart(pid int, _ string, _ []string) (int, error) {
+func (pm *fakeProcessManager) Restart(pid int, _ string, args []string) (int, error) {
 	pm.restarted = pid == pm.pid
+	pm.restartArgs = append([]string(nil), args...)
 	return pm.restartedPID, nil
 }
 

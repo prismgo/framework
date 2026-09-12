@@ -112,18 +112,28 @@ func (c *ServeCommand) startServer(ctx context.Context, port string, io console.
 	}()
 
 	listenOptions := make([]prismhttp.ServeOption, 0, 2)
+	var listener net.Listener
 	if c.inheritedListener != nil {
-		listener, err := c.inheritedListener()
+		listener, err = c.inheritedListener()
 		if err != nil {
 			return fmt.Errorf("resolve inherited listener failed: %w", err)
 		}
 		if listener != nil {
-			listenOptions = append(listenOptions, prismhttp.WithListener(listener))
 			listenOptions = append(listenOptions, prismhttp.WithStartedHook(func() {
 				_ = prismhttp.NotifyReloadParent()
 			}))
 		}
 	}
+	if listener == nil {
+		listener, err = net.Listen("tcp", server.Addr)
+		if err != nil {
+			return fmt.Errorf("listen on %s: %w", server.Addr, err)
+		}
+	}
+	listenOptions = append(listenOptions, prismhttp.WithListener(listener))
+	// A non-nil ready callback makes the replacement notify this process only after it starts serving.
+	stopReloadWatch := prismhttp.WatchReloadSignal(ctx, listener, os.Args[0], os.Args[1:], func() {})
+	defer stopReloadWatch()
 
 	io.Success("api server listen on " + server.Addr)
 	if err := prismhttp.ListenAndServeGracefulContext(ctx, server, serverConfig.ShutdownTimeout, listenOptions...); err != nil && err != http.ErrServerClosed {
@@ -189,7 +199,7 @@ func (c *ServeCommand) reloadServer(pm processManager, port string, pid int, tim
 
 // restartServer kills the old server before starting a new one.
 func (c *ServeCommand) restartServer(pm processManager, port string, pid int, io console.IO) error {
-	args := []string{"serve", "--port", port}
+	args := []string{"serve", "--port=" + port}
 	newPID, err := pm.Restart(pid, os.Args[0], args)
 	if err != nil {
 		return fmt.Errorf("restart failed: %w", err)
