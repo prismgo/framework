@@ -1,11 +1,53 @@
 package logger
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/prismgo/framework/container"
 	containercontract "github.com/prismgo/framework/contracts/container"
+	"github.com/sirupsen/logrus"
 )
+
+func TestServiceProviderBridgesGlobalLogrusAfterResolve(t *testing.T) {
+	registry := container.NewContainer()
+	container.SetProvider(func() *container.Container { return registry })
+	t.Cleanup(func() { container.SetProvider(nil) })
+	path := filepath.Join(t.TempDir(), "global.log")
+	if err := registry.Instance("config.default", loggerTestConfig{store: map[string]any{
+		"logging.default": "demo",
+		"logging.channels": map[string]any{"demo": map[string]any{
+			"driver": "single", "level": "info", "path": path,
+		}},
+	}}); err != nil {
+		t.Fatalf("bind logger configuration: %v", err)
+	}
+	if err := (ServiceProvider{}).Register(providerTestApp{registry: registry}); err != nil {
+		t.Fatalf("register logger provider: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := registry.Close(context.Background()); err != nil {
+			t.Errorf("close provider registry during cleanup: %v", err)
+		}
+	})
+	if got := Resolve(); got == nil {
+		t.Fatal("resolved manager = nil, want non-nil")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("log file before first write: stat error = %v, want not exist", err)
+	}
+	logrus.Info("provider bridge marker")
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), "provider bridge marker") {
+		t.Fatalf("global log output = %q, read error = %v; want provider bridge marker", data, err)
+	}
+	if err := registry.Close(context.Background()); err != nil {
+		t.Fatalf("close provider registry: %v", err)
+	}
+}
 
 func TestServiceProviderRegistersLazyLoggerFactory(t *testing.T) {
 	registry := container.NewContainer()

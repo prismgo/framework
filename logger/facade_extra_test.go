@@ -458,10 +458,6 @@ func TestStandardHookHelperBranches(t *testing.T) {
 		t.Fatalf("entry fields were not forwarded: %#v", target.fields)
 	}
 
-	// Unknown Logger implementations use info as the broadest safe standard-logrus level.
-	if got := maxLoggerLevel(target); got != logrus.InfoLevel {
-		t.Fatalf("max level for custom logger = %s, want info", got)
-	}
 }
 
 type closeErrorDriver struct{}

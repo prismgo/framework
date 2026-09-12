@@ -30,9 +30,16 @@ func (ServiceProvider) Register(app providerApplication) error {
 		if err != nil {
 			return nil, err
 		}
-		return NewManager(cfg)
+		m, err := NewManager(cfg)
+		if err != nil {
+			return nil, err
+		}
+		syncLogrusStandard(m)
+		return m, nil
 	}, container.WithCloser(func(m *Manager) error {
-		return m.Close()
+		err := m.Close()
+		releaseLogrusStandard(m)
+		return err
 	}), container.WithCloseGroup(container.CloseGroupReporting))
 }
 

@@ -20,6 +20,7 @@ var (
 	fallbackLg          Logger = newFallbackLogger()
 	standardHook               = &standardLogrusHook{}
 	standardHookInstall sync.Once
+	standardBridgeMu    sync.Mutex
 )
 
 const serviceKey = "logger.manager"
@@ -129,22 +130,41 @@ func managerCloseOption() containercontract.BindingOption {
 	})
 }
 
-// syncLogrusStandard 把默认通道的配置写回全局 logrus。
+// syncLogrusStandard 把全局 logrus 接到 Manager，保持通道惰性构造。
 // 迁移期确保 logrus.Info 等旧调用与 logger.Info 行为一致。
 func syncLogrusStandard(m *Manager) {
+	standardBridgeMu.Lock()
+	defer standardBridgeMu.Unlock()
 	if m == nil {
 		setStandardLogrusTarget(nil, logrus.InfoLevel)
 		return
 	}
-	lg := m.Default()
-	setStandardLogrusTarget(lg, maxLoggerLevel(lg))
+	standardHookInstall.Do(func() {
+		logrus.StandardLogger().AddHook(standardHook)
+	})
+	standardHook.setManager(m)
+	logrus.SetOutput(io.Discard)
+	// Each child channel applies its own threshold after the hook dispatches.
+	logrus.SetLevel(logrus.TraceLevel)
+	logrus.SetFormatter(defaultFormatter())
+	logrus.SetReportCaller(true)
+}
+
+// releaseLogrusStandard leaves a newer application's bridge untouched.
+func releaseLogrusStandard(m *Manager) {
+	standardBridgeMu.Lock()
+	defer standardBridgeMu.Unlock()
+	if standardHook.clearManager(m) {
+		setStandardLogrusTarget(nil, logrus.InfoLevel)
+	}
 }
 
 // standardLogrusHook 把全局 logrus entry 分发回当前默认 Logger。
 // 需求背景：stack 默认通道必须保留子通道自己的 level/formatter/driver 逻辑，不能把底层 writer 拼成 MultiWriter。
 type standardLogrusHook struct {
-	mu     sync.RWMutex
-	target Logger
+	mu      sync.RWMutex
+	target  Logger
+	manager *Manager
 }
 
 func (h *standardLogrusHook) Levels() []logrus.Level {
@@ -154,7 +174,11 @@ func (h *standardLogrusHook) Levels() []logrus.Level {
 func (h *standardLogrusHook) Fire(entry *logrus.Entry) error {
 	h.mu.RLock()
 	target := h.target
+	manager := h.manager
 	h.mu.RUnlock()
+	if manager != nil {
+		target = manager.Default()
+	}
 	if target == nil {
 		return nil
 	}
@@ -165,6 +189,26 @@ func (h *standardLogrusHook) setTarget(target Logger) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.target = target
+	h.manager = nil
+}
+
+// setManager keeps channel construction lazy until the first global log entry.
+func (h *standardLogrusHook) setManager(manager *Manager) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.target = nil
+	h.manager = manager
+}
+
+// clearManager detaches only the application manager being closed.
+func (h *standardLogrusHook) clearManager(manager *Manager) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.manager == manager {
+		h.manager = nil
+		return true
+	}
+	return false
 }
 
 // setStandardLogrusTarget 安装包内 hook，并配置全局 logrus 的输出策略。
@@ -205,24 +249,6 @@ func writeLogrusEntry(target Logger, entry *logrus.Entry) error {
 		panic(entry.Message)
 	}
 	return nil
-}
-
-// maxLoggerLevel 返回默认 Logger 树中最宽松的级别，确保全局 logrus entry 能先进入 hook。
-func maxLoggerLevel(lg Logger) logrus.Level {
-	switch v := lg.(type) {
-	case *channel:
-		return v.logger.Level
-	case *stackLogger:
-		level := logrus.PanicLevel
-		for _, child := range v.children {
-			if childLevel := maxLoggerLevel(child); childLevel > level {
-				level = childLevel
-			}
-		}
-		return level
-	default:
-		return logrus.InfoLevel
-	}
 }
 
 func errWriter() io.Writer { return os.Stderr }
