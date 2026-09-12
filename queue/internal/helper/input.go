@@ -1,9 +1,32 @@
 package helper
 
 import (
+	"context"
+	"time"
+
 	queuecontract "github.com/prismgo/framework/contracts/queue"
 	queuedriver "github.com/prismgo/framework/queue/driver"
 )
+
+type retryAfterContextKey struct{}
+
+// WithRetryAfter carries one worker's Redis visibility timeout to its Pop calls.
+func WithRetryAfter(ctx context.Context, duration time.Duration) context.Context {
+	if duration <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, retryAfterContextKey{}, duration)
+}
+
+// RetryAfter returns the worker override or the connection's configured timeout.
+func RetryAfter(ctx context.Context, configured time.Duration) time.Duration {
+	if ctx != nil {
+		if duration, ok := ctx.Value(retryAfterContextKey{}).(time.Duration); ok && duration > 0 {
+			return duration
+		}
+	}
+	return configured
+}
 
 // NormalizeQueues 统一清理 worker 和 driver 的队列输入。
 //

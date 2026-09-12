@@ -274,6 +274,7 @@ Foundation + Container → Kernel + Config → Component layer → Facade layer 
 | | `(*Dispatcher) Later(seconds, job, options...)` | Delayed dispatch |
 | | `(*Dispatcher) Batch(jobs...) *BatchBuilder` | Batch dispatch |
 | `worker.go` | `Worker` (struct) | Queue worker |
+| `internal/helper/input.go` | `WithRetryAfter`, `RetryAfter` | Pass a worker-local Redis visibility timeout to Pop without changing the shared connection |
 | `registry.go` | `Registry` (struct) | Job type registry |
 | | `Register/RegisterJob/job` | Job registration |
 | `config.go` | `Config`, `ConnectionConfig` | Queue configuration types |

@@ -157,7 +157,7 @@ func (c *RedisQueue) pushBody(ctx context.Context, queue string, body queuecontr
 
 func (c *RedisQueue) Pop(ctx context.Context, queues []string, wait ...queuecontract.PopWaitMode) (queuecontract.ReservedJob, error) {
 	queueNames := normalizePopQueues(queues)
-	reserveFor := retryAfter(0, c.retryAfter)
+	reserveFor := helper.RetryAfter(ctx, c.retryAfter)
 	if err := c.migrateDue(ctx, queueNames); err != nil {
 		return nil, err
 	}

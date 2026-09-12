@@ -220,6 +220,7 @@ func (w *Worker) WorkQueue(ctx context.Context, queueConn queuecontract.Queue, o
 	}
 	options = w.normalizeOptions(options)
 	ctx = contextWithEventObserver(ctx, options.EventObserver)
+	ctx = helper.WithRetryAfter(ctx, options.RetryAfter)
 	start := time.Now()
 	processed := 0
 	for {

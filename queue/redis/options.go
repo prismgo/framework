@@ -61,13 +61,6 @@ func defaultDuration(value time.Duration, fallback time.Duration) time.Duration 
 	return fallback
 }
 
-func retryAfter(value time.Duration, fallback time.Duration) time.Duration {
-	if value > 0 {
-		return value
-	}
-	return fallback
-}
-
 func redisConnectionName(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {

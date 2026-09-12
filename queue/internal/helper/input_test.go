@@ -1,11 +1,27 @@
 package helper
 
 import (
+	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	queuecontract "github.com/prismgo/framework/contracts/queue"
 )
+
+func TestRetryAfterUsesWorkerOverride(t *testing.T) {
+	configured := 90 * time.Second
+	ctx := WithRetryAfter(context.Background(), 2*time.Second)
+	if got := RetryAfter(ctx, configured); got != 2*time.Second {
+		t.Fatalf("RetryAfter(worker override) = %s, want 2s", got)
+	}
+	if got := RetryAfter(WithRetryAfter(ctx, 0), configured); got != 2*time.Second {
+		t.Fatalf("RetryAfter(zero override) = %s, want inherited 2s", got)
+	}
+	if got := RetryAfter(context.Background(), configured); got != configured {
+		t.Fatalf("RetryAfter(no override) = %s, want configured %s", got, configured)
+	}
+}
 
 func TestNormalizeQueues(t *testing.T) {
 	tests := []struct {
