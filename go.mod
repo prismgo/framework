@@ -5,8 +5,8 @@ go 1.26.0
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/alicebob/miniredis/v2 v2.39.0
-	github.com/eko/gocache/lib/v4 v4.2.4
-	github.com/eko/gocache/store/redis/v4 v4.2.9
+	github.com/eko/gocache/lib/v4 v4.4.0
+	github.com/eko/gocache/store/redis/v4 v4.2.12
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/google/uuid v1.6.0
