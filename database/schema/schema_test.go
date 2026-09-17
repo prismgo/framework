@@ -390,6 +390,58 @@ func TestCompileAlterMySQLIndexAndForeignBranches(t *testing.T) {
 	}
 }
 
+func TestCompileCreateMySQLFollowUpIndexes(t *testing.T) {
+	db := openSchemaFakeMySQL(t)
+	blueprint := NewBlueprint("schema_create_indexes", createTable)
+	blueprint.Id()
+	blueprint.String("email", 64)
+	blueprint.String("shape", 32)
+	blueprint.Unique("email")
+	blueprint.Morphs("taggable")
+	blueprint.SoftDeletes()
+	blueprint.FullText("email").Name("ft_schema_create_indexes_email")
+	blueprint.SpatialIndex("shape").Name("sp_schema_create_indexes_shape")
+	blueprint.DropIndex("idx_schema_create_indexes_never")
+	blueprint.RenameIndex("idx_schema_create_indexes_from", "idx_schema_create_indexes_to")
+
+	sqls, err := blueprint.Compile(db)
+	if err != nil {
+		t.Fatalf("compile mysql create: %v", err)
+	}
+	if len(sqls) == 0 {
+		t.Fatal("compile mysql create returned no SQL")
+	}
+	create := sqls[0]
+	for _, want := range []string{
+		"CREATE TABLE `schema_create_indexes`",
+		"UNIQUE KEY `schema_create_indexes_email_unique` (`email`)",
+	} {
+		if !strings.Contains(create, want) {
+			t.Fatalf("create SQL missing %q in %s", want, create)
+		}
+	}
+	if strings.Contains(create, "schema_create_indexes_deleted_at_index") {
+		t.Fatalf("plain index should not be inlined in create SQL %s", create)
+	}
+
+	joined := strings.Join(sqls[1:], "\n")
+	for _, want := range []string{
+		"ALTER TABLE `schema_create_indexes` ADD INDEX `schema_create_indexes_taggable_id_taggable_type_index` (`taggable_id`, `taggable_type`)",
+		"ALTER TABLE `schema_create_indexes` ADD INDEX `schema_create_indexes_deleted_at_index` (`deleted_at`)",
+		"ALTER TABLE `schema_create_indexes` ADD FULLTEXT INDEX `ft_schema_create_indexes_email` (`email`)",
+		"ALTER TABLE `schema_create_indexes` ADD SPATIAL INDEX `sp_schema_create_indexes_shape` (`shape`)",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("follow-up index SQL missing %q in %s", want, joined)
+		}
+	}
+	for _, unwanted := range []string{"idx_schema_create_indexes_never", "idx_schema_create_indexes_to"} {
+		if strings.Contains(joined, unwanted) {
+			t.Fatalf("dropped or renamed index %q should not be created in %s", unwanted, joined)
+		}
+	}
+}
+
 func TestConnectionAndUnsupportedResolveBranches(t *testing.T) {
 	registry := container.NewContainer()
 	container.SetProvider(func() *container.Container { return registry })

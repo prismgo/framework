@@ -322,6 +322,7 @@ func (b *Blueprint) compileMySQL(db *gorm.DB) ([]string, error) {
 			query += " " + opts
 		}
 		sqls = append(sqls, query)
+		sqls = append(sqls, b.createIndexSQL()...)
 	case alterTable:
 		for _, col := range b.columns {
 			if col.change {
@@ -1072,6 +1073,25 @@ func (b *Blueprint) inlineIndexSQL() []string {
 			continue
 		}
 		sqls = append(sqls, idx.inlineSQL())
+	}
+	return sqls
+}
+
+// createIndexSQL 返回建表后需要单独执行的索引语句。
+//
+// 普通索引、全文索引和空间索引无法用 MySQL 内联 KEY 子句表达，必须紧跟
+// CREATE TABLE 以 ALTER TABLE ... ADD ... INDEX 补齐；唯一索引和主键仍由
+// inlineIndexSQL 内联，保持与 Laravel 一致。
+func (b *Blueprint) createIndexSQL() []string {
+	var sqls []string
+	for _, idx := range b.indexes {
+		if idx.drop || idx.rename != "" {
+			continue
+		}
+		switch idx.kind {
+		case "index", "fulltext", "spatial":
+			sqls = append(sqls, idx.alterMySQL(b.table))
+		}
 	}
 	return sqls
 }
