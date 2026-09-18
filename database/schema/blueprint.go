@@ -732,12 +732,15 @@ func (c *ColumnDefinition) Primary() *ColumnDefinition { c.primary = true; retur
 
 // Unique 为字段添加唯一约束。
 //
-// 传入 false 时会按默认命名规则删除字段唯一索引，便于 change() 场景移除唯一约束。
+// 唯一索引按 Laravel 默认命名规则生成，因此可以按名称删除；传入 false 时会
+// 删除字段唯一索引，便于 change() 场景移除唯一约束。
 func (c *ColumnDefinition) Unique(enabled ...bool) *ColumnDefinition {
-	c.unique = optionalBool(true, enabled...)
-	if !c.unique {
+	if !optionalBool(true, enabled...) {
 		c.blueprint.DropIndex(defaultIndexName(c.blueprint.table, "unique", []string{c.name}))
+		return c
 	}
+	c.unique = true
+	c.blueprint.Unique(c.name)
 	return c
 }
 
@@ -858,6 +861,12 @@ func (c *ColumnDefinition) Constrained(tableAndColumn ...string) *ForeignKeyDefi
 
 func (c *ColumnDefinition) compileMySQL() string {
 	parts := []string{quote(c.name), c.mysqlType()}
+	if c.charset != "" {
+		parts = append(parts, "CHARACTER SET "+c.charset)
+	}
+	if c.collation != "" {
+		parts = append(parts, "COLLATE "+c.collation)
+	}
 	if !c.nullable && !c.primary {
 		parts = append(parts, "NOT NULL")
 	}
@@ -879,20 +888,11 @@ func (c *ColumnDefinition) compileMySQL() string {
 	if c.comment != "" {
 		parts = append(parts, "COMMENT "+sqlLiteral(c.comment))
 	}
-	if c.charset != "" {
-		parts = append(parts, "CHARACTER SET "+c.charset)
-	}
-	if c.collation != "" {
-		parts = append(parts, "COLLATE "+c.collation)
-	}
 	if c.invisible {
 		parts = append(parts, "INVISIBLE")
 	}
 	if c.primary {
 		parts = append(parts, "PRIMARY KEY")
-	}
-	if c.unique {
-		parts = append(parts, "UNIQUE")
 	}
 	if c.first {
 		parts = append(parts, "FIRST")

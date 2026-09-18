@@ -167,6 +167,7 @@ func TestBlueprintCompilesLaravelColumnSurfaceForMySQL(t *testing.T) {
 	blueprint.BigIncrements("big_id")
 	blueprint.Char("code", 16).Charset("utf8mb4").Collation("utf8mb4_unicode_ci")
 	blueprint.String("name")
+	blueprint.String("slug", 64).Unique()
 	blueprint.Text("description")
 	blueprint.TinyText("tiny_note")
 	blueprint.MediumText("medium_note")
@@ -221,6 +222,8 @@ func TestBlueprintCompilesLaravelColumnSurfaceForMySQL(t *testing.T) {
 	for _, want := range []string{
 		"CREATE TABLE `schema_all_columns`",
 		"`name` varchar(255)",
+		"`code` char(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
+		"UNIQUE KEY `schema_all_columns_slug_unique` (`slug`)",
 		"`price` decimal(10,2) unsigned",
 		"DEFAULT CURRENT_TIMESTAMP",
 		"enum('draft','published')",
