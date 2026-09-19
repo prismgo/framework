@@ -1,6 +1,6 @@
 # PrismGo Framework
 
-`github.com/prismgo/framework` 是 Go 1.25+ 的 Laravel 风格 Web 框架；本仓库包含框架实现、公共契约、测试与发布前验证。
+`github.com/prismgo/framework` 是 Go 1.26+ 的 Laravel 风格 Web 框架；本仓库包含框架实现、公共契约、测试与发布前验证。
 
 ## 铁律
 
